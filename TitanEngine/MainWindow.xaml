@@ -4,26 +4,22 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="TITAN ENGINE V94" Height="900" Width="1200"
+        Title="TITAN ENGINE V192" Height="900" Width="1200"
         Foreground="White"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResizeWithGrip">
 
     <Window.Background>
-        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#0D0D10" Offset="0.0"/>
-            <GradientStop Color="#16161D" Offset="0.5"/>
-            <GradientStop Color="#0A0A0C" Offset="1.0"/>
-        </LinearGradientBrush>
+        <SolidColorBrush Color="#0F1115"/>
     </Window.Background>
 
     <Window.Resources>
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#2D2D35"/>
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Background" Value="#1B1F26"/>
+            <Setter Property="Foreground" Value="#E6E9EF"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Padding" Value="14,9"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#3E3E45"/>
+            <Setter Property="BorderBrush" Value="#2A3038"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -46,15 +42,15 @@
             </Setter>
         </Style>
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#121215"/>
-            <Setter Property="Foreground" Value="#00FFCC"/>
-            <Setter Property="BorderBrush" Value="#333"/>
-            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Background" Value="#161A20"/>
+            <Setter Property="Foreground" Value="#5CE1E6"/>
+            <Setter Property="BorderBrush" Value="#2A3038"/>
+            <Setter Property="Padding" Value="10"/>
         </Style>
         <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#121215"/>
+            <Setter Property="Background" Value="#161A20"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Padding" Value="10,5"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -86,19 +82,19 @@
             </Setter>
         </Style>
         <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="8"/>
-            <Setter Property="Background" Value="#121215"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Background" Value="#161A20"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderBrush" Value="#2A3038"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItemStyle}"/>
         </Style>
         <Style TargetType="GroupBox">
-            <Setter Property="Margin" Value="0,0,0,20"/>
-            <Setter Property="Padding" Value="15"/>
-            <Setter Property="BorderBrush" Value="#333"/>
-            <Setter Property="Background" Value="#1A1A1E"/>
+            <Setter Property="Margin" Value="0,0,0,18"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="BorderBrush" Value="#262C34"/>
+            <Setter Property="Background" Value="#15181D"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="GroupBox">
@@ -107,8 +103,8 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <Border Grid.Row="0" Grid.RowSpan="2" Background="#05FFFFFF" CornerRadius="6" BorderBrush="#333" BorderThickness="1"/>
-                            <Border Grid.Row="0" Background="Transparent" Padding="15,10,0,5">
+                            <Border Grid.Row="0" Grid.RowSpan="2" Background="#0DFFFFFF" CornerRadius="8" BorderBrush="#262C34" BorderThickness="1"/>
+                            <Border Grid.Row="0" Background="Transparent" Padding="16,10,0,6">
                                 <ContentPresenter ContentSource="Header" TextElement.FontWeight="Bold"/>
                             </Border>
                             <ContentPresenter Grid.Row="1" Margin="15,5,15,15"/>
@@ -141,7 +137,8 @@
                     <Border Width="6" Height="42" CornerRadius="3" Margin="0,0,15,0" Background="#00CCFF"/>
                     <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
                         <TextBlock Text="TITAN ENGINE" FontSize="26" FontWeight="Black" Foreground="White"/>
-                        <TextBlock FontSize="11" Foreground="#00CCFF" Opacity="0.8" FontWeight="Bold"><Run Text="V106.0 // RES FIX"/><LineBreak/><Run/></TextBlock>
+                        <TextBlock FontSize="11" Foreground="#00CCFF" Opacity="0.8" FontWeight="Bold"><Run Text="V192"/></TextBlock>
+                        <TextBlock FontSize="10" Foreground="#888" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520" Text="Changelog: + Hiệu ứng chữ Text Overlay (từ Caption Sync) | + Hiệu ứng Audio 1 Voice FX | + Thanh cường độ Audio FX | + Lọc file build GitHub | + Không xóa tính năng cũ"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -845,6 +842,12 @@
                                     <ComboBoxItem Content="Whisper (Thì thầm)"/>
                                 </ComboBox>
                                 <TextBlock Text="Áp dụng cho Audio 1 (giọng nói gốc). Các track Audio 2 giữ nguyên." Foreground="#888" FontSize="10" Margin="0,0,0,4" TextWrapping="Wrap"/>
+
+                                <Grid Margin="0,0,0,5">
+                                    <TextBlock Text="Cường độ hiệu ứng Audio 1" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldAudio1FxIntensity, Path=Value, StringFormat={}{0:0}%}" Foreground="#FF66CC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldAudio1FxIntensity" Minimum="0" Maximum="100" Value="100" TickFrequency="10" AutoToolTipPlacement="TopLeft" Margin="0,0,0,8"/>
                             </StackPanel>
                         </GroupBox>
 

@@ -7023,7 +7023,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
 
             // Audio 1 voice-effect (echo/reverb/robot/etc) applied to the source voice only
-            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect);
+            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect, job.Audio1EffectIntensity);
             if (!string.IsNullOrWhiteSpace(audio1Fx))
             {
                 filters.Add(audio1Fx);
@@ -9942,29 +9942,34 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         }
 
 
-        public static string BuildAudio1EffectChain(string? effectName)
+        public static string BuildAudio1EffectChain(string? effectName, double intensityPercent = 100.0)
         {
             if (string.IsNullOrWhiteSpace(effectName)) return string.Empty;
             string e = effectName.Trim();
 
             if (e.Contains("Không") || e.Contains("Giữ nguyên")) return string.Empty;
-            if (e.Contains("Echo")) return "aecho=0.8:0.9:40|50|70:0.4|0.3|0.2";
+
+            // Intensity 0..100 -> 0..1, clamped. Scales every effect down smoothly.
+            double k = Math.Clamp(intensityPercent, 0.0, 100.0) / 100.0;
+            if (k <= 0.001) return string.Empty;
+            if (e.Contains("Echo"))
+                return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.9,3)}:{(int)(40*k+8)}|{(int)(50*k+10)}|{(int)(70*k+14)}:{FfmpegDouble(0.4*k,3)}|{FfmpegDouble(0.3*k,3)}|{FfmpegDouble(0.2*k,3)}";
             if (e.Contains("Church") || e.Contains("Nhà thờ"))
-                return "aecho=0.8:0.88:500|700|900:0.5|0.4|0.3,aecho=0.8:0.88:80|120|160:0.35|0.28|0.2";
+                return $"aecho=0.8:0.88:500|700|900:{FfmpegDouble(0.5*k,3)}|{FfmpegDouble(0.4*k,3)}|{FfmpegDouble(0.3*k,3)},aecho=0.8:0.88:80|120|160:{FfmpegDouble(0.35*k,3)}|{FfmpegDouble(0.28*k,3)}|{FfmpegDouble(0.2*k,3)}";
             if (e.Contains("Robot") || e.Contains("Glitch") || e.Contains("Kim loại"))
-                return "aecho=0.8:0.88:6:0.4,highpass=f=200,lowpass=f=3400,volume=1.4";
+                return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.88,3)}:{(int)(6*k)+1}:{FfmpegDouble(0.4*k,3)},highpass=f=200,lowpass=f=3400,volume={FfmpegDouble(1+0.4*k,3)}";
             if (e.Contains("Điện thoại") || e.Contains("Telephone") || e.Contains("Bandpass"))
-                return "highpass=f=500,lowpass=f=2500,volume=1.6";
+                return $"highpass=f={(int)(500-300*k)},lowpass=f={(int)(2500+10000*(1-k))},volume={FfmpegDouble(1+0.6*k,3)}";
             if (e.Contains("Chipmunk") || e.Contains("Tăng tone"))
-                return "asetrate=44100*1.35,aresample=44100,atempo=0.7407";
+                return $"asetrate=44100*{FfmpegDouble(1+0.35*k,4)},aresample=44100,atempo={FfmpegDouble(1/(1+0.35*k),4)}";
             if (e.Contains("Deep") || e.Contains("Giảm tone"))
-                return "asetrate=44100*0.75,aresample=44100,atempo=1.3333";
+                return $"asetrate=44100*{FfmpegDouble(1-0.25*k,4)},aresample=44100,atempo={FfmpegDouble(1/(1-0.25*k),4)}";
             if (e.Contains("Chorus"))
-                return "chorus=0.5:0.9:50|60|70:0.3|0.22|0.3:0.25|0.4|0.3:2|2.3|1.3";
+                return $"chorus=0.5:{FfmpegDouble(0.9*k,3)}:50|60|70:{FfmpegDouble(0.3*k,3)}|{FfmpegDouble(0.22*k,3)}|{FfmpegDouble(0.3*k,3)}:0.25|0.4|0.3:2|2.3|1.3";
             if (e.Contains("Phaser") || e.Contains("Phát xung"))
-                return "aphaser=type=t:speed=2:decay=0.6";
+                return $"aphaser=type=t:speed={FfmpegDouble(2*k,3)}:decay={FfmpegDouble(0.6*k,3)}";
             if (e.Contains("Bitcrush") || e.Contains("rè kỹ thuật số") || e.Contains("Rè kỹ thuật số"))
-                return "acrusher=level_in=8:level_out=18:bits=8:mode=log:aa=1";
+                return $"acrusher=level_in={FfmpegDouble(8,3)}:level_out={FfmpegDouble(18,3)}:bits={(int)Math.Round(16-8*k)}:mode=log:aa=1";
             if (e.Contains("Whisper") || e.Contains("Thì thầm"))
                 return "afftfilt=real='hypot(re,im)*cos((random(0)*2-1)*2*3.14)':imag='hypot(re,im)*sin((random(1)*2-1)*2*3.14)':win_size=128:overlap=0.8";
             return string.Empty;
@@ -13244,6 +13249,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
+                    Audio1EffectIntensity = (int)sldAudio1FxIntensity.Value,
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
@@ -13682,6 +13688,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
+                    Audio1EffectIntensity = (int)sldAudio1FxIntensity.Value,
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
@@ -15339,6 +15346,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     AudioVolume = audioVolume,
                     SecondaryAudioVolume = audio2Volume,
                     Audio1Effect = request.Audio1Effect ?? GetFeatureString(request, "audio1Effect", "voiceFx", "audioEffect"),
+                    Audio1EffectIntensity = request.Audio1EffectIntensity.HasValue
+                        ? (int)Math.Clamp(request.Audio1EffectIntensity.Value, 0, 100)
+                        : (int?)GetFeatureDouble(request, "audio1EffectIntensity", "audioFxIntensity", "fxIntensity1") ?? 100,
                     SourceAudioSpeed = sourceAudioSpeed,
                     ExternalAudioSpeed = externalAudioSpeed,
                     AudioSegments = requestAudioSegments,

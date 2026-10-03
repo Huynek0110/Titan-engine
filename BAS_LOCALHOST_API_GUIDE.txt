@@ -318,6 +318,9 @@ affected.
 
 Field:
 - audio1Effect: one of the presets below (empty string or "None" disables it)
+- audio1EffectIntensity: effect strength 0-100 (default 100). 0 = no effect,
+  100 = full effect. Scales echo decay, pitch-shift factor, telephone
+  bandwidth, bitcrush bit depth, chorus/phaser strength, etc.
 
 Canonical values:
 - Không (Giữ nguyên) / empty        -> no FX (default)
@@ -549,6 +552,7 @@ Video/audio tuning:
 - externalAudioSpeed
 - musicSyncMode
 - audio1Effect
+- audio1EffectIntensity
 
 Text:
 - textOverlay

@@ -165,6 +165,7 @@ namespace TitanEngine {
         public string? WebhookUrl { get; set; }
         public bool EnableLoudnorm { get; set; }
         public string? Audio1Effect { get; set; }
+        public int Audio1EffectIntensity { get; set; } = 100;
         public string? TextOverlay { get; set; }
         public string? TextOverlayPosition { get; set; }
         public string? TextAlign { get; set; }
@@ -413,6 +414,7 @@ namespace TitanEngine {
         public double? Audio2Volume { get; set; }
         public double? SecondaryAudioVolume { get; set; }
         public string? Audio1Effect { get; set; }
+        public double? Audio1EffectIntensity { get; set; }
         public double? SourceAudioSpeed { get; set; }
         public double? ExternalAudioSpeed { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
