@@ -829,6 +829,22 @@
                                     <TextBlock Text="{Binding ElementName=sldAudio2Vol, Path=Value, StringFormat={}{0:0}%}" Foreground="#5DE1FF" FontWeight="Bold" HorizontalAlignment="Right"/>
                                 </Grid>
                                 <Slider x:Name="sldAudio2Vol" Minimum="0" Maximum="200" Value="100" TickFrequency="25" AutoToolTipPlacement="TopLeft"/>
+
+                                <TextBlock Text="Hiệu ứng Audio 1 (Voice FX)" Foreground="#FF66CC" FontSize="12" FontWeight="Bold" Margin="0,12,0,3"/>
+                                <ComboBox x:Name="cmbAudio1Fx" Margin="0,0,0,4" ToolTip="Áp dụng hiệu ứng giọng nói lên Audio 1 (giọng nói gốc của video). Để trống = giữ nguyên.">
+                                    <ComboBoxItem Content="Không (Giữ nguyên)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Echo (Vang nhiều tầng)"/>
+                                    <ComboBoxItem Content="Church (Nhà thờ - aecho)"/>
+                                    <ComboBoxItem Content="Robot/Glitch (Kim loại)"/>
+                                    <ComboBoxItem Content="Điện thoại (Bandpass)"/>
+                                    <ComboBoxItem Content="Chipmunk (Tăng tone)"/>
+                                    <ComboBoxItem Content="Deep Voice (Giảm tone)"/>
+                                    <ComboBoxItem Content="Chorus/Phát xung (Chorus)"/>
+                                    <ComboBoxItem Content="Phaser (Âm kim loại)"/>
+                                    <ComboBoxItem Content="Bitcrush (Giọng rè kỹ thuật số)"/>
+                                    <ComboBoxItem Content="Whisper (Thì thầm)"/>
+                                </ComboBox>
+                                <TextBlock Text="Áp dụng cho Audio 1 (giọng nói gốc). Các track Audio 2 giữ nguyên." Foreground="#888" FontSize="10" Margin="0,0,0,4" TextWrapping="Wrap"/>
                             </StackPanel>
                         </GroupBox>
 

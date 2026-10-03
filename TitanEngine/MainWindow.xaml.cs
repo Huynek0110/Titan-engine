@@ -7022,6 +7022,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 }
             }
 
+            // Audio 1 voice-effect (echo/reverb/robot/etc) applied to the source voice only
+            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect);
+            if (!string.IsNullOrWhiteSpace(audio1Fx))
+            {
+                filters.Add(audio1Fx);
+                onLog($"[AUDIO1-FX] {job.Audio1Effect}: {audio1Fx}");
+            }
+
             if (filters.Count == 0)
                 filters.Add("anull");
 
@@ -9934,6 +9942,34 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         }
 
 
+        public static string BuildAudio1EffectChain(string? effectName)
+        {
+            if (string.IsNullOrWhiteSpace(effectName)) return string.Empty;
+            string e = effectName.Trim();
+
+            if (e.Contains("Không") || e.Contains("Giữ nguyên")) return string.Empty;
+            if (e.Contains("Echo")) return "aecho=0.8:0.9:40|50|70:0.4|0.3|0.2";
+            if (e.Contains("Church") || e.Contains("Nhà thờ"))
+                return "aecho=0.8:0.88:500|700|900:0.5|0.4|0.3,aecho=0.8:0.88:80|120|160:0.35|0.28|0.2";
+            if (e.Contains("Robot") || e.Contains("Glitch") || e.Contains("Kim loại"))
+                return "aecho=0.8:0.88:6:0.4,highpass=f=200,lowpass=f=3400,volume=1.4";
+            if (e.Contains("Điện thoại") || e.Contains("Telephone") || e.Contains("Bandpass"))
+                return "highpass=f=500,lowpass=f=2500,volume=1.6";
+            if (e.Contains("Chipmunk") || e.Contains("Tăng tone"))
+                return "asetrate=44100*1.35,aresample=44100,atempo=0.7407";
+            if (e.Contains("Deep") || e.Contains("Giảm tone"))
+                return "asetrate=44100*0.75,aresample=44100,atempo=1.3333";
+            if (e.Contains("Chorus"))
+                return "chorus=0.5:0.9:50|60|70:0.3|0.22|0.3:0.25|0.4|0.3:2|2.3|1.3";
+            if (e.Contains("Phaser") || e.Contains("Phát xung"))
+                return "aphaser=type=t:speed=2:decay=0.6";
+            if (e.Contains("Bitcrush") || e.Contains("rè kỹ thuật số") || e.Contains("Rè kỹ thuật số"))
+                return "acrusher=level_in=8:level_out=18:bits=8:mode=log:aa=1";
+            if (e.Contains("Whisper") || e.Contains("Thì thầm"))
+                return "afftfilt=real='hypot(re,im)*cos((random(0)*2-1)*2*3.14)':imag='hypot(re,im)*sin((random(1)*2-1)*2*3.14)':win_size=128:overlap=0.8";
+            return string.Empty;
+        }
+
         private static string NormalizeDrawtextCoordinateExpression(string expr)
         {
             if (string.IsNullOrWhiteSpace(expr))
@@ -9944,7 +9980,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             normalized = Regex.Replace(normalized, @"\bih\b", "h", RegexOptions.IgnoreCase);
             return normalized;
         }
-
         private static string BuildTemplateMotionFilter(string templateName, int targetWidth, int targetHeight, double segmentDurationSec, bool isImageInput = false, string? musicSyncMode = null, double fxIntensity = 50.0, string? magazineCoverTitle = null, string? magazineCoverSubtitle = null)
         {
             string normalized = NormalizeTemplateNameForEngine(templateName);
@@ -13208,6 +13243,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     StatusColor = Brushes.Cyan,
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
+                    Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
@@ -13645,6 +13681,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     StatusColor = Brushes.Cyan,
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
+                    Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
@@ -15301,6 +15338,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     VideoVolume = videoVolume,
                     AudioVolume = audioVolume,
                     SecondaryAudioVolume = audio2Volume,
+                    Audio1Effect = request.Audio1Effect ?? GetFeatureString(request, "audio1Effect", "voiceFx", "audioEffect"),
                     SourceAudioSpeed = sourceAudioSpeed,
                     ExternalAudioSpeed = externalAudioSpeed,
                     AudioSegments = requestAudioSegments,

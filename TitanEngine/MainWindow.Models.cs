@@ -164,6 +164,7 @@ namespace TitanEngine {
         public bool IsApiJob { get; set; }
         public string? WebhookUrl { get; set; }
         public bool EnableLoudnorm { get; set; }
+        public string? Audio1Effect { get; set; }
         public string? TextOverlay { get; set; }
         public string? TextOverlayPosition { get; set; }
         public string? TextAlign { get; set; }
@@ -411,6 +412,7 @@ namespace TitanEngine {
         public double? AudioVolume { get; set; }
         public double? Audio2Volume { get; set; }
         public double? SecondaryAudioVolume { get; set; }
+        public string? Audio1Effect { get; set; }
         public double? SourceAudioSpeed { get; set; }
         public double? ExternalAudioSpeed { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
