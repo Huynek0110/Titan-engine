@@ -11075,9 +11075,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             double wet = Math.Clamp(maxWet * k, 0, 10);
             // Dry stays at full level and only the reverb tail (wet) is scaled.
             string wetStr = wet.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            // asplit sends the original voice to a dry branch and a wet branch;
+            // the wet branch is convolved with the IR, then the two are mixed.
+            // (Running afir as a direct single-stream filter with dry/wet drops
+            //  the input level to near silence on this FFmpeg build.)
             string args =
                 $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
-                $"-filter_complex \"[0:a][1:a]afir=length=1:dry=1:wet={wetStr},volume=6.0,alimiter=limit=0.95[a]\" " +
+                $"-filter_complex \"[0:a]asplit=2[ary][wy];[wy][1:a]afir=length=1:dry=0:wet={wetStr},alimiter=limit=0.95[wetout];[ary][wetout]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]\" " +
                 "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
                 $"\"{fxAudioPath}\"";
 
