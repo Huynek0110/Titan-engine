@@ -11085,11 +11085,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             WriteSyntheticIr(irPath, isChurch ? 3.0 : 1.6, 44100, isChurch ? 2.2 : 3.2);
 
             string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
-            int wetGain = isChurch ? 12 : 8;
-            double k = intensity; // blend dry/wet purely by wet gain
+            int wetGain = isChurch ? 10 : 6;
+            double k = intensity;
+            int wet = (int)Math.Clamp(wetGain * k, 0, 10);
+            int dry = (int)Math.Clamp(10 - wet / 2, 0, 10);
             string args =
                 $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
-                $"-filter_complex \"[0:a][1:a]afir=length=1:dry=10:wet={(int)(wetGain * k)}[a]\" " +
+                $"-filter_complex \"[0:a][1:a]afir=length=1:dry={dry}:wet={wet}[a]\" " +
                 "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
                 $"\"{fxAudioPath}\"";
 
@@ -11100,7 +11102,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string summary = string.Join(" | ",
                     (stderr ?? string.Empty)
                         .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Take(8));
+                        .Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("  configuration") && !l.StartsWith("ffmpeg version") && !l.Contains("libav"))
+                        .TakeLast(8));
                 throw new Exception($"Audio 1 FX IR render failed: {summary}");
             }
 
