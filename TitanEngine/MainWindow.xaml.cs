@@ -9965,8 +9965,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             // Intensity 0..100 -> 0..1, clamped. Scales every effect down smoothly.
             double k = Math.Clamp(intensityPercent, 0.0, 100.0) / 100.0;
             if (k <= 0.001) return string.Empty;
-            if (e.Contains("Echo") || e.Contains("Church") || e.Contains("Nhà thờ"))
-                return string.Empty; // Echo & Church are rendered via IR convolution (PrepareAudioFxTrackAsync), not an inline chain.
+            if (e.Contains("Echo"))
+                return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.9,3)}:{Math.Max(1,(int)(40*k+8))}|{Math.Max(2,(int)(50*k+10))}|{Math.Max(3,(int)(70*k+14))}:{FfmpegDouble(Math.Max(0.01,0.4*k),3)}|{FfmpegDouble(Math.Max(0.005,0.3*k),3)}|{FfmpegDouble(Math.Max(0.001,0.2*k),3)}";
+            if (e.Contains("Church") || e.Contains("Nhà thờ"))
+                return $"aecho=0.8:0.88:{Math.Max(1,(int)(500*k))}|{Math.Max(2,(int)(700*k))}|{Math.Max(3,(int)(900*k))}:{FfmpegDouble(Math.Max(0.01,0.5*k),3)}|{FfmpegDouble(Math.Max(0.005,0.4*k),3)}|{FfmpegDouble(Math.Max(0.001,0.3*k),3)},aecho=0.8:0.88:{Math.Max(1,(int)(80*k))}|{Math.Max(2,(int)(120*k))}|{Math.Max(3,(int)(160*k))}:{FfmpegDouble(Math.Max(0.01,0.35*k),3)}|{FfmpegDouble(Math.Max(0.005,0.28*k),3)}|{FfmpegDouble(Math.Max(0.001,0.2*k),3)}";
             if (e.Contains("Robot") || e.Contains("Glitch") || e.Contains("Kim loại"))
                 return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.88,3)}:{(int)(6*k)+1}:{FfmpegDouble(0.4*k,3)},highpass=f=200,lowpass=f=3400,volume={FfmpegDouble(1+0.4*k,3)}";
             if (e.Contains("Điện thoại") || e.Contains("Telephone") || e.Contains("Bandpass"))
@@ -11049,6 +11051,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             bool isChurch = effect.Contains("Church", StringComparison.OrdinalIgnoreCase) || effect.Contains("Nhà thờ", StringComparison.OrdinalIgnoreCase);
             if (!isEcho && !isChurch)
                 return null; // robot/phone/bitcrush/etc are handled inline in the chain
+            // Reverted to inline aecho (the IR pre-pass produced inaudible/too-flat results);
+            // this method is retained for future IR work but currently returns nothing.
+            return null;
 
             double intensity = Math.Clamp(job.Audio1EffectIntensity, 0.0, 100.0) / 100.0;
             if (intensity <= 0.001) return null;
