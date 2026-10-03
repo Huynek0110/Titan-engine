@@ -11030,35 +11030,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return editedAudioPath;
         }
 
-        // Generates a synthetic hall impulse response WAV (exponential-noise decay)
-        private static void WriteSyntheticIr(string path, double durationSec, int sampleRate, double decay)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? GetTitanTempDir());
-            int n = (int)(sampleRate * durationSec);
-            var rnd = new Random(0x51);
-            using var fs = File.Create(path);
-            using var bw = new BinaryWriter(fs);
-            void W(string s) => bw.Write(Encoding.ASCII.GetBytes(s));
-            W("RIFF"); bw.Write(36 + n * 2); W("WAVE"); W("fmt ");
-            bw.Write(16); bw.Write((short)1); bw.Write((short)1);
-            bw.Write(sampleRate); bw.Write(sampleRate * 2); bw.Write((short)2); bw.Write((short)16);
-            W("data"); bw.Write(n * 2);
-            for (int i = 0; i < n; i++)
-            {
-                double t = i / (double)sampleRate;
-                double env = Math.Exp(-decay * t);
-                // Impulsive start decaying into exponentially-decaying noise:
-                // a sharp attack peak followed by a random tail, unlike a pure
-                // noise burst which convolves to quiet self-filtered rumble.
-                double noise = rnd.NextDouble() * 2.0 - 1.0;
-                double impulse = (i == 0) ? 1.2 : 0.0;
-                double sample = (impulse + noise * Math.Min(1.0, t / 0.008) * 0.4) * env;
-                bw.Write((short)Math.Clamp(sample * 12000.0, -32000, 32000));
-            }
-        }
-
-        // Applies the IR-convolution reverb effects (Echo / Church) to the external
-        // Audio 1 track in a pre-pass, replacing it with a temp file.
         private static async Task<string?> PrepareAudioFxTrackAsync(
             string inputAudioPath,
             RenderJob job,
@@ -11084,19 +11055,31 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 ? Guid.NewGuid().ToString("N").Substring(0, 8)
                 : renderTag;
 
-            string irDuration = isChurch ? "3.0" : "1.6";
-            string irPath = Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(inputAudioPath)}.wav");
-            WriteSyntheticIr(irPath, isChurch ? 3.0 : 1.6, 44100, isChurch ? 2.2 : 3.2);
+            string? irPath = null;
+            bool isChurchPtr = isChurch;
+            string fxDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Effects");
+            string bundled = isChurchPtr
+                ? Path.Combine(fxDir, "church_ir.wav")
+                : Path.Combine(fxDir, "echo_ir.wav");
+            if (File.Exists(bundled)) irPath = bundled;
+            if (irPath == null)
+            {
+                // No bundled IR file found; skip IR pre-pass instead of producing silence.
+                onLog($"[AUDIO1-FX-WARN] IR file missing at {bundled}. Skipping IR pre-pass for {effect}.");
+                return null;
+            }
 
             string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
             int maxWet = isChurch ? 2 : 1;
             double k = intensity;
             double wet = Math.Clamp(maxWet * k, 0, 10);
-            // Dry stays at full level and only the reverb tail (wet) is scaled,
-            // so intensity actually changes how much reverb is heard.
+            // Dry stays at full level and only the reverb tail (wet) is scaled.
             string wetStr = wet.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-            string fm = $"-i \"{inputAudioPath}\" -i \"{irPath}\" -filter_complex \"[0:a][1:a]afir=length=1:dry=1:wet={wetStr},alimiter=limit=0.95[a]\" -map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart \"{fxAudioPath}\"";
-            string args = $"-y " + fm;
+            string args =
+                $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
+                $"-filter_complex \"[0:a][1:a]afir=length=1:dry=1:wet={wetStr},volume=6.0,alimiter=limit=0.95[a]\" " +
+                "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
+                $"\"{fxAudioPath}\"";
 
             onLog($"[AUDIO1-FX] Preprocessing {effect} @ {intensity * 100:F0}% via IR convolution...");
             var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
