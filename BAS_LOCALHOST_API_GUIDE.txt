@@ -1,0 +1,586 @@
+TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
+
+============================================================
+0) QUICK START
+============================================================
+- Open app, click HOST button -> HOST: ON
+- Base URL: http://localhost:5555
+- Recommended BAS flow:
+  1) POST /api/queue/add
+  2) POST /api/queue/start
+  3) GET /api/render/status?jobId=...
+
+Completion rule in BAS:
+- done == true
+- then check jobSuccess == true
+
+============================================================
+1) UI MERGE VIDEOS / IMAGES (MANUAL APP USAGE)
+============================================================
+If you want many sources -> 1 output file in UI:
+1) Select multiple videos/images
+2) Tick: "Merge Videos Into One Output (Concat)"
+3) (Optional) Select multiple audio files + tick "Merge Audio Tracks Into One Output (Concat)"
+4) (Optional) Select a Template in FX Studio (CapCut style preset)
+5) Set FX/Color/Upscale/etc as normal
+6) Click ADD TO QUEUE
+
+Result:
+- Only 1 queue item is created
+- Render output is 1 merged video
+
+============================================================
+2) API ENDPOINTS
+============================================================
+[A] POST /api/queue/add
+- Add job to queue only (no render yet)
+
+[B] POST /api/queue/start
+- Start all pending queue jobs
+
+[C] GET /api/render/status?jobId=DE64988F
+- Poll current job state
+- Supports jobId string or queueId number
+
+[D] POST /api/render
+- Add + render immediately in background (async)
+
+[E] POST /api/render/async
+- Same as /api/render async behavior
+
+[F] POST /api/render/wait
+- Blocking mode (wait until done)
+
+============================================================
+3) MERGE VIDEOS + MERGE AUDIO VIA API
+============================================================
+Use these fields:
+- inputFiles: array of video paths
+- inputFiles can also include image paths (.png/.jpg/.jpeg)
+- mergeVideos: true
+- audioFiles: array of audio paths (optional)
+- mergeAudio: true (optional, auto true when audioFiles > 1)
+- outputVideo: final output path
+- templateName: optional preset name
+
+Example (merge 2 videos -> 1 output):
+POST http://localhost:5555/api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\clip1.mp4",
+    "C:\\Users\\lemin\\Desktop\\clip2.mp4"
+  ],
+  "audioFiles": [
+    "C:\\Users\\lemin\\Desktop\\music1.mp3",
+    "C:\\Users\\lemin\\Desktop\\music2.mp3"
+  ],
+  "mergeVideos": true,
+  "mergeAudio": true,
+  "templateName": "Smooth Zoom In",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\merged_final.mp4",
+  "colorGrading": "Warm",
+  "fxEffect": "None"
+}
+
+Important:
+- If inputFiles has more than 1 item, app will auto use merge workflow.
+- If audioFiles has more than 1 item, app will auto merge audio tracks.
+- Queue will create 1 job for that merged output.
+
+============================================================
+4) FULL JSON BODY (ALL MAJOR FEATURES)
+============================================================
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\clip1.mp4",
+    "C:\\Users\\lemin\\Desktop\\clip2.mp4"
+  ],
+  "mergeVideos": true,
+  "audioFiles": [
+    "C:\\Users\\lemin\\Desktop\\music1.mp3",
+    "C:\\Users\\lemin\\Desktop\\music2.mp3"
+  ],
+  "mergeAudio": true,
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\final.mp4",
+
+  "audioFile": "C:\\Users\\lemin\\Desktop\\music.mp3",
+  "watermarkFile": "C:\\Users\\lemin\\Desktop\\logo.png",
+
+  "colorGrading": "Warm",
+  "colorIntensity": 0.85,
+  "videoBrightness": 0,
+
+  "fxEffect": "Crop Video (Custom Frame)",
+  "overlay": "None",
+  "templateName": "Pan Left",
+  "musicSyncMode": "off",
+  "fxIntensity": 50,
+  "fxStartPercent": 0,
+  "fxEndPercent": 100,
+
+  "cropXPercent": 0.05,
+  "cropYPercent": 0.10,
+  "cropWidthPercent": 0.90,
+  "cropHeightPercent": 0.80,
+
+  "hardwareProfile": "NVIDIA NVENC",
+  "bitrateStrategy": "Match Source",
+  "resolution": "Original",
+  "targetWidth": 1920,
+  "targetHeight": 1080,
+  "framerate": "Original",
+  "customBitrate": "5000",
+
+  "videoTrimStart": "00:00:00",
+  "videoTrimDuration": "",
+  "audioTrimStart": "00:00:00",
+  "audioTrimDuration": "",
+  "imageTimelineDurationSeconds": 15.0,
+
+  "watermarkScale": 1.0,
+  "watermarkRotation": 0,
+  "watermarkOpacity": 1.0,
+  "watermarkXPercent": 0.05,
+  "watermarkYPercent": 0.05,
+  "watermarkAspectRatio": 1.0,
+
+  "enableFade": false,
+  "fadeInSeconds": 0.8,
+  "fadeOutSeconds": 0.8,
+
+  "videoVolume": 1.0,
+  "audioVolume": 1.0,
+  "sourceAudioSpeed": 1.0,
+  "externalAudioSpeed": 1.0,
+
+  "upscaleMode": "2x Upscale (FSR + DLSS)",
+  "sharpnessIntensity": 1.0,
+
+  "slowMotionSpeed": 1.0,
+  "slowMotionAudio": true,
+
+  "textOverlay": "Noi dung chu deo len video",
+  "textOverlayPosition": "Bottom Left",
+  "textOverlayStyle": "Aesthetic Lyric (Georgia / Times Italic)",
+  "textOverlayFontSize": 32,
+  "textOverlayColor": "white",
+  "textOverlayXPercent": 50,
+  "textOverlayYPercent": 85,
+  "textOverlayAnimation": "Spotify Scroll (Chu chay len)",
+  "textOverlayEffectDuration": 5.0,
+  "enableTextGlow": false,
+  "textGlowColor": "Cyan Neon",
+
+  "enableCaptionSync": false,
+  "captionSyncLanguage": "Tiep Viet",
+  "captionSyncModelSize": "Medium (Chuan xac - 1.5GB)",
+  "captionSyncAnimation": "Karaoke Fade (Tu tu hien ro chu)",
+  "captionSyncFontFamily": "Clean Sans (Arial Italic)",
+  "captionSyncPosition": "Bottom Center",
+  "captionSyncFontSize": 28,
+  "captionSyncColor": "white",
+  "captionSyncXPercent": 50,
+  "captionSyncYPercent": 85,
+
+  "waitForCompletion": false
+}
+
+Notes:
+- You can send only inputFile (single video) OR inputFiles (merge mode).
+- You can mix video + image in inputFiles. Each image is converted to a short timeline segment.
+- outputVideo is required.
+- watermarkFile now renders into the final output video.
+- watermarkScale is relative: 1.0 is about 20% of output width.
+- watermarkXPercent and watermarkYPercent are the center point of the logo (0.0 to 1.0).
+- enableFade defaults to false. When true, fadeInSeconds/fadeOutSeconds apply to both video and audio.
+- videoBrightness uses a simple range: -100 = darker, 0 = original, +100 = brighter.
+- sourceAudioSpeed affects only the source video's own audio track, not external mp3/audioFile tracks.
+- externalAudioSpeed affects only the optional user-added audio track (audioFile / audioFiles), not the source video audio.
+- imageTimelineDurationSeconds is the total duration for all image inputs in a timeline or merged image+video workflow.
+- overlay is the recommended field for overlays now. Example: "overlay": "Polaroid Scrapbook 2"
+- overlayEffect is still accepted for backward compatibility.
+- legacy booleans like enablePolaroidScrapbook / enableRgbPolaroidScrapbook / enableDashedPolaroidScrapbook are still accepted, but overlay is the cleaner format.
+- musicSyncMode supports: off, beat.
+- When templateName = Beat Photo Dump and musicSyncMode is omitted, the app defaults to beat mode.
+- textOverlay and enableCaptionSync are independent: they can be used together in one job.
+
+============================================================
+4AA) TEXT OVERLAY (textOverlay + textOverlayAnimation)
+============================================================
+Fields:
+- textOverlay: the text to burn in. Supports \n for line breaks.
+- textOverlayPosition: Center, Top, Bottom, Top Left, Top Right, Bottom Left, Bottom Right, Custom
+- textOverlayStyle: font family, list below
+- textOverlayFontSize: 16 - 150 (default 32)
+- textOverlayColor: color name or hex, e.g. "white", "#FF66CC"
+- textOverlayXPercent / textOverlayYPercent: 0 - 100, used when position = Custom
+- textAlign: Auto, Left, Center, Right (optional)
+- textOverlayAnimation: the effect, list below
+- textOverlayEffectDuration: total seconds the effect plays (default 5.0, range 1 - 60)
+- enableTextGlow / textGlowColor: legacy drawtext neon aura (see note)
+- addQuotes: wrap text in artistic quotes
+- disableTextScroll: legacy mode only, freezes the upward scroll
+
+textOverlayAnimation canonical values:
+- Drawtext cu (Typewriter + Truot len + Neon Glow)   <- DEFAULT, legacy behaviour
+- Mac dinh (Hien tinh)
+- Spotify Scroll (Chu chay len)
+- Pop & Bounce (Nay manh me)
+- Smooth Drift (Troi lo lung)
+- Glow Pulse (Toa sang nhu hoi tho)
+- Karaoke Fade (Tu tu hien ro chu)
+- Typewriter (Go tung chu)
+- Blur Reveal (Mo ao hien dan)
+
+Accepted aliases (case-insensitive, matched on keywords):
+- drawtext / legacy / typewriter cu / cu -> legacy drawtext mode
+- static / mac dinh / hien tinh -> static
+- spotify / scroll / karaoke scroll -> Spotify Scroll
+- pop / bounce / pop bounce -> Pop & Bounce
+- drift / smooth drift / troi -> Smooth Drift
+- glow / glow pulse / pulse / breathing -> Glow Pulse
+- karaoke / word / fade -> Karaoke Fade
+- typewriter / type / go chu -> Typewriter
+- blur / blur reveal / mo ao -> Blur Reveal
+
+textOverlayStyle canonical values:
+- Aesthetic Lyric (Georgia / Times Italic)
+- Modern Sans (Segoe UI Italic)
+- Classic Serif (Times New Roman Italic)
+- Clean Sans (Arial Italic)
+- Thu Phap Nghe Thuat (Calligraphy)
+
+Notes:
+- Omitting textOverlayAnimation keeps the legacy drawtext mode, so old BAS
+  scripts behave exactly as before.
+- textOverlayEffectDuration is TOTAL time for the whole effect. Each line of the
+  text gets 1/N of that window (N = number of lines). After the effect finishes
+  the text stays on screen until the end of the video.
+- Long text automatically degrades to a cheaper effect so the FFmpeg command
+  line stays within the Windows 32767 character limit:
+  Blur Reveal over 40 chars -> Typewriter,
+  Typewriter over 60 chars -> per-word reveal,
+  Karaoke over 45 words -> per-line reveal.
+  The app logs a [FILTER-TEXT-ANIM-WARN] line when this happens.
+- enableTextGlow / textGlowColor only apply to the legacy drawtext mode. The
+  animation modes render without the neon aura; Glow Pulse has its own built-in
+  breathing aura.
+- Text is NOT auto-wrapped. Very long single lines can run off the frame edge.
+
+Example:
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\text_anim.mp4",
+  "textOverlay": "Dong mot\nDong hai\nDong ba",
+  "textOverlayPosition": "Bottom Center",
+  "textOverlayAnimation": "Spotify Scroll",
+  "textOverlayEffectDuration": 6.0,
+  "textOverlayFontSize": 40
+}
+Then POST /api/queue/start and poll /api/render/status.
+
+============================================================
+4B2) CAPTION SYNC (enableCaptionSync) - AI WHISPER
+============================================================
+Independent from textOverlay. This one LISTENS to the audio with Whisper AI and
+generates the subtitles automatically, so textOverlay must be omitted.
+
+Fields:
+- enableCaptionSync: true to run the Whisper pre-pass
+- audioFile: REQUIRED. Captions are generated from this audio track only.
+- captionSyncLanguage: Tu dong (Auto Detect), Tiep Viet, English, Nhat (Japanese),
+  Han (Korean), Trung (Chinese)
+- captionSyncModelSize: Small (466MB), Medium (1.5GB), Large V3 Turbo (1.6GB)
+- captionSyncAnimation: Mac dinh, Spotify Scroll, Pop & Bounce, Smooth Drift,
+  Glow Pulse, Karaoke Fade, Typewriter, Blur Reveal
+- captionSyncFontFamily: same list as textOverlayStyle
+- captionSyncPosition: Bottom Center, Top Center, Center, Custom (X% Y%)
+- captionSyncFontSize: 16 - 72 (default 28)
+- captionSyncColor: color name or hex (default white)
+- captionSyncXPercent / captionSyncYPercent: 0 - 100, used when position = Custom
+
+Notes:
+- Requires whisper-cli.exe and the model in Assets\Whisper. The model is
+  downloaded automatically on first use (Medium is about 1.5GB).
+- Requires an ffmpeg audio extract pre-pass, so jobs take noticeably longer.
+- Aliases accepted: captionSync / whisper / caption for the boolean,
+  captionAnimation / whisperAnimation, captionFont / whisperFont,
+  captionPosition / captionStyle, captionX / captionY, captionColor.
+
+Example:
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "audioFile": "C:\\Users\\lemin\\Desktop\\voice.mp3",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\caption.mp4",
+  "enableCaptionSync": true,
+  "captionSyncLanguage": "Tiep Viet",
+  "captionSyncAnimation": "Karaoke Fade",
+  "captionSyncPosition": "Bottom Center"
+}
+
+============================================================
+4A) TEMPLATE PRESETS (templateName values)
+============================================================
+Canonical names:
+- None
+- Smooth Zoom In
+- Smooth Zoom Out
+- Pan Left
+- Pan Right
+- Velocity Punch
+- Cinematic Fade Zoom
+- Glitch Distort
+- 3D Spin Lite
+- Trend Zoom Flash
+- Trend Blur Pulse
+- Trend Spin Glitch
+- Digicam Memory
+- Beat Photo Dump
+- Film Strip
+- Magazine Cover
+
+Alias examples accepted by API:
+- digicam / retro camera / camera memory -> Digicam Memory
+- photodump / photo dump / recap dump / beat dump -> Beat Photo Dump
+- film strip / retro film / reel -> Film Strip
+- magazine / magazine cover / editorial -> Magazine Cover
+
+Notes:
+- templateName is the single selector for the whole template system.
+- overlayEffect is the separate selector for overlays and can be combined with templateName + fxEffect.
+- FX options like Crop Video, Film Leak, Light Leak Burn, Cinematic Glow, Halo Glow, Prism Light, Editorial Bloom, and Flip are separate from templateName.
+
+============================================================
+4B) OVERLAY PRESETS (overlayEffect values)
+============================================================
+Canonical names:
+- None
+- Polaroid Scrapbook
+- Polaroid Scrapbook 2
+- RGB Polaroid Border
+- Dashed Polaroid Frame
+- Dust & Scratches
+
+Alias examples accepted by API:
+- polaroid / scrapbook / photo album -> Polaroid Scrapbook
+- polaroid scrapbook 2 / polaroidscrapbook2 / rounded polaroid scrapbook / rounded polaroid -> Polaroid Scrapbook 2
+- rgb polaroid / polaroid rgb / rgb border / rainbow polaroid -> RGB Polaroid Border
+- dashed polaroid / polaroid dashed / dashed frame -> Dashed Polaroid Frame
+- dust & scratches / dust and scratches / dust scratches / old film scratches / scratch / scratch video / film scratch / video scratch -> Dust & Scratches
+
+============================================================
+4C) FX EFFECT PRESETS (fxEffect values)
+============================================================
+Canonical names:
+- None
+- Flip Horizontal (Anti-Copyright)
+- Rò phim (Leak 1 / Light Leak)
+- Light Leak Burn
+- Cinematic Glow
+- Halo Glow
+- Prism Light
+- Editorial Bloom
+- Dust & Scratches
+- Crop Video (Custom Frame)
+
+Alias examples accepted by API:
+- leak 1 / light leak / film leak / rò phim / ro phim -> Rò phim (Leak 1 / Light Leak)
+- light leak burn / lightleakburn / film burn / burn transition / light burn -> Light Leak Burn
+- cinematic glow / glow -> Cinematic Glow
+- halo / halo glow -> Halo Glow
+- prism / prism light -> Prism Light
+- editorial bloom / bloom / editorial -> Editorial Bloom
+- dust & scratches / dust and scratches / dust scratches / old film scratches / scratch / scratch video / film scratch / video scratch -> Dust & Scratches
+- crop / custom frame -> Crop Video (Custom Frame)
+
+============================================================
+4D) OVERLAY EXAMPLES
+============================================================
+Recommended format:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\overlay_test.mp4",
+  "overlay": "Polaroid Scrapbook 2"
+}
+
+Other examples:
+- "overlay": "Polaroid Scrapbook"
+- "overlay": "RGB Polaroid Border"
+- "overlay": "Dashed Polaroid Frame"
+- "overlay": "Dust & Scratches"
+
+Aliases also work:
+- "overlay": "rounded polaroid"
+- "overlay": "rgb border"
+- "overlay": "dashed frame"
+- "overlay": "scratch video"
+
+============================================================
+4E) LIGHT LEAK BURN EXAMPLE
+============================================================
+POST http://localhost:5555/api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\inputA.mp4",
+    "C:\\Users\\lemin\\Desktop\\inputB.mp4"
+  ],
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\lightleakburn.mp4",
+  "fxEffect": "Light Leak Burn",
+  "lightLeakBurnIntensity": 72,
+  "lightLeakBurnSpread": 60,
+  "lightLeakBurnWarmth": 78,
+  "lightLeakBurnBurn": 66,
+  "lightLeakBurnEdgeSoftness": 82,
+  "lightLeakBurnGrain": 38,
+  "lightLeakBurnDirection": "from-left",
+  "lightLeakBurnDuration": 0.95,
+  "lightLeakBurnBlendMode": "screen",
+  "lightLeakBurnOpacity": 0.82,
+  "lightLeakBurnUseAssetOverlay": false
+}
+
+Optional asset overlay fields:
+- lightLeakBurnAssetPath: optional overlay asset path
+- lightLeakBurnUseAssetOverlay: true/false
+
+Then:
+1) POST /api/queue/start
+2) GET /api/render/status?jobId=<jobId_from_add_response>
+
+============================================================
+5) WATERMARK + FADE EXAMPLE
+============================================================
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\watermark_fade.mp4",
+  "watermarkFile": "C:\\Users\\lemin\\Desktop\\logo.png",
+  "watermarkScale": 1.0,
+  "watermarkOpacity": 0.85,
+  "watermarkRotation": 0,
+  "watermarkXPercent": 0.90,
+  "watermarkYPercent": 0.10,
+  "enableFade": true,
+  "fadeInSeconds": 0.8,
+  "fadeOutSeconds": 0.8
+}
+
+Then:
+1) POST /api/queue/start
+2) GET /api/render/status?jobId=<jobId_from_add_response>
+
+============================================================
+6) RESPONSE FIELDS YOU SHOULD USE IN BAS
+============================================================
+Core:
+- success
+- message
+- queueId
+- jobId
+- status
+- done
+- jobSuccess
+- progress
+- statusUrl
+
+Input/merge:
+- inputFile
+- inputFiles
+- inputCount
+- mergeVideos
+- imageTimelineDurationSeconds
+- audioFile
+- audioFiles
+- audioCount
+- mergeAudio
+
+Output:
+- requestedOutput
+- engineOutput
+- finalOutput
+- outputVideo
+
+Fade (new):
+- enableFade
+- fadeInSeconds
+- fadeOutSeconds
+
+Video/audio tuning:
+- videoBrightness
+- sourceAudioSpeed
+- externalAudioSpeed
+- musicSyncMode
+
+Text:
+- textOverlay
+- textOverlayPosition
+- textOverlayStyle
+- textOverlayFontSize
+- textOverlayColor
+- textOverlayAnimation
+- textOverlayEffectDuration
+- enableTextGlow
+- textGlowColor
+- enableCaptionSync
+- captionSyncAnimation
+- captionSyncPosition
+- captionSyncFontFamily
+- captionSyncFontSize
+- captionSyncColor
+
+============================================================
+7) BAS FLOW EXAMPLE (QUEUE + MERGE)
+============================================================
+Step A - Add merged job:
+POST /api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\a.mp4",
+    "C:\\Users\\lemin\\Desktop\\b.mp4"
+  ],
+  "mergeVideos": true,
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\final.mp4"
+}
+
+Response returns:
+- jobId
+- statusUrl
+
+Step B - Start queue:
+POST /api/queue/start
+{}
+
+Step C - Poll:
+GET /api/render/status?jobId=<jobId_from_step_A>
+
+Stop when done == true.
+
+============================================================
+8) TROUBLESHOOT
+============================================================
+- 503 Host mode is OFF:
+  Turn HOST button ON.
+
+- 429 Host is busy:
+  Wait then retry.
+
+- 404 jobId not found:
+  Wrong jobId. Use jobId/statusUrl from add/render response.
+
+- Merge fails:
+  Ensure input files exist and are readable.
+  Try same codec/container inputs for fastest concat.
+
+- Fade not applied:
+  Ensure request has:
+  "enableFade": true
+  "fadeInSeconds": number
+  "fadeOutSeconds": number
+  and check these values in API response.
+
+============================================================
+END
+============================================================

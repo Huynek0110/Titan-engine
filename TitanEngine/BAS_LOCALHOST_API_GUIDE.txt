@@ -1,0 +1,875 @@
+TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
+
+Release guide path after build:
+- C:\Users\Huy\Desktop\TitanEngine\TitanEngine\TitanEngine\bin\Release\net8.0-windows\BAS_LOCALHOST_API_GUIDE.txt
+
+============================================================
+0) QUICK START
+============================================================
+- Open app, click HOST button -> HOST: ON
+- Base URL: http://localhost:5555
+- Recommended BAS flow:
+  1) POST /api/queue/add
+  2) POST /api/queue/start
+  3) GET /api/render/status?jobId=...
+
+Completion rule in BAS:
+- done == true
+- then check jobSuccess == true
+
+Audio overlay rule:
+- `audioFile` = Audio 1
+- `audioFile2` = Audio 2
+- `audioVolume` controls Audio 1 volume
+- `audio2Volume` or `secondaryAudioVolume` controls Audio 2 volume
+- If both `audioFile` and `audioFile2` exist, Titan mixes them together before render
+- If only `audioFile2` exists, Titan uses it as the external audio track
+
+============================================================
+1) UI MERGE VIDEOS / IMAGES (MANUAL APP USAGE)
+============================================================
+If you want many sources -> 1 output file in UI:
+1) Select multiple videos/images
+2) Tick: "Merge Videos Into One Output (Concat)"
+3) (Optional) Select multiple audio files + tick "Merge Audio Tracks Into One Output (Concat)"
+4) (Optional) Select a Template in FX Studio (CapCut style preset)
+5) Set FX/Color/Upscale/etc as normal
+6) Click ADD TO QUEUE
+
+Result:
+- Only 1 queue item is created
+- Render output is 1 merged video
+
+============================================================
+2) API ENDPOINTS
+============================================================
+[A] POST /api/queue/add
+- Add job to queue only (no render yet)
+
+[B] POST /api/queue/start
+- Start all pending queue jobs
+
+[C] GET /api/render/status?jobId=DE64988F
+- Poll current job state
+- Supports jobId string or queueId number
+
+[D] POST /api/render
+- Add + render immediately in background (async)
+
+[E] POST /api/render/async
+- Same as /api/render async behavior
+
+[F] POST /api/render/wait
+- Blocking mode (wait until done)
+
+============================================================
+3) MERGE VIDEOS + MERGE AUDIO VIA API
+============================================================
+Use these fields:
+- inputFiles: array of video paths
+- inputFiles can also include image paths (.png/.jpg/.jpeg)
+- mergeVideos: true
+- audioFiles: array of audio paths (optional)
+- mergeAudio: true (optional, auto true when audioFiles > 1)
+- outputVideo: final output path
+- templateName: optional preset name
+
+Example (merge 2 videos -> 1 output):
+POST http://localhost:5555/api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\clip1.mp4",
+    "C:\\Users\\lemin\\Desktop\\clip2.mp4"
+  ],
+  "audioFiles": [
+    "C:\\Users\\lemin\\Desktop\\music1.mp3",
+    "C:\\Users\\lemin\\Desktop\\music2.mp3"
+  ],
+  "mergeVideos": true,
+  "mergeAudio": true,
+  "templateName": "Smooth Zoom In",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\merged_final.mp4",
+  "colorGrading": "Warm",
+  "fxEffect": "None"
+}
+
+Important:
+- If inputFiles has more than 1 item, app will auto use merge workflow.
+- If audioFiles has more than 1 item, app will auto merge audio tracks.
+- Queue will create 1 job for that merged output.
+
+Audio overlay note:
+- `audioFiles` is for concat/merge of multiple audio files into one track.
+- `audioFile2` is for a second audio layer that gets mixed on top of Audio 1.
+- You can use both in the same job:
+  - `audioFiles` => concat path
+  - `audioFile2` => overlay/mix path
+
+============================================================
+4) FULL JSON BODY (ALL MAJOR FEATURES)
+============================================================
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\clip1.mp4",
+    "C:\\Users\\lemin\\Desktop\\clip2.mp4"
+  ],
+  "mergeVideos": true,
+  "enableCrossTransitions": true,
+  "crossTransitionType": "Whip Left",
+  "crossTransitionDuration": 0.6,
+  "audioFiles": [
+    "C:\\Users\\lemin\\Desktop\\music1.mp3",
+    "C:\\Users\\lemin\\Desktop\\music2.mp3"
+  ],
+  "mergeAudio": true,
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\final.mp4",
+
+  "audioFile": "C:\\Users\\lemin\\Desktop\\music.mp3",
+  "audioFile2": "C:\\Users\\lemin\\Desktop\\music2.mp3",
+  "watermarkFile": "C:\\Users\\lemin\\Desktop\\logo.png",
+
+  "textOverlay": "Chúc bạn một ngày tràn đầy năng lượng!",
+  "textOverlayStyle": "Modern Sans (Segoe UI Italic)",
+  "textOverlayColor": "white",
+  "textOverlayPosition": "Bottom Left",
+  "textOverlayFontSize": 32,
+  "addQuotes": true,
+  "disableTextScroll": true,
+  "textOverlayXPercent": 0.05,
+  "textOverlayYPercent": 0.85,
+  "enableTextGlow": true,
+  "textGlowColor": "Cyan Neon",
+
+  "colorGrading": "Warm",
+  "colorIntensity": 0.85,
+  "videoBrightness": 0,
+
+  "fxEffect": "Crop Video (Custom Frame)",
+  "overlay": "None",
+  "border": "None",
+  "snowfallPreset": "Snow Cinematic",
+  "snowfallMode": "auto",
+  "snowfallOpacity": 0.30,
+  "rainOverlayPreset": "Heavy Rain",
+  "rainOverlayIntensity": "medium",
+  "templateName": "Pan Left",
+  "musicSyncMode": "off",
+  "fxIntensity": 50,
+  "fxStartPercent": 0,
+  "fxEndPercent": 100,
+
+  "cropZoomPercent": 18,
+
+  "hardwareProfile": "NVIDIA NVENC",
+  "bitrateStrategy": "Match Source",
+  "resolution": "720x1280 (Portrait HD)",
+  "targetWidth": 720,
+  "targetHeight": 1280,
+  "framerate": "Original",
+  "customBitrate": "5000",
+
+  "videoTrimStart": "00:00:00",
+  "videoTrimDuration": "",
+  "audioTrimStart": "00:00:00",
+  "audioTrimDuration": "",
+  "imageTimelineDurationSeconds": 15.0,
+  "splitDurationSeconds": 0.0,
+
+  "watermarkScale": 1.0,
+  "watermarkRotation": 0,
+  "watermarkOpacity": 1.0,
+  "watermarkXPercent": 0.05,
+  "watermarkYPercent": 0.05,
+  "watermarkAspectRatio": 1.0,
+  "enableBrandLogo": false,
+  "brandLogoPosition": "Top Right",
+
+  "enableFade": false,
+  "fadeInSeconds": 0.8,
+  "fadeOutSeconds": 0.8,
+
+  "videoVolume": 1.0,
+  "audioVolume": 1.0,
+  "audio2Volume": 1.0,
+  "secondaryAudioVolume": 1.0,
+  "sourceAudioSpeed": 1.0,
+  "externalAudioSpeed": 1.0,
+
+  "upscaleMode": "2x Upscale (FSR + DLSS)",
+  "sharpnessIntensity": 1.0,
+
+  "slowMotionSpeed": 1.0,
+  "slowMotionAudio": true,
+
+  "waitForCompletion": false
+}
+\nThe above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+Notes:
+- You can send only inputFile (single video) OR inputFiles (merge mode).
+- You can mix video + image in inputFiles. Each image is converted to a short timeline segment.
+- outputVideo is required.
+
+  "slowMotionSpeed": 1.0,
+  "slowMotionAudio": true,
+
+  "waitForCompletion": false
+}
+
+============================================================
+4A) TEMPLATE PRESETS (templateName values)
+============================================================
+Canonical names:
+- None
+- Smooth Zoom In
+- Smooth Zoom Out
+- Pan Left
+- Pan Right
+- Velocity Punch
+- Cinematic Fade Zoom
+- Glitch Distort
+- 3D Spin Lite
+- Trend Zoom Flash
+- Trend Blur Pulse
+- Trend Spin Glitch
+- Digicam Memory
+- Beat Photo Dump
+- Film Strip
+- Magazine Cover
+
+============================================================
+4B) OVERLAY PRESETS (overlayEffect values)
+============================================================
+Canonical names:
+- None
+- Light Leak Overlay
+- Rain Overlay
+- Dreamy Dot Chaos Overlay
+- Dreamy Dot Overlay 2
+- Snowfall Overlay
+- Polaroid Scrapbook
+- Polaroid Scrapbook 2
+- RGB Polaroid Border
+- Dashed Polaroid Frame
+- Dust & Scratches
+
+============================================================
+4C) CROSS-CLIP TRANSITIONS (FOR MERGE VIDEOS)
+============================================================
+When merging 2 or more video clips (mergeVideos = true), you can enable CapCut-style transitions between clips:
+
+JSON Parameters:
+- enableCrossTransitions: true / false
+- crossTransitionType: string (Transition Name, e.g. "Whip Left", "Zoom", "Dissolve", "Fade (Blur)")
+- crossTransitionDuration: double in seconds (e.g. 0.6, 0.8). Default: 0.6
+
+Available 13 Transition Names (crossTransitionType):
+- Dissolve          (Smooth cross-fade dissolve)
+- Fade (Black)      (Fade to black & reveal next clip)
+- Fade (White)      (Fade to white / flash reveal)
+- Fade (Blur)       (Motion blur crossfade transition between clips)
+- Whip Left         (Fast whip pan transition to the left)
+- Whip Right        (Fast whip pan transition to the right)
+- Whip Up           (Fast whip pan transition upwards)
+- Whip Down         (Fast whip pan transition downwards)
+- Zoom              (Unified dynamic zoom punch transition)
+- Circle Crop       (Circular iris wipe transition)
+- Radial Clock      (Clockwise radial wipe transition)
+- Pixelize          (Digital pixelation transition)
+- Light Leak Burn   (Filmic light leak & burn transition)
+- HBlur             (Horizontal motion blur transition)
+
+============================================================
+4E) TEXT OVERLAY API (FULL GUIDE & OPTIONS)
+============================================================
+Use these fields to add typewriter or static text overlay to the output video:
+
+1) Core Text Parameters:
+- textOverlay: string (e.g. "CÂU TRÍCH DẪN NGHỆ THUẬT") (Required to enable text overlay)
+- textOverlayStyle: string (Font style selection - see supported values below)
+- textOverlayColor: string (e.g. "white", "#FFFFFF", "yellow", "#FFD700") (Optional, default "white")
+- textOverlayPosition: string ("Bottom Left", "Bottom Right", "Top Left", "Top Right", "Center", "Top", "Bottom")
+- textAlign: string ("Left", "Center", "Right") (Optional, default "Center". Used for multi-line text alignment)
+- textOverlayFontSize: integer (e.g. 28, 36, 48, 52) (Optional, default 28)
+- addQuotes: boolean (true/false) (Optional, default true - automatically adds aesthetic quotes “ ”)
+
+2) Static Mode & Custom Coordinates (New):
+- disableTextScroll / staticText / noScroll: boolean (true/false)
+  (Default false. When true, disables typewriter animation & keeps text static throughout video)
+- textOverlayXPercent / textXPercent: double (0.0 to 1.0, e.g. 0.05 = left margin 5%)
+- textOverlayYPercent / textYPercent: double (0.0 to 1.0, e.g. 0.85 = bottom margin 85%)
+
+=== CROP / ZOOM ===
+- cropEnabled: boolean (true/false)
+- cropZoomPercent: double (1.0 - 200.0, ví dụ 15.5 tức là zoom vào 15.5%)
+- cropAspectRatio: string ("1:1", "4:5", "16:9", "9:16")
+- cropXPercent: double (0 - 100, ví dụ 50 là ở giữa chiều ngang)
+- cropYPercent: double (0 - 100, ví dụ 50 là ở giữa chiều dọc)
+- cropWidthPercent: double (10 - 100, ví dụ 80 là chiếm 80% chiều rộng video)
+- cropHeightPercent: double (10 - 100, ví dụ 80 là chiếm 80% chiều cao video)
+
+=== CAPTION SYNC (AI Whisper) ===
+- enableCaptionSync: boolean (true/false) - Bật/tắt tự động tạo phụ đề theo lời audio
+- captionSyncLanguage: string ("auto", "vi", "en", "ja", "ko", "zh") - Ngôn ngữ nhận dạng
+- captionSyncModelSize: string ("Small", "Medium", "Large V3 Turbo") - Chọn model AI (càng lớn càng chính xác, default: Small)
+- captionSyncAnimation: string ("None", "Spotify Scroll", "Pop", "Drift", "Glow", "Karaoke", "Typewriter", "Blur Reveal") - Chọn hiệu ứng (Mặc định tĩnh. Các tùy chọn: cuộn Spotify, nảy Pop & Bounce, trôi dạt Drift, toả sáng Glow, Karaoke Fade, Typewriter gõ chữ, Blur Reveal mờ ảo)
+- captionSyncFontFamily: string (e.g. "Georgia", "Segoe UI", "Times New Roman", "Arial", "Thư Pháp") - Chọn Font chữ phụ đề
+- captionSyncPosition: string ("Bottom Center", "Top Center", "Center", "Custom (X% Y%)") - Vị trí caption
+- captionSyncXPercent: double (0-100) - Tọa độ X (dùng khi Position là Custom)
+- captionSyncYPercent: double (0-100) - Tọa độ Y (dùng khi Position là Custom)
+- captionSyncFontSize: integer (16-72, default 28) - Cỡ chữ caption
+- captionSyncColor: string (e.g. "white", "yellow", "#FFD700") - Màu chữ caption
+
+3) Dynamic Neon Glow Styling (New):
+- enableTextGlow / textGlow: boolean (true/false)
+  (Default false. Enables smooth breathing neon aura glow behind text)
+- textGlowColor / glowColor: string
+  Supported values: "Cyan Neon", "Magenta Neon", "Gold Neon", "Emerald Neon", "Electric Purple", "Hot Pink", "Red Glow", "White Glow"
+
+Supported textOverlayStyle values:
+- "Aesthetic Lyric (Georgia / Times Italic)" (or "Georgia" / "Lyric") [Default]
+- "Modern Sans (Segoe UI Italic)" (or "Segoe UI" / "Segoe")
+- "Classic Serif (Times New Roman Italic)" (or "Times New Roman" / "Times")
+- "Clean Sans (Arial Italic)" (or "Arial")
+- "Calibri Italic" (or "Calibri")
+- "Thư Pháp Nghệ Thuật (Calligraphy)" (or "Calligraphy")
+
+Supported textOverlayPosition values:
+- "Bottom Left" [Recommended for quote subtitles]
+- "Bottom Right"
+- "Top Left"
+- "Top Right"
+- "Center"
+- "Top"
+- "Bottom"
+
+Multi-line text:
+- In the API: Use \n inside the JSON string to create new lines.
+  Example: "textOverlay": "Dòng 1\nDòng 2\nDòng 3"
+
+Example JSON Request (Static Subtitle + Bottom Left + Cyan Neon Glow):
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\text_quote.mp4",
+  "textOverlay": "Hãy sống thật\nvới chính mình",
+  "textOverlayStyle": "Aesthetic Lyric (Georgia / Times Italic)",
+  "textOverlayColor": "white",
+  "textOverlayPosition": "Bottom Left",
+  "textOverlayFontSize": 32,
+  "addQuotes": true,
+  "disableTextScroll": true,
+  "enableTextGlow": true,
+  "textGlowColor": "Cyan Neon"
+}
+
+============================================================
+5) WATERMARK + FADE EXAMPLE
+============================================================
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\watermark_fade.mp4",
+  "watermarkFile": "C:\\Users\\lemin\\Desktop\\logo.png",
+  "watermarkScale": 1.0,
+  "watermarkOpacity": 0.85,
+  "watermarkRotation": 0,
+  "watermarkXPercent": 0.90,
+  "watermarkYPercent": 0.10,
+  "enableFade": true,
+  "fadeInSeconds": 0.8,
+  "fadeOutSeconds": 0.8
+}
+
+============================================================
+6) RESPONSE FIELDS YOU SHOULD USE IN BAS
+============================================================
+Core:
+- success
+- message
+- queueId
+- jobId
+- status
+- done
+- jobSuccess
+- progress
+- statusUrl
+
+============================================================
+7) BAS FLOW EXAMPLE (QUEUE + MERGE)
+============================================================
+Step A - Add merged job:
+POST /api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\a.mp4",
+    "C:\\Users\\lemin\\Desktop\\b.mp4"
+  ],
+  "mergeVideos": true,
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\final.mp4"
+}
+
+Response returns:
+- jobId
+- statusUrl
+
+Step B - Start queue:
+POST /api/queue/start
+{}
+
+Step C - Poll:
+GET /api/render/status?jobId=<jobId_from_step_A>
+
+Stop when done == true.
+
+============================================================
+END
+============================================================
+\nThe above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+  - overlay = "Rain Overlay" + border = "Dashed Polaroid Frame"
+  - overlay = "Snowfall Overlay" + border = "Polaroid Scrapbook 2"
+
+============================================================
+4C) FX EFFECT PRESETS (fxEffect values)
+============================================================
+Canonical names:
+- None\nThe above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+- Flip Horizontal (Anti-Copyright)
+- RÃ² phim (Leak 1 / Light Leak)
+- Light Leak Burn
+- Cinematic Glow
+- Halo Glow
+- Prism Light
+- Editorial Bloom
+- Dust & Scratches
+- Crop Video (Custom Frame)
+
+Alias examples accepted by API:
+- leak 1 / light leak / film leak / rÃ² phim / ro phim -> RÃ² phim (Leak 1 / Light Leak)
+- light leak burn / lightleakburn / film burn / burn transition / light burn -> Light Leak Burn
+- cinematic glow / glow -> Cinematic Glow
+- halo / halo glow -> Halo Glow
+- prism / prism light -> Prism Light
+- editorial bloom / bloom / editorial -> Editorial Bloom
+- dust & scratches / dust and scratches / dust scratches / old film scratches / scratch / scratch video / film scratch / video scratch -> Dust & Scratches
+- crop / custom frame -> Crop Video (Custom Frame)
+
+============================================================
+4D) OVERLAY EXAMPLES
+============================================================
+Recommended format:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\overlay_test.mp4",
+  "overlay": "Polaroid Scrapbook 2"
+}
+
+Other examples:
+- "overlay": "Light Leak Overlay"
+- "overlay": "Rain Overlay"
+- "overlay": "Dreamy Dot Chaos Overlay"
+- "overlay": "Dreamy Dot Overlay 2"
+- "overlay": "Snowfall Overlay"
+- "overlay": "Polaroid Scrapbook"
+- "overlay": "RGB Polaroid Border"
+- "overlay": "Dashed Polaroid Frame"
+- "overlay": "Dust & Scratches"
+
+Aliases also work:
+- "overlay": "light leak"
+- "overlay": "rain"
+- "overlayPreset": "Heavy Rain"
+- "overlayPreset": "dreamy dot chaos"
+- "overlay": "rounded polaroid"
+- "overlay": "rgb border"
+- "overlay": "dashed frame"
+- "overlay": "scratch video"
+
+Light Leak Overlay example:
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\img1.png",
+    "C:\\Users\\lemin\\Desktop\\img2.png",
+    "C:\\Users\\lemin\\Desktop\\img3.png"
+  ],
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\light_leak_overlay.mp4",
+  "templateName": "Beat Photo Dump",
+  "overlay": "Light Leak Overlay",
+  "lightLeakOverlayMode": "burst",
+  "lightLeakOverlayId": "FilmBurnWarm",
+  "lightLeakOverlayOpacity": 0.14,
+  "imageTimelineDurationSeconds": 12
+}
+
+Rain Overlay example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\rain_overlay.mp4",
+  "overlay": "Rain Overlay",
+  "rainOverlayPreset": "Heavy Rain",
+  "rainOverlayIntensity": "medium"
+}
+
+Dreamy Dot Chaos example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\dreamy_dot_chaos.mp4",
+  "overlayPreset": "dreamy dot chaos"
+}
+
+Snowfall opacity example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\snowfall_opacity.mp4",
+  "overlay": "Snowfall Overlay",
+  "snowfallPreset": "Snow Cinematic",
+  "snowfallOpacity": 0.22
+}
+
+Audio overlay example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\audio_overlay.mp4",
+  "audioFile": "C:\\Users\\lemin\\Desktop\\music1.mp3",
+  "audioFile2": "C:\\Users\\lemin\\Desktop\\music2.mp3",
+  "audioVolume": 0.9,
+  "audio2Volume": 0.7
+}
+
+============================================================
+4F) AUDIO 1 / AUDIO 2 API
+============================================================
+Use these fields when you want 2 audio layers in the same render:
+- audioFile: Audio 1 primary track
+- audioFile2: Audio 2 overlay track
+- audioVolume: volume for Audio 1
+- audio2Volume: volume for Audio 2
+- secondaryAudioVolume: alias of audio2Volume
+
+Behavior:
+- If only audioFile exists, Titan uses it as the external audio track.
+- If only audioFile2 exists, Titan uses it as the external audio track.
+- If both exist, Titan mixes them together first, then continues with the normal external-audio pipeline.
+- If audioFiles is also used, that is still the concat/merge mode for multiple audio sources.
+- audioFile2 is not concat mode. It is a second layer that gets stacked onto Audio 1.
+
+Recommended BAS JSON:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\audio_1_2_mix.mp4",
+  "audioFile": "C:\\Users\\lemin\\Desktop\\music_1.mp3",
+  "audioFile2": "C:\\Users\\lemin\\Desktop\\music_2.mp3",
+  "audioVolume": 1.0,
+  "audio2Volume": 0.8,
+  "externalAudioSpeed": 1.0
+}
+
+If you want a single audio track made from many files:
+- use audioFiles + mergeAudio
+- do not use audioFile2 for concat
+
+If you want one audio track plus a second layer:
+- use audioFile + audioFile2
+- set audioVolume / audio2Volume separately
+- BAS can still poll the same statusUrl and done/jobSuccess fields as normal
+
+Snow toggle asset example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\snow_double.mp4",
+  "overlay1": true,
+  "overlay2": true,
+  "overlay1Opacity": 0.18,
+  "overlay2Opacity": 0.30,
+  "snowfallOpacity": 0.18
+}
+
+Overlay + Border stack example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.jpg",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\dreamy_border_stack.mp4",
+  "overlay": "Dreamy Dot Chaos Overlay",
+  "border": "RGB Polaroid Border",
+  "imageTimelineDurationSeconds": 6
+}
+
+Custom asset auto-detect example:
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\custom_rain_detect.mp4",
+  "overlay": "Rain Overlay",
+  "rainOverlayAssetPath": "C:\\Users\\lemin\\Desktop\\assets\\rain_or_green_or_alpha.mp4"
+}
+
+Notes:
+- Titan does not trust the file name to choose the pipeline.
+- It probes the real asset file each render.
+- If you overwrite the same file name with a new asset, Titan re-detects it automatically.
+
+============================================================
+4E) TEXT OVERLAY API
+============================================================
+Use these fields to add animated typewriter or static text to the output video:
+- textOverlay: string (e.g. "CÂU TRÍCH DẪN NGHỆ THUẬT") (Required to enable text overlay)
+- textOverlayStyle: string (Font style selection - see supported values below)
+- textOverlayColor: string (e.g. "white", "#FFFFFF", "yellow", "#FFD700") (Optional, default "white")
+- textOverlayPosition: string (Position preset: "Center", "Top", "Bottom", "Top Left", "Top Right", "Bottom Left", "Bottom Right")
+- textAlign: string ("Left", "Center", "Right") (Optional, default "Center". Used for multi-line text alignment)
+- textOverlayFontSize: integer (e.g. 28, 36, 48, 52) (Optional, default 28)
+- addQuotes: boolean (true/false) (Optional, default true - automatically adds aesthetic quotes “ ”)
+
+Positioning & Static Mode (Easy & Flexible):
+- disableTextScroll / staticText / noScroll: boolean (true/false) (Default false. When true, disables typewriter animation & keeps text static throughout video)
+- textOverlayXPercent / textXPercent / textX: double (e.g. 10 or 0.10 = 10% from left, 50 = center X)
+- textOverlayYPercent / textYPercent / textY: double (e.g. 85 or 0.85 = 85% from top, near bottom)
+  * Cách nhập cực kỳ dễ dùng:
+    - Nhập dạng số nguyên 0 -> 100 (ví dụ: textX: 10 nghĩa là 10% lề trái, textY: 85 nghĩa là 85% dưới đáy).
+    - Hoặc nhập dạng thập phân 0.0 -> 1.0 (ví dụ: textX: 0.10, textY: 0.85).
+    - Chỉ cần truyền textX hoặc textY là hệ thống tự động nhận tọa độ ngay (tự động đè lên vị trí mặc định)!
+
+Neon Glow Styling (New):
+- enableTextGlow / textGlow: boolean (true/false) (Default false. Enables vibrant neon aura glow behind text)
+- textGlowColor / glowColor: string ("Cyan Neon", "Magenta Neon", "Gold Neon", "Emerald Neon", "Electric Purple", "Hot Pink", "Red Glow", "White Glow")
+
+Supported textOverlayStyle values:
+1) "Aesthetic Lyric (Georgia / Times Italic)" (or "Georgia" / "Lyric") [Default]
+   - Classic cinematic serif style.
+   - Auto-Detect Rule: If text contains Vietnamese diacritics, Titan automatically uses Times New Roman Italic (same classic serif look with 100% Vietnamese unicode support) to avoid broken glyphs.
+2) "Modern Sans (Segoe UI Italic)" (or "Segoe UI" / "Segoe")
+   - Modern, sleek sans-serif font. Perfect for Vietnamese quotes & lyrics.
+3) "Classic Serif (Times New Roman Italic)" (or "Times New Roman" / "Times")
+   - Traditional serif font with 100% full Vietnamese diacritic support.
+4) "Clean Sans (Arial Italic)" (or "Arial")
+   - High legibility clean sans-serif.
+5) "Calibri Italic" (or "Calibri")
+   - Soft modern sans-serif.
+6) "Thư Pháp Nghệ Thuật (Calligraphy)" (or "Calligraphy" / "Thư Pháp") [NEW]
+   - Elegant brush calligraphy font (UTM Thư Pháp) with 100% full Vietnamese support. Perfect for poetic lyrics or aesthetic typography.
+
+Supported textOverlayPosition values:
+- "Center" [Default]
+- "Top"
+- "Bottom"
+- "Top Left"
+- "Top Right"
+- "Bottom Left"
+- "Bottom Right"
+
+Behavior:
+- Text is dynamically rendered with ultra-aesthetic typewriter animation:
+  - Per-character reveal fade-in (1.2s smooth fade)
+  - Subtle upward cinematic drift
+  - Auto-generated drop shadow for high contrast over light/dark video backgrounds
+  - Auto WPF Typeface width measurement to prevent text shifting/smearing
+
+Multi-line text:
+- In the UI: Press Enter in the text box to create new lines.
+- In the API: Use \n inside the JSON string to create new lines.
+  Example: "textOverlay": "DÃ²ng 1\nDÃ²ng 2\nDÃ²ng 3"
+
+Example (single line):
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\text_overlay.mp4",
+  "textOverlay": "ChÃºc báº¡n má»™t ngÃ y trÃ n Ä‘áº§y nÄƒng lÆ°á»£ng!",
+  "textOverlayStyle": "Modern Sans (Segoe UI Italic)",
+  "textOverlayColor": "white",
+  "textOverlayPosition": "Center",
+  "textOverlayFontSize": 32,
+  "addQuotes": true
+}
+
+Example (multi-line):
+{\nThe above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+============================================================
+4F) LIGHT LEAK BURN EXAMPLE
+============================================================
+POST http://localhost:5555/api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\inputA.mp4",
+    "C:\\Users\\lemin\\Desktop\\inputB.mp4"
+  ],
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\lightleakburn.mp4",
+  "fxEffect": "Light Leak Burn",
+  "lightLeakBurnIntensity": 72,
+  "lightLeakBurnSpread": 60,
+  "lightLeakBurnWarmth": 78,
+  "lightLeakBurnBurn": 66,
+  "lightLeakBurnEdgeSoftness": 82,
+  "lightLeakBurnGrain": 38,
+  "lightLeakBurnDirection": "from-left",
+  "lightLeakBurnDuration": 0.95,
+  "lightLeakBurnBlendMode": "screen",
+  "lightLeakBurnOpacity": 0.82,
+  "lightLeakBurnUseAssetOverlay": false
+}
+
+Optional asset overlay fields:
+- lightLeakBurnAssetPath: optional overlay asset path
+- lightLeakBurnUseAssetOverlay: true/false
+
+Then:
+1) POST /api/queue/start
+2) GET /api/render/status?jobId=<jobId_from_add_response>
+
+============================================================
+5) WATERMARK + FADE EXAMPLE
+============================================================
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\watermark_fade.mp4",
+  "watermarkFile": "C:\\Users\\lemin\\Desktop\\logo.png",
+  "watermarkScale": 1.0,
+  "watermarkOpacity": 0.85,
+  "watermarkRotation": 0,
+  "watermarkXPercent": 0.90,
+  "watermarkYPercent": 0.10,
+  "enableFade": true,
+  "fadeInSeconds": 0.8,
+  "fadeOutSeconds": 0.8
+}
+
+Then:
+1) POST /api/queue/start
+2) GET /api/render/status?jobId=<jobId_from_add_response>
+
+============================================================
+6) RESPONSE FIELDS YOU SHOULD USE IN BAS
+============================================================
+Core:
+- success
+- message
+- queueId
+- jobId
+- status
+- done
+- jobSuccess
+- progress
+- statusUrl
+
+Input/merge:
+- inputFile
+- inputFiles
+- inputCount
+- mergeVideos
+- imageTimelineDurationSeconds
+- splitDurationSeconds
+- audioFile
+- audioFile2
+- audioFiles
+- audioCount
+- mergeAudio
+
+Output:
+- requestedOutput
+- engineOutput
+- finalOutput
+- outputVideo
+
+Fade (new):
+- enableFade
+- fadeInSeconds
+- fadeOutSeconds
+
+Video/audio tuning:
+- videoBrightness
+- audioVolume
+- audio2Volume
+- sourceAudioSpeed
+- externalAudioSpeed
+- musicSyncMode
+
+============================================================
+7) BAS FLOW EXAMPLE (QUEUE + MERGE)
+============================================================
+Step A - Add merged job:
+POST /api/queue/add
+{
+  "inputFiles": [
+    "C:\\Users\\lemin\\Desktop\\a.mp4",
+    "C:\\Users\\lemin\\Desktop\\b.mp4"
+  ],
+  "mergeVideos": true,
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\final.mp4"
+}
+
+Response returns:
+- jobId
+- statusUrl
+
+Step B - Start queue:
+POST /api/queue/start
+{}
+
+Step C - Poll:
+GET /api/render/status?jobId=<jobId_from_step_A>
+
+Stop when done == true.
+
+============================================================
+8) TROUBLESHOOT
+============================================================
+- 503 Host mode is OFF:
+  Turn HOST button ON.
+
+- 429 Host is busy:
+  Wait then retry.
+
+- 404 jobId not found:
+  Wrong jobId. Use jobId/statusUrl from add/render response.
+
+- Merge fails:
+  Ensure input files exist and are readable.
+  Try same codec/container inputs for fastest concat.
+
+- Fade not applied:
+  Ensure request has:
+  "enableFade": true
+  "fadeInSeconds": number
+  "fadeOutSeconds": number
+  and check these values in API response.
+
+============================================================
+END
+============================================================
+
+============================================================
+4C) CROSS-CLIP TRANSITIONS (FOR MERGE VIDEOS)
+============================================================
+When merging 2 or more video clips (mergeVideos = true), you can enable CapCut-style transitions between clips:
+
+JSON Parameters:
+- enableCrossTransitions: true / false
+- crossTransitionType: string (Transition Name, e.g. "Whip Left", "Zoom", "Dissolve")
+- crossTransitionDuration: double in seconds (e.g. 0.6, 0.8). Default: 0.6
+
+Available 13 Transition Names (crossTransitionType):
+- Dissolve          (Smooth cross-fade dissolve)
+- Fade (Black)      (Fade to black & reveal next clip)
+- Fade (White)      (Fade to white / flash reveal)
+- Fade (Blur)       (Motion blur crossfade transition between clips)
+- Whip Left         (Fast whip pan transition to the left)
+- Whip Right        (Fast whip pan transition to the right)
+- Whip Up           (Fast whip pan transition upwards)
+- Whip Down         (Fast whip pan transition downwards)
+- Zoom              (Unified dynamic zoom punch transition)
+- Circle Crop       (Circular iris wipe transition)
+- Radial Clock      (Clockwise radial wipe transition)
+- Pixelize          (Digital pixelation transition)
+- Light Leak Burn   (Filmic light leak & burn transition)
+- HBlur             (Horizontal motion blur transition)
+
+Alias examples accepted by API:
+- "zoom in", "zoom out", "cross zoom" -> mapped to Zoom
+- "glitch", "glitch rgb" -> mapped to Pixelize
+- "fadeblack", "black" -> mapped to Fade (Black)
+- "fadewhite", "white" -> mapped to Fade (White)
+- "slideleft" -> mapped to Whip Left
+- "slideright" -> mapped to Whip Right
+- "slideup" -> mapped to Whip Up
+- "slidedown" -> mapped to Whip Down
+\r
+\r
+\nThe above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

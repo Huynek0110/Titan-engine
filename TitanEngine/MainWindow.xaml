@@ -1,0 +1,1146 @@
+<Window x:Class="TitanEngine.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="TITAN ENGINE V94" Height="900" Width="1200"
+        Foreground="White"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResizeWithGrip">
+
+    <Window.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#0D0D10" Offset="0.0"/>
+            <GradientStop Color="#16161D" Offset="0.5"/>
+            <GradientStop Color="#0A0A0C" Offset="1.0"/>
+        </LinearGradientBrush>
+    </Window.Background>
+
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#2D2D35"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#3E3E45"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#3E3E4A"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#00CCFF"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#005580"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#121215"/>
+            <Setter Property="Foreground" Value="#00FFCC"/>
+            <Setter Property="BorderBrush" Value="#333"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+        <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#121215"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="itemBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="itemBorder" Property="Background" Value="#2F2F37"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="itemBorder" Property="Background" Value="#3D3D48"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#777"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Background" Value="#121215"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItemStyle}"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,20"/>
+            <Setter Property="Padding" Value="15"/>
+            <Setter Property="BorderBrush" Value="#333"/>
+            <Setter Property="Background" Value="#1A1A1E"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupBox">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Grid.RowSpan="2" Background="#05FFFFFF" CornerRadius="6" BorderBrush="#333" BorderThickness="1"/>
+                            <Border Grid.Row="0" Background="Transparent" Padding="15,10,0,5">
+                                <ContentPresenter ContentSource="Header" TextElement.FontWeight="Bold"/>
+                            </Border>
+                            <ContentPresenter Grid.Row="1" Margin="15,5,15,15"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Slider">
+            <Setter Property="IsSnapToTickEnabled" Value="False"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid Margin="25">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="420"/>
+                <ColumnDefinition Width="25"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT PANEL -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+                    <Border Width="6" Height="42" CornerRadius="3" Margin="0,0,15,0" Background="#00CCFF"/>
+                    <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
+                        <TextBlock Text="TITAN ENGINE" FontSize="26" FontWeight="Black" Foreground="White"/>
+                        <TextBlock FontSize="11" Foreground="#00CCFF" Opacity="0.8" FontWeight="Bold"><Run Text="V106.0 // RES FIX"/><LineBreak/><Run/></TextBlock>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- SCROLLABLE CONTENT -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,10,10">
+                    <StackPanel>
+                        <!-- 1. SOURCE FILES -->
+                        <GroupBox Header="SOURCE &amp; TRIM" Foreground="#00CCFF" FontSize="13">
+                            <StackPanel>
+                                <TextBlock Text="Source Media (Video/Image)" Foreground="#888" FontSize="11" Margin="0,0,0,5"/>
+                                <Grid Margin="0,0,0,15">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="txtVideoPath" Grid.Column="0" IsReadOnly="True" Text="Drop Video/Image Here..." FontStyle="Italic" Opacity="0.5"/>
+                                    <Button x:Name="btnBrowseVideo" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseVideo_Click"/>
+                                </Grid>
+
+                                <CheckBox x:Name="chkMergeVideos" Content="Merge Videos Into One Output (Concat)" Foreground="#66E0FF" Margin="0,-5,0,5" Checked="MergeOptionChanged" Unchecked="MergeOptionChanged"/>
+
+                                <StackPanel Margin="0,0,0,10">
+                                    <CheckBox x:Name="chkEnableCrossTransitions" Content="⚡ CapCut Cross-Clip Transitions" Foreground="#FF66C4" FontWeight="Bold" Margin="0,0,0,5"/>
+                                    <Grid Margin="15,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="65"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="cmbCrossTransitionType" Grid.Column="0" Height="28" Padding="6,4,6,4" FontSize="11" Background="#181825" Foreground="White" SelectedIndex="0">
+                                            <ComboBoxItem Content="Dissolve"/>
+                                            <ComboBoxItem Content="Fade (Black)"/>
+                                            <ComboBoxItem Content="Fade (White)"/>
+                                            <ComboBoxItem Content="Fade (Blur)"/>
+                                            <ComboBoxItem Content="Fade (Opacity)"/>
+                                            <ComboBoxItem Content="Whip Left"/>
+                                            <ComboBoxItem Content="Whip Right"/>
+                                            <ComboBoxItem Content="Whip Up"/>
+                                            <ComboBoxItem Content="Whip Down"/>
+                                            <ComboBoxItem Content="Zoom"/>
+                                            <ComboBoxItem Content="Circle Crop"/>
+                                            <ComboBoxItem Content="Radial Clock"/>
+                                            <ComboBoxItem Content="Pixelize"/>
+                                            <ComboBoxItem Content="Light Leak Burn"/>
+                                            <ComboBoxItem Content="HBlur"/>
+                                        </ComboBox>
+                                        <TextBox x:Name="txtCrossTransitionDuration" Grid.Column="2" Text="0.6" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" ToolTip="Transition Duration in seconds (e.g. 0.6)"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <Grid Margin="0,0,0,15">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="15"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Start (00:00:00)" Foreground="#FFCC00" FontSize="11"/>
+                                        <TextBox x:Name="txtTrimStart" Text="00:00:00"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Duration" Foreground="#FFCC00" FontSize="11"/>
+                                        <TextBox x:Name="txtTrimDuration" ToolTip="Empty = Full"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <StackPanel Margin="0,0,0,15">
+                                    <TextBlock Text="Split Duration (sec)" Foreground="#FFCC00" FontSize="11" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="txtSplitDuration" ToolTip="Split rendered video into segments of this duration (seconds). Leave empty to skip splitting."/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,0,0,15">
+                                    <TextBlock Text="Image Timeline Duration (sec)" Foreground="#888" FontSize="11" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="txtImageTimelineDuration" ToolTip="Total duration shared across all selected image inputs. Leave empty to keep default per-image timing."/>
+                                </StackPanel>
+
+                                <TextBlock Text="Audio 1 (Opt)" Foreground="#888" FontSize="11" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="txtAudioPath" Grid.Column="0" IsReadOnly="True" Text="Select Audio 1..." FontStyle="Italic" Opacity="0.5"/>
+                                    <Button x:Name="btnBrowseAudio" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseAudio_Click"/>
+                                </Grid>
+                                <TextBlock Text="Audio 2 (Overlay)" Foreground="#888" FontSize="11" Margin="0,10,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="txtAudioPath2" Grid.Column="0" IsReadOnly="True" Text="Select Audio 2..." FontStyle="Italic" Opacity="0.5"/>
+                                    <Button x:Name="btnBrowseAudio2" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseAudio2_Click"/>
+                                </Grid>
+                                <CheckBox x:Name="chkMergeAudios" Content="Merge Audio Tracks Into One Output (Concat)" Foreground="#FFD580" Margin="0,8,0,0" Checked="MergeOptionChanged" Unchecked="MergeOptionChanged"/>
+                                <Button x:Name="btnRandomCombos" Content="🎲 RANDOM VIDEO × AUDIO" Visibility="Collapsed" Background="#6A4C00" BorderBrush="#FFCC00" Foreground="#FFE680" FontWeight="Bold" Margin="0,8,0,0" Height="44" Click="BtnRandomCombos_Click" ToolTip="Tạo mọi tổ hợp Video/Image × Audio thành nhiều queue, giữ nguyên toàn bộ setting hiện tại"/>
+                                <Button x:Name="btnEditAudio" Content="EDIT AUDIO DURATIONS" Background="#4A3D7A" BorderBrush="#9B84EC" Margin="0,10,0,0" Click="BtnOpenAudioEditor_Click"/>
+                                <TextBlock x:Name="txtAudioEditSummary" Text="No audio cuts applied" Foreground="#777" FontSize="9" Margin="0,4,0,0"/>
+
+                                <Grid Margin="0,12,0,5">
+                                    <TextBlock Text="Added Audio Speed" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldExternalAudioSpeed, Path=Value, StringFormat={}{0:0.00}x}" Foreground="#FFD580" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldExternalAudioSpeed" Minimum="0.25" Maximum="4.0" Value="1.0" TickFrequency="0.25" AutoToolTipPlacement="TopLeft"/>
+                                <TextBlock Text="Only the optional audio track is affected" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- BUTTON ADD TO QUEUE -->
+                        <Button x:Name="btnAddJob" Height="50" Click="BtnAddJob_Click" Background="#0066CC" BorderBrush="#0088FF" Margin="0,0,0,10">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="+" FontSize="20" FontWeight="Bold" Margin="0,0,10,0"/>
+                                <TextBlock Text="ADD TO QUEUE" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        
+                        <!-- 2. FX STUDIO (ĐÃ THÊM LẠI VISUAL BAR) -->
+                        <GroupBox Header="FX STUDIO" Foreground="#9B84EC" FontSize="13">
+                            <StackPanel>
+                                <TextBlock Text="Effect" Foreground="#888" FontSize="11"/>
+                                <ComboBox x:Name="cmbFxType" Margin="0,0,0,10" SelectionChanged="FxOrOverlaySelectionChanged">
+                                    <ComboBoxItem Content="None" IsSelected="True"/>
+                                    <ComboBoxItem Content="Flip Horizontal (Anti-Copyright)"/>
+                                    <ComboBoxItem Content="Rò phim (Leak 1 / Light Leak)"/>
+                                    <ComboBoxItem Content="Light Leak Burn"/>
+                                    <ComboBoxItem Content="Cinematic Glow"/>
+                                    <ComboBoxItem Content="Halo Glow"/>
+                                    <ComboBoxItem Content="Prism Light"/>
+                                    <ComboBoxItem Content="Editorial Bloom"/>
+                                    <ComboBoxItem Content="Crop Video (Custom Frame)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Template (CapCut Style)" Foreground="#888" FontSize="11"/>
+                                <ComboBox x:Name="cmbTemplateStyle" Margin="0,0,0,10">
+                                    <ComboBoxItem Content="None" IsSelected="True"/>
+                                    <ComboBoxItem Content="Smooth Zoom In"/>
+                                    <ComboBoxItem Content="Smooth Zoom Out"/>
+                                    <ComboBoxItem Content="Pan Left"/>
+                                    <ComboBoxItem Content="Pan Right"/>
+                                    <ComboBoxItem Content="Velocity Punch"/>
+                                    <ComboBoxItem Content="Cinematic Fade Zoom"/>
+                                    <ComboBoxItem Content="Glitch Distort"/>
+                                    <ComboBoxItem Content="3D Spin Lite"/>
+                                    <ComboBoxItem Content="Trend Zoom Flash"/>
+                                    <ComboBoxItem Content="Trend Blur Pulse"/>
+                                    <ComboBoxItem Content="Trend Spin Glitch"/>
+                                    <ComboBoxItem Content="Digicam Memory"/>
+                                    <ComboBoxItem Content="Beat Photo Dump"/>
+                                    <ComboBoxItem Content="Film Strip"/>
+                                    <ComboBoxItem Content="Magazine Cover"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Overlay" Foreground="#888" FontSize="11"/>
+                                <StackPanel Margin="0,0,0,12">
+                                    <CheckBox x:Name="chkSnowOverlay1"
+                                              Content="Overlay 1"
+                                              Foreground="#AEEBFF"
+                                              Margin="0,0,0,6"
+                                              Checked="FxOrOverlayToggleChanged"
+                                              Unchecked="FxOrOverlayToggleChanged"/>
+                                    <CheckBox x:Name="chkSnowOverlay2"
+                                              Content="Overlay 2"
+                                              Foreground="#AEEBFF"
+                                              Margin="0,0,0,6"
+                                              Checked="FxOrOverlayToggleChanged"
+                                              Unchecked="FxOrOverlayToggleChanged"/>
+                                    <CheckBox x:Name="chkSnowOverlay3"
+                                              Content="Overlay 3"
+                                              Foreground="#AEEBFF"
+                                              Margin="0,0,0,6"
+                                              Checked="FxOrOverlayToggleChanged"
+                                              Unchecked="FxOrOverlayToggleChanged"/>
+                                    <CheckBox x:Name="chkOverlayIntro"
+                                              Content="Overlay Intro"
+                                              Foreground="#AEEBFF"
+                                              Checked="FxOrOverlayToggleChanged"
+                                              Unchecked="FxOrOverlayToggleChanged"/>
+                                </StackPanel>
+
+                                <StackPanel x:Name="pnlRainOverlaySettings" Visibility="Collapsed" Margin="0,-4,0,12">
+                                    <TextBlock Text="Rain Preset" Foreground="#888" FontSize="11"/>
+                                    <ComboBox x:Name="cmbRainOverlayPreset" Margin="0,0,0,8">
+                                        <ComboBoxItem Content="Heavy Rain" IsSelected="True"/>
+                                        <ComboBoxItem Content="Cinematic Rain"/>
+                                        <ComboBoxItem Content="Window Drops"/>
+                                    </ComboBox>
+
+                                    <TextBlock Text="Rain Intensity" Foreground="#888" FontSize="11"/>
+                                    <ComboBox x:Name="cmbRainOverlayIntensity" Margin="0,0,0,4">
+                                        <ComboBoxItem Content="medium" IsSelected="True"/>
+                                        <ComboBoxItem Content="subtle"/>
+                                        <ComboBoxItem Content="strong"/>
+                                    </ComboBox>
+                                    <TextBlock Text="Uses real rain video assets from Assets/Overlays/Rain"
+                                               Foreground="#666"
+                                               FontSize="9"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Border" Foreground="#888" FontSize="11"/>
+                                <ComboBox x:Name="cmbBorderType" Margin="0,0,0,12" SelectionChanged="FxOrOverlaySelectionChanged">
+                                    <ComboBoxItem Content="None" IsSelected="True"/>
+                                    <ComboBoxItem Content="Polaroid Scrapbook"/>
+                                    <ComboBoxItem Content="Polaroid Scrapbook 2"/>
+                                    <ComboBoxItem Content="RGB Polaroid Border"/>
+                                    <ComboBoxItem Content="Dashed Polaroid Frame"/>
+                                </ComboBox>
+
+                                <StackPanel x:Name="pnlSnowfallOpacity" Visibility="Collapsed" Margin="0,-4,0,12">
+                                    <StackPanel x:Name="pnlSnowOverlay1Opacity" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Overlay 1 Opacity" Foreground="#888" FontSize="11"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ElementName=sldSnowOverlay1Opacity, Path=Value, StringFormat={}{0:0}%}"
+                                                       Foreground="#B8F2FF"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Slider x:Name="sldSnowOverlay1Opacity"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="55"
+                                                TickFrequency="1"
+                                                AutoToolTipPlacement="TopLeft"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlSnowOverlay2Opacity" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Overlay 2 Opacity" Foreground="#888" FontSize="11"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ElementName=sldSnowOverlay2Opacity, Path=Value, StringFormat={}{0:0}%}"
+                                                       Foreground="#B8F2FF"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Slider x:Name="sldSnowOverlay2Opacity"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="55"
+                                                TickFrequency="1"
+                                                AutoToolTipPlacement="TopLeft"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlSnowOverlay3Opacity" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Overlay 3 Opacity" Foreground="#888" FontSize="11"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ElementName=sldSnowOverlay3Opacity, Path=Value, StringFormat={}{0:0}%}"
+                                                       Foreground="#B8F2FF"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Slider x:Name="sldSnowOverlay3Opacity"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="55"
+                                                TickFrequency="1"
+                                                AutoToolTipPlacement="TopLeft"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlOverlayIntroOpacity" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Intro Opacity" Foreground="#888" FontSize="11"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ElementName=sldOverlayIntroOpacity, Path=Value, StringFormat={}{0:0}%}"
+                                                       Foreground="#B8F2FF"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Slider x:Name="sldOverlayIntroOpacity"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="100"
+                                                TickFrequency="1"
+                                                AutoToolTipPlacement="TopLeft"/>
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="pnlSnowSharedOpacity" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Snow Opacity" Foreground="#888" FontSize="11"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding ElementName=sldSnowfallOpacity, Path=Value, StringFormat={}{0:0}%}"
+                                                       Foreground="#B8F2FF"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Slider x:Name="sldSnowfallOpacity"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="55"
+                                                TickFrequency="1"
+                                                AutoToolTipPlacement="TopLeft"/>
+                                    </StackPanel>
+
+                                    <TextBlock Text="Overlay 1, 2, 3, and Intro use separate opacity sliders."
+                                               Foreground="#666"
+                                               FontSize="9"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <CheckBox x:Name="chkEnableBrandLogo"
+                                          Content="Use TITAN Logo"
+                                          Foreground="#AEEBFF"
+                                          Margin="0,-4,0,8"/>
+
+                                <TextBlock Text="Logo Position" Foreground="#888" FontSize="11"/>
+                                <ComboBox x:Name="cmbBrandLogoPosition" Margin="0,0,0,12">
+                                    <ComboBoxItem Content="Top Right" IsSelected="True"/>
+                                    <ComboBoxItem Content="Top Left"/>
+                                    <ComboBoxItem Content="Center Top"/>
+                                    <ComboBoxItem Content="Bottom Right"/>
+                                    <ComboBoxItem Content="Bottom Left"/>
+                                    <ComboBoxItem Content="Center Bottom"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Intensity" Foreground="#888" FontSize="11"/>
+                                <Slider x:Name="sldFxIntensity" Minimum="0" Maximum="100" Value="50" Margin="0,0,0,15"/>
+
+                                <TextBlock Text="Magazine Cover Title" Foreground="#888" FontSize="11"/>
+                                <TextBox x:Name="txtMagazineCoverTitle" Text="TITAN" Margin="0,0,0,8"/>
+
+                                <TextBlock Text="Magazine Cover Subtitle" Foreground="#888" FontSize="11"/>
+                                <TextBox x:Name="txtMagazineCoverSubtitle" Text="COVER STORY" Margin="0,0,0,12"/>
+
+                                <TextBlock Text="Crop Zoom (9:16)" Foreground="#888" FontSize="11"/>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Center crop and zoom in automatically" Foreground="#666" FontSize="10"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding ElementName=sldCropZoom, Path=Value, StringFormat={}{0:0}%}"
+                                               Foreground="#FFCC66"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                </Grid>
+                                <Slider x:Name="sldCropZoom"
+                                        Minimum="0"
+                                        Maximum="80"
+                                        Value="0"
+                                        TickFrequency="1"
+                                        AutoToolTipPlacement="TopLeft"
+                                        Margin="0,0,0,4"/>
+                                <ComboBox x:Name="cmbCropAspectRatio" Visibility="Collapsed">
+                                    <ComboBoxItem Content="Free" IsSelected="True"/>
+                                </ComboBox>
+                                <TextBlock Text="0% = no crop, 50% = medium zoom crop. Output is kept in 9:16."
+                                           Foreground="#666"
+                                           FontSize="10"
+                                           Margin="0,0,0,12"
+                                           TextWrapping="Wrap"/>
+
+                                <!-- [FIX] VISUAL TIMELINE BAR (THÀNH PHẦN BỊ THIẾU) -->
+                                <TextBlock Text="Timeline Preview (Phạm vi áp dụng)" Foreground="#FFCC00" FontSize="11" Margin="0,0,0,5"/>
+                                <Border x:Name="brdTimelineContainer" BorderBrush="#444" BorderThickness="1" Height="25" Background="#1A1A1A" Margin="0,0,0,10" CornerRadius="3">
+                                    <!-- Grid này sẽ chứa thanh màu cam -->
+                                    <Grid x:Name="gridTimelinePreview" Background="#1A1A1A">
+                                        <Border x:Name="bdrFxRange" Background="#FFCC00" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="0" MinWidth="0" Opacity="0.9" CornerRadius="2" Margin="0"/>
+                                    </Grid>
+                                </Border>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,5,0">
+                                        <TextBlock Text="Start %" Foreground="#888" FontSize="11"/>
+                                        <Slider x:Name="sldFxStart" Minimum="0" Maximum="100" Value="0" ValueChanged="SldFx_ValueChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                                        <TextBlock Text="End %" Foreground="#888" FontSize="11"/>
+                                        <Slider x:Name="sldFxEnd" Minimum="0" Maximum="100" Value="100" ValueChanged="SldFx_ValueChanged"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Border BorderBrush="#3D325E" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,14,0,0" Background="#161421">
+                                    <StackPanel>
+                                        <CheckBox x:Name="chkEnableFade" Content="Enable Fade In / Out" Foreground="#C9BAFF" Margin="0,0,0,8"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="12"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="Fade In (sec)" Foreground="#888" FontSize="11"/>
+                                                <TextBox x:Name="txtFadeInSeconds" Text="0.8"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Fade Out (sec)" Foreground="#888" FontSize="11"/>
+                                                <TextBox x:Name="txtFadeOutSeconds" Text="0.8"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 2.5 SLOW MOTION -->
+                        <GroupBox Header="⏱ SLOW MOTION" Foreground="#FF6600" FontSize="13">
+                            <StackPanel>
+                                <TextBlock Text="Speed Mode" Foreground="#888" FontSize="11" Margin="0,0,0,5"/>
+                                <ComboBox x:Name="cmbSlowMotion" Margin="0,0,0,10" SelectionChanged="cmbSlowMotion_SelectionChanged">
+                                    <ComboBoxItem Content="0.5x (Half Speed)"/>
+                                    <ComboBoxItem Content="0.75x (3/4 Speed)"/>
+                                    <ComboBoxItem Content="1.0x (Normal)" IsSelected="True"/>
+                                    <ComboBoxItem Content="1.5x (1.5x Speed)"/>
+                                    <ComboBoxItem Content="2.0x (Double Speed)"/>
+                                    <ComboBoxItem Content="Custom (Nhập số)"/>
+                                </ComboBox>
+
+                                <TextBox x:Name="txtSlowMotionCustom" Visibility="Collapsed" Margin="0,0,0,10" Text="1.0" ToolTip="Input speed (0.1-8.0, accepts 0.5 or 0,5)" TextChanged="txtSlowMotionCustom_TextChanged"/>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox x:Name="chkSlowMotionAudio" Grid.Column="0" IsChecked="True" Checked="chkSlowMotionAudio_Checked" Unchecked="chkSlowMotionAudio_Unchecked" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Grid.Column="1" Text="Stretch audio with video (uncheck to keep original speed)" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Grid Margin="0,12,0,5">
+                                    <TextBlock Text="Source Audio Speed" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldSourceAudioSpeed, Path=Value, StringFormat={}{0:0.00}x}" Foreground="#FF8800" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldSourceAudioSpeed" Minimum="0.25" Maximum="4.0" Value="1.0" TickFrequency="0.25" AutoToolTipPlacement="TopLeft"/>
+                                <TextBlock Text="Only the source video's own audio is affected" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 3. AI UPSCALE -->
+                        <GroupBox Header="🚀 AI UPSCALE ENGINE" Foreground="#00FF00" FontSize="13">
+                            <StackPanel>
+                                <TextBlock Text="Upscale Mode (AI Neural Network - FSRCNNX)" Foreground="#888" FontSize="11" Margin="0,0,0,5"/>
+                                <ComboBox x:Name="cmbUpscale" Margin="0,0,0,10" SelectionChanged="cmbUpscale_SelectionChanged_1">
+                                    <ComboBoxItem Content="Off (Original Size)" IsSelected="True"/>
+                                    <ComboBoxItem Content="2x Upscale (Live-Action AI)"/>
+                                    <ComboBoxItem Content="4x Upscale (Ultra Quality)"/>
+                                </ComboBox>
+                                <TextBlock Text="Sharpness Level" Foreground="#888" FontSize="11"/>
+                                <Grid Margin="0,0,0,5">
+                                    <Slider x:Name="sldSharpness" Minimum="0.0" Maximum="2.0" Value="1.0" TickFrequency="0.1" Grid.Column="0"/>
+                                    <TextBlock Text="{Binding ElementName=sldSharpness, Path=Value, StringFormat={}{0:F1}}" Foreground="#00FF00" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <TextBlock Text="0=Soft | 1.0=Balanced | 2.0=Ultra Sharp" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 4. MOTION EDITOR -->
+                        <GroupBox Header="🎬 MOTION EDITOR" Foreground="#FF9900" FontSize="13">
+                            <StackPanel>
+                                <CheckBox x:Name="chk60fps" Content="AI 60fps Interpolation (Optical Flow)" Foreground="#FFF" Margin="0,0,0,10" ToolTip="Converts video to buttery smooth 60fps"/>
+                                
+                                <TextBlock Text="RSMB Motion Blur" Foreground="#888" FontSize="11"/>
+                                <Grid Margin="0,0,0,5">
+                                    <Slider x:Name="sldRsmb" Minimum="0.0" Maximum="1.0" Value="0.0" TickFrequency="0.1" Grid.Column="0"/>
+                                    <TextBlock Text="{Binding ElementName=sldRsmb, Path=Value, StringFormat={}{0:F1}}" Foreground="#FF9900" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <TextBlock Text="0=Off | 0.5=Cinematic | 1.0=Heavy Blur" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 5. TEXT OVERLAY -->
+                        <GroupBox Header="✏️ TEXT OVERLAY &amp; VIBE" Foreground="#FF66CC" FontSize="13">
+                            <StackPanel>
+                                <CheckBox x:Name="chkTextOverlay" Content="Enable Text Overlay" Foreground="#FFF" Margin="0,0,0,8" ToolTip="Chèn chữ lên video với hiệu ứng gõ chữ Typewriter nghệ thuật"/>
+
+                                <TextBlock Text="Nội dung văn bản" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <TextBox x:Name="txtOverlayText" Height="60" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,8" ToolTip="Nhập nội dung chữ (hỗ trợ xuống dòng)"/>
+
+                                <CheckBox x:Name="chkAddQuotes" Content="&quot; &quot; Thêm ngoặc kép nghệ thuật" Foreground="#DDA0DD" IsChecked="True" Margin="0,0,0,8" ToolTip="Tự động thêm dấu ngoặc kép ở đầu và cuối văn bản giống video mẫu Reels/TikTok"/>
+
+                                <CheckBox x:Name="chkDisableTextScroll" Content="🛑 Cố định chữ (Không chạy trượt lên)" Foreground="#00E5FF" IsChecked="False" Margin="0,0,0,8" ToolTip="Giữ chữ cố định một vị trí, không tự động cuộn/chạy trượt lên trên"/>
+
+                                <CheckBox x:Name="chkEnableTextGlow" Content="✨ Hiệu ứng Chữ Phát Sáng (Glowing)" Foreground="#FFD700" IsChecked="False" Margin="0,0,0,4" ToolTip="Tạo quầng sáng Neon Glow rực rỡ xung quanh chữ"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="120"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Màu Phát Sáng:" Foreground="#AAA" FontSize="11" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="cmbTextGlowColor" Grid.Column="1" Height="24" Background="#1E1E2E" Foreground="White" SelectedIndex="0">
+                                        <ComboBoxItem Content="Cyan Neon"/>
+                                        <ComboBoxItem Content="Gold Yellow"/>
+                                        <ComboBoxItem Content="Pink Magenta"/>
+                                        <ComboBoxItem Content="Soft White"/>
+                                        <ComboBoxItem Content="Matrix Green"/>
+                                        <ComboBoxItem Content="Flame Red"/>
+                                    </ComboBox>
+                                </Grid>
+
+                                <TextBlock Text="Phong cách &amp; Font chữ" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbTextStyle" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Aesthetic Lyric (Georgia / Times Italic)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Modern Sans (Segoe UI Italic)"/>
+                                    <ComboBoxItem Content="Classic Serif (Times New Roman Italic)"/>
+                                    <ComboBoxItem Content="Clean Sans (Arial Italic)"/>
+                                    <ComboBoxItem Content="Thư Pháp Nghệ Thuật (Calligraphy)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Vị trí" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbOverlayPosition" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Center"/>
+                                    <ComboBoxItem Content="Top"/>
+                                    <ComboBoxItem Content="Bottom"/>
+                                    <ComboBoxItem Content="Top Left"/>
+                                    <ComboBoxItem Content="Top Right"/>
+                                    <ComboBoxItem Content="Bottom Left" IsSelected="True"/>
+                                    <ComboBoxItem Content="Bottom Right"/>
+                                    <ComboBoxItem Content="Custom (Tọa độ X/Y %)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Căn lề (Align)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbTextAlign" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Auto" IsSelected="True"/>
+                                    <ComboBoxItem Content="Left"/>
+                                    <ComboBoxItem Content="Center"/>
+                                    <ComboBoxItem Content="Right"/>
+                                </ComboBox>
+
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Tọa độ X (%)" Foreground="#AAA" FontSize="11" Margin="0,0,0,3"/>
+                                        <TextBox x:Name="txtTextXPercent" Text="50" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ X (0 - 100%)"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Tọa độ Y (%)" Foreground="#AAA" FontSize="11" Margin="0,0,0,3"/>
+                                        <TextBox x:Name="txtTextYPercent" Text="85" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ Y (0 - 100%)"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="Font Size" Foreground="#888" FontSize="11"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Slider x:Name="sldOverlayFontSize" Minimum="16" Maximum="150" Value="32" TickFrequency="2"/>
+                                    <TextBlock Text="{Binding ElementName=sldOverlayFontSize, Path=Value, StringFormat={}{0:0}px}" Foreground="#FF66CC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+
+                                <CheckBox x:Name="chkAudioSpectrum" Content="🎵 Sóng nhạc Visualizer (Góc dưới)" Foreground="#00FFCC" IsChecked="True" Margin="0,0,0,4" ToolTip="Tạo dải sóng nhạc chuyển động ở góc dưới video giống video mẫu"/>
+
+                                <Separator Margin="0,4,0,8" Background="#4A2A5A"/>
+
+                                <TextBlock Text="Hiệu ứng chữ (giống Caption Sync)" Foreground="#FF66CC" FontSize="11" Margin="0,0,0,3" FontWeight="Bold"/>
+                                <ComboBox x:Name="cmbTextAnimation" Margin="0,0,0,8" ToolTip="Bộ hiệu ứng chữ được chuyển từ Caption Sync. Chọn 'Drawtext cũ' để dùng chế độ Typewriter + chạy trượt lên + Neon Glow như trước.">
+                                    <ComboBoxItem Content="Drawtext cũ (Typewriter + Trượt lên + Neon Glow)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Mặc định (Hiện tĩnh)"/>
+                                    <ComboBoxItem Content="Spotify Scroll (Chữ chạy lên)"/>
+                                    <ComboBoxItem Content="Pop &amp; Bounce (Nảy mạnh mẽ)"/>
+                                    <ComboBoxItem Content="Smooth Drift (Trôi lơ lửng)"/>
+                                    <ComboBoxItem Content="Glow Pulse (Toả sáng như hơi thở)"/>
+                                    <ComboBoxItem Content="Karaoke Fade (Từ từ hiện rõ chữ)"/>
+                                    <ComboBoxItem Content="Typewriter (Gõ từng chữ)"/>
+                                    <ComboBoxItem Content="Blur Reveal (Mờ ảo hiện dần)"/>
+                                </ComboBox>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBlock Text="Thời lượng hiệu ứng (giây):" Foreground="#AAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="txtTextEffectDuration" Text="5.0" Width="56" Height="24" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tổng thời gian chạy hiệu ứng. Mỗi dòng chữ chiếm 1 phần nhỏ của khoảng thời gian này. Sau đó chữ giữ nguyên tới cuối video."/>
+                                </StackPanel>
+                                <TextBlock Text="Mỗi dòng chữ chiếm (Thời lượng / số dòng) giây. Xong hiệu ứng thì chữ giữ nguyên tới cuối video." Foreground="#666" FontSize="9" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                                <TextBlock Text="Hiệu ứng Typewriter + Aesthetic Serif + Shadow + Sóng nhạc" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- CAPTION SYNC -->
+                        <GroupBox Header="🎙️ CAPTION SYNC (AI Whisper)" Foreground="#00E5FF" FontSize="13">
+                            <StackPanel>
+                                <CheckBox x:Name="chkCaptionSync" Content="🎙️ Tự động tạo phụ đề theo lời Audio" Foreground="#FFF" Margin="0,0,0,8" ToolTip="Dùng AI Whisper nghe audio và tự động chèn phụ đề sync theo từng câu"/>
+
+                                <TextBlock Text="Ngôn ngữ nhận dạng" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbCaptionLang" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Tự động (Auto Detect)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Tiếng Việt"/>
+                                    <ComboBoxItem Content="English"/>
+                                    <ComboBoxItem Content="日本語 (Japanese)"/>
+                                    <ComboBoxItem Content="한국어 (Korean)"/>
+                                    <ComboBoxItem Content="中文 (Chinese)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Model AI (Độ chính xác)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbCaptionModel" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Small (Nhanh - 466MB)"/>
+                                    <ComboBoxItem Content="Medium (Chuẩn xác - 1.5GB)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Large V3 Turbo (Rất chuẩn - 1.6GB)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Hiệu ứng (Animation)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbCaptionAnimation" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Mặc định (Hiện tĩnh)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Spotify Scroll (Chữ chạy lên)"/>
+                                    <ComboBoxItem Content="Pop &amp; Bounce (Nảy mạnh mẽ)"/>
+                                    <ComboBoxItem Content="Smooth Drift (Trôi lơ lửng)"/>
+                                    <ComboBoxItem Content="Glow Pulse (Toả sáng như hơi thở)"/>
+                                    <ComboBoxItem Content="Karaoke Fade (Từ từ hiện rõ chữ)"/>
+                                    <ComboBoxItem Content="Typewriter (Gõ từng chữ)"/>
+                                    <ComboBoxItem Content="Blur Reveal (Mờ ảo hiện dần)"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Font chữ (FontFamily)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbCaptionFont" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Aesthetic Lyric (Georgia / Times Italic)"/>
+                                    <ComboBoxItem Content="Modern Sans (Segoe UI Italic)"/>
+                                    <ComboBoxItem Content="Classic Serif (Times New Roman Italic)"/>
+                                    <ComboBoxItem Content="Clean Sans (Arial Italic)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Thư Pháp Nghệ Thuật (Calligraphy)"/>
+                                </ComboBox>
+
+
+                                <TextBlock Text="Vị trí (Position)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <ComboBox x:Name="cmbCaptionPosition" Margin="0,0,0,8">
+                                    <ComboBoxItem Content="Bottom Center" IsSelected="True"/>
+                                    <ComboBoxItem Content="Top Center"/>
+                                    <ComboBoxItem Content="Center"/>
+                                    <ComboBoxItem Content="Custom (X% Y%)"/>
+                                </ComboBox>
+                                
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Tọa độ X (%)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                        <TextBox x:Name="txtCaptionXPercent" Text="50" Height="24"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Tọa độ Y (%)" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                        <TextBox x:Name="txtCaptionYPercent" Text="85" Height="24"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="Cỡ chữ Caption" Foreground="#888" FontSize="11" Margin="0,0,0,3"/>
+                                <Slider x:Name="sldCaptionFontSize" Minimum="16" Maximum="72" Value="28" TickFrequency="2" IsSnapToTickEnabled="True" Margin="0,0,0,8"/>
+
+                                <TextBlock Text="AI Whisper sẽ nghe audio → tự sinh phụ đề sync" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 4. AUDIO MIXER -->
+                        <GroupBox Header="AUDIO MIXER" Foreground="#FFCC00" FontSize="13">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,5">
+                                    <TextBlock Text="Video Volume" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldVideoVol, Path=Value, StringFormat={}{0:0}%}" Foreground="#FFCC00" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldVideoVol" Minimum="0" Maximum="200" Value="100" Margin="0,0,0,15"/>
+
+                                <Grid Margin="0,0,0,5">
+                                    <TextBlock Text="Audio 1 Volume" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldAudioVol, Path=Value, StringFormat={}{0:0}%}" Foreground="#00CCFF" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldAudioVol" Minimum="0" Maximum="200" Value="100" TickFrequency="25" AutoToolTipPlacement="TopLeft" Margin="0,0,0,12"/>
+
+                                <Grid Margin="0,0,0,5">
+                                    <TextBlock Text="Audio 2 Volume" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldAudio2Vol, Path=Value, StringFormat={}{0:0}%}" Foreground="#5DE1FF" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldAudio2Vol" Minimum="0" Maximum="200" Value="100" TickFrequency="25" AutoToolTipPlacement="TopLeft"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 5. WATERMARK -->
+                        <GroupBox Header="WATERMARK ( Debugging ) " Foreground="#FF0055" FontSize="13">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="txtWatermarkPath" IsReadOnly="True" Text="Select Logo..." FontStyle="Italic" Opacity="0.5"/>
+                                    <Button x:Name="btnBrowseWatermark" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseWatermark_Click"/>
+                                </Grid>
+                                <Button Content="EDIT POSITION (VISUAL)" Background="#FF0055" BorderBrush="#FF5588" Click="BtnOpenWatermarkEditor_Click"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 6. COLOR GRADING -->
+                        <GroupBox Header="COLOR GRADING" Foreground="#AA00FF" FontSize="13">
+                            <StackPanel>
+                                <ComboBox x:Name="cmbColorFilter">
+                                    <ComboBoxItem Content="None (Original)" IsSelected="True"/>
+                                    <ComboBoxItem Content="Spring"/>
+                                    <ComboBoxItem Content="Autumn"/>
+                                    <ComboBoxItem Content="Winter"/>
+                                    <ComboBoxItem Content="Cold"/>
+                                    <ComboBoxItem Content="Warm"/>
+                                    <ComboBoxItem Content="Cinematic"/>
+                                </ComboBox>
+                                <Grid Margin="0,5,0,0">
+                                    <TextBlock Text="Intensity" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldColorIntensity, Path=Value, StringFormat={}{0:0}%}" Foreground="#AA00FF" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldColorIntensity" Minimum="0" Maximum="100" Value="50"/>
+                                <Grid Margin="0,8,0,0">
+                                    <TextBlock Text="Brightness" Foreground="#DDD" FontSize="11"/>
+                                    <TextBlock Text="{Binding ElementName=sldVideoBrightness, Path=Value, StringFormat={}{0:+0;-0;0}}" Foreground="#AA00FF" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="sldVideoBrightness" Minimum="-100" Maximum="100" Value="0" TickFrequency="10" AutoToolTipPlacement="TopLeft"/>
+                                <TextBlock Text="-100 dark | 0 original | +100 bright" Foreground="#666" FontSize="9" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <!-- 7. EXPORT -->
+                        <GroupBox Header="EXPORT" Foreground="#00FF99" FontSize="13">
+                            <StackPanel>
+                                <TextBox x:Name="txtOutputDir" IsReadOnly="True" Text="Default: Desktop"/>
+                                <Button x:Name="btnBrowseOutput" Content="Browse Folder..." Margin="0,5,0,10" Click="BtnBrowseOutput_Click"/>
+                                <TextBox x:Name="txtOutputName" Margin="0,0,0,10"/>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="15"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Resolution" Foreground="#888" FontSize="11"/>
+                                        <ComboBox x:Name="cmbRes" SelectionChanged="CmbRes_SelectionChanged">
+                                            <ComboBoxItem Content="Original"/>
+                                            <ComboBoxItem Content="1920x1080 (HD)"/>
+                                            <ComboBoxItem Content="1080x1920 (Portrait)" IsSelected="True"/>
+                                            <ComboBoxItem Content="720x1280 (Portrait HD)"/>
+                                            <ComboBoxItem Content="1280x720"/>
+                                            <ComboBoxItem Content="Custom (Nhập số)"/>
+                                        </ComboBox>
+                                        <Grid x:Name="gridCustomRes" Visibility="Collapsed" Margin="0,5,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="20"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="txtResW" Grid.Column="0" Text="1080" ToolTip="Width"/>
+                                            <TextBlock Text="x" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#888"/>
+                                            <TextBox x:Name="txtResH" Grid.Column="2" Text="1920" ToolTip="Height"/>
+                                        </Grid>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="FPS" Foreground="#888" FontSize="11"/>
+                                        <ComboBox x:Name="cmbFps">
+                                            <ComboBoxItem Content="Original" IsSelected="True"/>
+                                            <ComboBoxItem Content="60"/>
+                                            <ComboBoxItem Content="30"/>
+                                            <ComboBoxItem Content="24"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </Grid>
+
+                                <ComboBox x:Name="cmbHardware" Margin="0,0,0,10">
+                                    <ComboBoxItem Content="NVIDIA NVENC" IsSelected="True"/>
+                                    <ComboBoxItem Content="NVIDIA NVENC (AV1)"/>
+                                    <ComboBoxItem Content="AMD AMF"/>
+                                    <ComboBoxItem Content="AMD AMF (AV1)"/>
+                                    <ComboBoxItem Content="Cpu"/>
+                                </ComboBox>
+                                <ComboBox x:Name="cmbBitrate" SelectionChanged="CmbBitrate_SelectionChanged">
+                                    <ComboBoxItem Content="Match Source" IsSelected="True"/>
+                                    <ComboBoxItem Content="Boost Quality"/>
+                                    <ComboBoxItem Content="Custom (Kbps)"/>
+                                </ComboBox>
+                                <TextBox x:Name="txtCustomBitrate" Margin="0,5,0,0" Visibility="Collapsed" Text="5000"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- RIGHT PANEL -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="20"/>
+                    <RowDefinition Height="180"/>
+                    <RowDefinition Height="20"/>
+                    <RowDefinition Height="60"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="#181818" CornerRadius="6" BorderBrush="#333" BorderThickness="1">
+                    <ListBox x:Name="lstQueue" Background="Transparent" BorderThickness="0" Padding="10">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#252528" Margin="0,0,0,8" CornerRadius="6" Padding="10">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="BorderBrush" Value="#333"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsApiJob}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="#00CCFF"/>
+                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Id}" FontWeight="Bold" Foreground="#888" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#E0E0E0" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding ConfigSummary}" FontSize="10" Foreground="#AAA" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <Border Background="#103040" BorderBrush="#00CCFF" BorderThickness="1" CornerRadius="3" Padding="6,1" Margin="0,0,10,4" HorizontalAlignment="Right" Visibility="Collapsed">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsApiJob}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="API" Foreground="#00CCFF" FontSize="9" FontWeight="Bold"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding StatusDisplay}" Foreground="{Binding StatusColor}" FontWeight="Bold" FontSize="11" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                            <Button Content="?" Width="25" Height="25" Background="#331111" Click="BtnDeleteJob_Click" Tag="{Binding Id}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <ProgressBar x:Name="pbGlobalProgress" Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="0" Background="#181818" Foreground="#00CCFF" BorderThickness="0" Height="10"/>
+
+                <Border Grid.Row="2" Background="#0F0F0F" CornerRadius="6" BorderBrush="#333" BorderThickness="1">
+                    <TextBox x:Name="txtLogs" Background="Transparent" Foreground="#00FF00" FontFamily="Consolas" FontSize="11" BorderThickness="0" Padding="10" IsReadOnly="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/>
+                </Border>
+
+                <Grid Grid.Row="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="150"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="btnClear" Content="CLEAR" Grid.Column="0" Margin="0,0,15,0" Background="#252525" Click="BtnClear_Click"/>
+                    <Button x:Name="btnStart" Grid.Column="1" Margin="0,0,15,0" Click="BtnStartBatch_Click" Background="#00AA55">
+                        <TextBlock Text="START BATCH" FontWeight="Bold" FontSize="14"/>
+                    </Button>
+                    <Button x:Name="btnHostMode" Grid.Column="2" Content="HOST: OFF" Click="BtnHostMode_Click" Background="#553333" BorderBrush="#884444"/>
+                </Grid>
+            </Grid>
+        </Grid>
+        <!-- CROP OVERLAY -->
+        <Grid x:Name="gridCropOverlay" Visibility="Collapsed" Background="#CC000000">
+            <Border Background="#1A1A1E" Width="920" Height="640" CornerRadius="10" BorderBrush="#9B84EC" BorderThickness="2">
+                <Grid Margin="15">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="CROP VIDEO EDITOR" FontSize="18" FontWeight="Bold" Foreground="#9B84EC" HorizontalAlignment="Center"/>
+                    <Border Grid.Row="1" BorderBrush="#444" BorderThickness="1" Background="Black" Margin="0,10" ClipToBounds="True">
+                        <Viewbox Stretch="Uniform">
+                            <Canvas x:Name="cvsCropPreview" Width="1920" Height="1080" Background="Black">
+                                <MediaElement x:Name="medCropPreview"
+                                              Width="1920"
+                                              Height="1080"
+                                              LoadedBehavior="Manual"
+                                              UnloadedBehavior="Manual"
+                                              Stretch="Fill"
+                                              MediaOpened="MedCropPreview_MediaOpened"
+                                              MediaFailed="MedCropPreview_MediaFailed"
+                                              Canvas.Left="0"
+                                              Canvas.Top="0"/>
+                                <Image x:Name="imgCropPreviewFrame"
+                                       Width="1920"
+                                       Height="1080"
+                                       Stretch="Fill"
+                                       Canvas.Left="0"
+                                       Canvas.Top="0"/>
+                                <Border x:Name="bdrCropFrame"
+                                        Width="1280"
+                                        Height="720"
+                                        Canvas.Left="320"
+                                        Canvas.Top="180"
+                                        BorderBrush="#00CCFF"
+                                        BorderThickness="2"
+                                        Background="#2200CCFF"
+                                        Cursor="SizeAll"
+                                        MouseLeftButtonDown="BdrCropFrame_MouseDown"
+                                        MouseMove="BdrCropFrame_MouseMove"
+                                        MouseLeftButtonUp="BdrCropFrame_MouseUp">
+                                    <Grid>
+                                        <Border Margin="8" BorderBrush="#66FFFFFF" BorderThickness="1"/>
+                                        <TextBlock Text="CROP AREA" Foreground="#CCFFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"/>
+                                        <Thumb Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-8,-8,0,0" Cursor="SizeNWSE" Background="#00CCFF" BorderBrush="#FFFFFF" BorderThickness="1" Tag="TL" DragDelta="CropHandle_DragDelta"/>
+                                        <Thumb Width="16" Height="16" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-8,-8,0" Cursor="SizeNESW" Background="#00CCFF" BorderBrush="#FFFFFF" BorderThickness="1" Tag="TR" DragDelta="CropHandle_DragDelta"/>
+                                        <Thumb Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-8,0,0,-8" Cursor="SizeNESW" Background="#00CCFF" BorderBrush="#FFFFFF" BorderThickness="1" Tag="BL" DragDelta="CropHandle_DragDelta"/>
+                                        <Thumb Width="16" Height="16" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-8,-8" Cursor="SizeNWSE" Background="#00CCFF" BorderBrush="#FFFFFF" BorderThickness="1" Tag="BR" DragDelta="CropHandle_DragDelta"/>
+                                    </Grid>
+                                </Border>
+                            </Canvas>
+                        </Viewbox>
+                    </Border>
+                    <StackPanel Grid.Row="2" Margin="0,2,0,0">
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock Text="Video Timeline" Foreground="#AAAAAA" FontSize="11"/>
+                            <TextBlock x:Name="txtCropTimelineTime" Foreground="#9B84EC" FontSize="11" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Slider x:Name="sldCropTimeline"
+                                Minimum="0"
+                                Maximum="1"
+                                Value="0"
+                                TickFrequency="1"
+                                IsSnapToTickEnabled="False"
+                                ValueChanged="SldCropTimeline_ValueChanged"/>
+                    </StackPanel>
+                    <TextBlock x:Name="txtCropInfo" Grid.Row="3" Foreground="#AAAAAA" FontSize="11" TextAlignment="Center" Margin="0,6,0,0"/>
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                        <Button Content="CANCEL" Width="100" Height="35" Background="#333" Margin="0,0,10,0" Click="BtnCancelCrop_Click"/>
+                        <Button Content="SAVE CROP" Width="150" Height="35" Background="#4A3D7A" BorderBrush="#9B84EC" FontWeight="Bold" Click="BtnSaveCrop_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- WATERMARK OVERLAY -->
+        <Grid x:Name="gridWatermarkOverlay" Visibility="Collapsed" Background="#CC000000">
+            <Border Background="#1A1A1E" Width="900" Height="600" CornerRadius="10" BorderBrush="#FF0055" BorderThickness="2">
+                <Grid Margin="15">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="VISUAL EDITOR" FontSize="18" FontWeight="Bold" Foreground="#FF0055" HorizontalAlignment="Center"/>
+                    <Border Grid.Row="1" BorderBrush="#444" BorderThickness="1" Background="Black" Margin="0,10" ClipToBounds="True">
+                        <Viewbox Stretch="Uniform">
+                            <Grid>
+                                <Grid x:Name="gridPreviewContainer" Width="1920" Height="1080" Background="Black">
+                                    <Image x:Name="imgWatermarkVideoFrame" Width="1920" Height="1080" Stretch="Fill"/>
+                                </Grid>
+                                <Canvas x:Name="cvsWatermarkPreview" Width="1920" Height="1080" Background="Transparent">
+                                    <Image x:Name="imgWatermarkPreview" Width="150" Height="150" RenderTransformOrigin="0.5,0.5" MouseLeftButtonDown="ImgWatermark_MouseDown" MouseLeftButtonUp="ImgWatermark_MouseUp" MouseMove="ImgWatermark_MouseMove" Cursor="SizeAll">
+                                        <Image.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform x:Name="stWatermark"/>
+                                                <RotateTransform x:Name="rtWatermark"/>
+                                                <TranslateTransform x:Name="ttWatermark"/>
+                                            </TransformGroup>
+                                        </Image.RenderTransform>
+                                    </Image>
+                                </Canvas>
+                            </Grid>
+                        </Viewbox>
+                    </Border>
+                    <StackPanel Grid.Row="2">
+                        <TextBlock Text="Scale" Foreground="White"/>
+                        <Slider x:Name="sldWmkScale" Minimum="0.1" Maximum="3.0" Value="1.0" ValueChanged="SldWmk_ValueChanged"/>
+                        <TextBlock Text="Rotation" Foreground="White"/>
+                        <Slider x:Name="sldWmkRotate" Minimum="-180" Maximum="180" Value="0" ValueChanged="SldWmk_ValueChanged"/>
+                        <TextBlock Text="Opacity" Foreground="White"/>
+                        <Slider x:Name="sldWmkOpacity" Minimum="0.1" Maximum="1.0" Value="1.0" ValueChanged="SldWmk_ValueChanged"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                        <Button Content="CANCEL" Width="100" Height="35" Background="#333" Margin="0,0,10,0" Click="BtnCancelWatermark_Click"/>
+                        <Button Content="SAVE" Width="150" Height="35" Background="#FF0055" FontWeight="Bold" Click="BtnSaveWatermark_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
