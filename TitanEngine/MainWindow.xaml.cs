@@ -11047,9 +11047,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             {
                 double t = i / (double)sampleRate;
                 double env = Math.Exp(-decay * t);
-                double attack = Math.Min(1.0, t / 0.012);
+                // Impulsive start decaying into exponentially-decaying noise:
+                // a sharp attack peak followed by a random tail, unlike a pure
+                // noise burst which convolves to quiet self-filtered rumble.
                 double noise = rnd.NextDouble() * 2.0 - 1.0;
-                bw.Write((short)(noise * env * attack * 11000));
+                double impulse = (i == 0) ? 1.2 : 0.0;
+                double sample = (impulse + noise * Math.Min(1.0, t / 0.008) * 0.4) * env;
+                bw.Write((short)Math.Clamp(sample * 12000.0, -32000, 32000));
             }
         }
 
