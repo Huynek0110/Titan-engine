@@ -11085,15 +11085,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             WriteSyntheticIr(irPath, isChurch ? 3.0 : 1.6, 44100, isChurch ? 2.2 : 3.2);
 
             string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
-            int wetGain = isChurch ? 10 : 6;
+            int maxWet = isChurch ? 2 : 1;
             double k = intensity;
-            int wet = (int)Math.Clamp(wetGain * k, 0, 10);
-            int dry = (int)Math.Clamp(10 - wet / 2, 0, 10);
-            string args =
-                $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
-                $"-filter_complex \"[0:a][1:a]afir=length=1:dry={dry}:wet={wet}[a]\" " +
-                "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
-                $"\"{fxAudioPath}\"";
+            double wet = Math.Clamp(maxWet * k, 0, 10);
+            // Dry stays at full level and only the reverb tail (wet) is scaled,
+            // so intensity actually changes how much reverb is heard.
+            string wetStr = wet.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            string fm = $"-i \"{inputAudioPath}\" -i \"{irPath}\" -filter_complex \"[0:a][1:a]afir=length=1:dry=1:wet={wetStr},alimiter=limit=0.95[a]\" -map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart \"{fxAudioPath}\"";
+            string args = $"-y " + fm;
 
             onLog($"[AUDIO1-FX] Preprocessing {effect} @ {intensity * 100:F0}% via IR convolution...");
             var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
