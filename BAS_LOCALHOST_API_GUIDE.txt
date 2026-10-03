@@ -309,6 +309,41 @@ Notes:
   captionAnimation / whisperAnimation, captionFont / whisperFont,
   captionPosition / captionStyle, captionX / captionY, captionColor.
 
+============================================================
+4C) AUDIO 1 VOICE FX (audio1Effect)
+============================================================
+Applies a built-in FFmpeg audio filter chain to the source video's own audio
+track (Audio 1) only. External audio tracks (audioFile / Audio 2) are not
+affected.
+
+Field:
+- audio1Effect: one of the presets below (empty string or "None" disables it)
+
+Canonical values:
+- Không (Giữ nguyên) / empty        -> no FX (default)
+- Echo (Vang nhiều tầng)            -> aecho 3 taps
+- Church (Nhà thờ - aecho)          -> chained long aecho
+- Robot/Glitch (Kim loại)           -> short metallic aecho + EQ
+- Điện thoại (Bandpass)             -> highpass+lowpass band-limit
+- Chipmunk (Tăng tone)              -> pitch up via asetrate+atempo
+- Deep Voice (Giảm tone)            -> pitch down
+- Chorus/Phát xung (Chorus)         -> chorus
+- Phaser (Âm kim loại)              -> aphaser
+- Bitcrush (Giọng rè kỹ thuật số)   -> acrusher
+- Whisper (Thì thầm)                -> afftfilt randomized phase
+
+Aliases are matched case-insensitively on keywords:
+echo, church, robot, glitch, telephone, bandpass, chipmunk, deep,
+chorus, phaser, bitcrush, whisper.
+
+Example:
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\voice.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\fx.mp4",
+  "audio1Effect": "Church (Nhà thờ - aecho)"
+}
+
 Example:
 POST http://localhost:5555/api/queue/add
 {
@@ -513,6 +548,7 @@ Video/audio tuning:
 - sourceAudioSpeed
 - externalAudioSpeed
 - musicSyncMode
+- audio1Effect
 
 Text:
 - textOverlay
