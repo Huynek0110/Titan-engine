@@ -1496,6 +1496,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         externalAudioPath = editedAudio;
                         onLog($"[AUDIO-EDIT] Using edited external audio: {Path.GetFileName(editedAudio)}");
                     }
+
+                    // Audio 1 voice FX pre-pass: Echo & Church use IR convolution reverb
+                    // (real reverb tails instead of aecho's discrete repeats).
+                    string? fxAudio = await PrepareAudioFxTrackAsync(externalAudioPath, job, outDir, audioEditTag, token, onLog);
+                    if (!string.IsNullOrWhiteSpace(fxAudio) && File.Exists(fxAudio))
+                    {
+                        tempTemplateArtifacts.Add(fxAudio);
+                        try { tempTemplateArtifacts.Add(Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(externalAudioPath)}.wav")); } catch { }
+                        externalAudioPath = fxAudio;
+                        onLog($"[AUDIO1-FX] Using FX-processed external audio: {Path.GetFileName(fxAudio)}");
+                    }
                 }
 
                 // ═══════════════════════════════════════════════════════════════
@@ -9952,10 +9963,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             // Intensity 0..100 -> 0..1, clamped. Scales every effect down smoothly.
             double k = Math.Clamp(intensityPercent, 0.0, 100.0) / 100.0;
             if (k <= 0.001) return string.Empty;
-            if (e.Contains("Echo"))
-                return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.9,3)}:{(int)(40*k+8)}|{(int)(50*k+10)}|{(int)(70*k+14)}:{FfmpegDouble(0.4*k,3)}|{FfmpegDouble(0.3*k,3)}|{FfmpegDouble(0.2*k,3)}";
-            if (e.Contains("Church") || e.Contains("Nhà thờ"))
-                return $"aecho=0.8:0.88:500|700|900:{FfmpegDouble(0.5*k,3)}|{FfmpegDouble(0.4*k,3)}|{FfmpegDouble(0.3*k,3)},aecho=0.8:0.88:80|120|160:{FfmpegDouble(0.35*k,3)}|{FfmpegDouble(0.28*k,3)}|{FfmpegDouble(0.2*k,3)}";
+            if (e.Contains("Echo") || e.Contains("Church") || e.Contains("Nhà thờ"))
+                return string.Empty; // Echo & Church are rendered via IR convolution (PrepareAudioFxTrackAsync), not an inline chain.
             if (e.Contains("Robot") || e.Contains("Glitch") || e.Contains("Kim loại"))
                 return $"aecho={FfmpegDouble(0.8,3)}:{FfmpegDouble(0.88,3)}:{(int)(6*k)+1}:{FfmpegDouble(0.4*k,3)},highpass=f=200,lowpass=f=3400,volume={FfmpegDouble(1+0.4*k,3)}";
             if (e.Contains("Điện thoại") || e.Contains("Telephone") || e.Contains("Bandpass"))
@@ -11019,6 +11028,84 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             onLog($"[AUDIO-EDIT] Ready: {Path.GetFileName(editedAudioPath)}");
             return editedAudioPath;
+        }
+
+        // Generates a synthetic hall impulse response WAV (exponential-noise decay)
+        private static void WriteSyntheticIr(string path, double durationSec, int sampleRate, double decay)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? GetTitanTempDir());
+            int n = (int)(sampleRate * durationSec);
+            var rnd = new Random(0x51);
+            using var fs = File.Create(path);
+            using var bw = new BinaryWriter(fs);
+            void W(string s) => bw.Write(Encoding.ASCII.GetBytes(s));
+            W("RIFF"); bw.Write(36 + n * 2); W("WAVE"); W("fmt ");
+            bw.Write(16); bw.Write((short)1); bw.Write((short)1);
+            bw.Write(sampleRate); bw.Write(sampleRate * 2); bw.Write((short)2); bw.Write((short)16);
+            W("data"); bw.Write(n * 2);
+            for (int i = 0; i < n; i++)
+            {
+                double t = i / (double)sampleRate;
+                double env = Math.Exp(-decay * t);
+                double attack = Math.Min(1.0, t / 0.012);
+                double noise = rnd.NextDouble() * 2.0 - 1.0;
+                bw.Write((short)(noise * env * attack * 11000));
+            }
+        }
+
+        // Applies the IR-convolution reverb effects (Echo / Church) to the external
+        // Audio 1 track in a pre-pass, replacing it with a temp file.
+        private static async Task<string?> PrepareAudioFxTrackAsync(
+            string inputAudioPath,
+            RenderJob job,
+            string outDir,
+            string renderTag,
+            CancellationToken token,
+            Action<string> onLog)
+        {
+            if (string.IsNullOrWhiteSpace(inputAudioPath) || !File.Exists(inputAudioPath))
+                return null;
+
+            string effect = (job.Audio1Effect ?? string.Empty).Trim();
+
+            bool isEcho = effect.Contains("Echo", StringComparison.OrdinalIgnoreCase);
+            bool isChurch = effect.Contains("Church", StringComparison.OrdinalIgnoreCase) || effect.Contains("Nhà thờ", StringComparison.OrdinalIgnoreCase);
+            if (!isEcho && !isChurch)
+                return null; // robot/phone/bitcrush/etc are handled inline in the chain
+
+            double intensity = Math.Clamp(job.Audio1EffectIntensity, 0.0, 100.0) / 100.0;
+            if (intensity <= 0.001) return null;
+
+            string safeTag = string.IsNullOrWhiteSpace(renderTag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : renderTag;
+
+            string irDuration = isChurch ? "3.0" : "1.6";
+            string irPath = Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(inputAudioPath)}.wav");
+            WriteSyntheticIr(irPath, isChurch ? 3.0 : 1.6, 44100, isChurch ? 2.2 : 3.2);
+
+            string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
+            int wetGain = isChurch ? 12 : 8;
+            double k = intensity; // blend dry/wet purely by wet gain
+            string args =
+                $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
+                $"-filter_complex \"[0:a][1:a]afir=length=1:dry=10:wet={(int)(wetGain * k)}[a]\" " +
+                "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
+                $"\"{fxAudioPath}\"";
+
+            onLog($"[AUDIO1-FX] Preprocessing {effect} @ {intensity * 100:F0}% via IR convolution...");
+            var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
+            if (exitCode != 0 || !File.Exists(fxAudioPath) || new FileInfo(fxAudioPath).Length <= 0)
+            {
+                string summary = string.Join(" | ",
+                    (stderr ?? string.Empty)
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Take(8));
+                throw new Exception($"Audio 1 FX IR render failed: {summary}");
+            }
+
+            onLog($"[AUDIO1-FX] Ready: {Path.GetFileName(fxAudioPath)}");
+            return fxAudioPath;
         }
 
         // [HELPER] Scale filter intensity by modifying parameter values
