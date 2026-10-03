@@ -6413,7 +6413,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 $"-start_number 1 -i \"{overlay.OverlayPattern}\" " +
                 $"-filter_complex \"{filterGraph};[dreamydotasset]gblur=sigma=1.1:steps=2,format=yuv420p[vout]\" " +
                 "-map \"[vout]\" " +
-                "-an -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p " +
+                "-an " +
+                (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset medium -cq 18 " : "-c:v libx264 -preset medium -crf 18 ") +
+                "-pix_fmt yuv420p " +
                 $"\"{assetPath}\"";
 
             onLog($"[DREAMY-DOT-ASSET] Rendering pre-render asset -> {assetPath}");
@@ -10237,7 +10239,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     "-shortest -movflags +faststart " +
                     $"\"{outputPath}\"";
@@ -10250,7 +10252,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     "-filter_complex \"[0:a]aresample=48000,asetpts=PTS-STARTPTS[a0];[1:a]asetpts=PTS-STARTPTS[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]\" " +
                     "-map 0:v:0 -map \"[aout]\" " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     "-shortest -movflags +faststart " +
                     $"\"{outputPath}\"";
@@ -10262,7 +10264,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     "-shortest -movflags +faststart " +
                     $"\"{outputPath}\"";
@@ -10406,7 +10408,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string reencodeArgs =
                     $"-y -f concat -safe 0 -i \"{concatListPath}\" " +
                     "-fflags +genpts -avoid_negative_ts make_zero " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart " +
                     $"\"{timelinePath}\"";
 
@@ -10498,7 +10500,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string audioMap = string.IsNullOrEmpty(aOutTag) ? "-an" : $"-map \"{aOutTag}\" -c:a aac -b:a 128k";
-                    string transArgs = $"-y {inputSb.ToString()}-filter_complex \"{graph}\" -map \"{vOutTag}\" -c:v libx264 -preset veryfast -crf 20 {audioMap} -movflags +faststart \"{mergedSourcePath}\"";
+                    string transArgs = $"-y {inputSb.ToString()}-filter_complex \"{graph}\" -map \"{vOutTag}\" " + (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 20 " : "-c:v libx264 -preset veryfast -crf 20 ") + $"{audioMap} -movflags +faststart \"{mergedSourcePath}\"";
 
                     onLog($"[TRANSITION-ENGINE] Rendering graph...");
                     var (transExit, transErr) = await RunFfmpegCaptureAsync(transArgs, token);
@@ -10821,7 +10823,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"-y -i \"{inputPath}\" " +
                     "-map 0:v:0 -map 0:a:0 " +
                     $"-vf \"{videoFilter}\" " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     "-movflags +faststart " +
                     $"\"{normalizedPath}\"";
@@ -10833,7 +10835,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{videoFilter}\" " +
-                    "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     "-shortest -movflags +faststart " +
                     $"\"{normalizedPath}\"";
