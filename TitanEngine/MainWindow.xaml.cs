@@ -7022,14 +7022,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 }
             }
 
-            // Audio 1 voice-effect (echo/reverb/robot/etc) applied to the source voice only
-            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect, job.Audio1EffectIntensity);
-            if (!string.IsNullOrWhiteSpace(audio1Fx))
-            {
-                filters.Add(audio1Fx);
-                onLog($"[AUDIO1-FX] {job.Audio1Effect}: {audio1Fx}");
-            }
-
             if (filters.Count == 0)
                 filters.Add("anull");
 
@@ -7065,6 +7057,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     filters.Add(audioPlaybackFilter);
                     onLog($"[FILTER-EXTERNAL-AUDIO-SPEED] External audio speed: {externalAudioSpeed:F4}x ({audioPlaybackFilter})");
                 }
+            }
+
+            // Audio 1 voice FX (echo/reverb/robot/...) applied to the external Audio 1 track
+            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect, job.Audio1EffectIntensity);
+            if (!string.IsNullOrWhiteSpace(audio1Fx))
+            {
+                filters.Add(audio1Fx);
+                onLog($"[AUDIO1-FX] {job.Audio1Effect} @ {job.Audio1EffectIntensity}%: {audio1Fx}");
             }
 
             if (filters.Count == 0)
