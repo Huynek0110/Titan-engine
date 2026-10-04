@@ -11071,7 +11071,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
 
             string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
-            int maxWet = isChurch ? 2 : 1;
+            int maxWet = isChurch ? 6 : 3;
             double k = intensity;
             double wet = Math.Clamp(maxWet * k, 0, 10);
             // Dry stays at full level and only the reverb tail (wet) is scaled.
