@@ -1710,6 +1710,19 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 int generatedOverlayInputBaseIndex = staticVisualInputBaseIndex + (hasBrandLogo ? 1 : 0) + (hasWatermark ? 1 : 0);
                 bool hasImageOverlayAssets = hasBrandLogo || hasWatermark;
 
+                // ═══════════════════════════════════════════════════════════════
+                // SOUNDBAR (audio visualizer) - shared state for every overlay branch.
+                // The generated PNG sequence is inserted as the FIRST generated-overlay
+                // input, and generatedOverlayInputBaseIndex is advanced past it before the
+                // big if/else chain runs. Every branch therefore allocates strictly after
+                // the soundbar slot, which makes an index collision structurally impossible.
+                // ═══════════════════════════════════════════════════════════════
+                int soundBarInputIndex = generatedOverlayInputBaseIndex;
+                bool soundBarAnalysisFailed = false;
+                bool soundBarLayerActive = false;
+                AudioAnalysisResult? soundBarAnalysis = null;
+                SoundBarGeneratedOverlay? soundBarOverlay = null;
+
                 bool hasSourceAudio = await HasAudioStreamAsync(videoToEncode);
                 if (hasExternalAudio && hasSourceAudio)
                     onLog("[FFMPEG-MAP] Audio sources detected: source video + external audio");
@@ -2341,6 +2354,99 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
                 }
 
+                // ═══════════════════════════════════════════════════════════════
+                // SOUNDBAR: audio analysis + transparent PNG sequence generation.
+                // A soundbar failure must NEVER abort the render, so every exit path
+                // here degrades to "no soundbar layer" and lets the video encode.
+                // ═══════════════════════════════════════════════════════════════
+                if (job.EnableSoundBar)
+                {
+                    try
+                    {
+                        SoundBarAudioSource soundBarSourceMode = (job.SoundBarAudioSource ?? "auto").Trim().ToLowerInvariant() switch
+                        {
+                            "external" => SoundBarAudioSource.External,
+                            "video" => SoundBarAudioSource.Video,
+                            _ => SoundBarAudioSource.Auto
+                        };
+
+                        double soundBarLoopSeconds = Math.Clamp(job.SoundBarLoopSeconds, 1.0, 20.0);
+                        string soundBarPcmDir = Path.Combine(GetTitanTempDir(), "soundbar_pcm");
+
+                        soundBarAnalysis = await AudioSpectrumAnalyzer.AnalyzeAsync(
+                            videoToEncode,
+                            externalAudioPath,
+                            soundBarSourceMode,
+                            0.0,
+                            soundBarLoopSeconds,
+                            30,
+                            soundBarPcmDir,
+                            onLog,
+                            token);
+
+                        if (soundBarAnalysis == null)
+                        {
+                            soundBarAnalysisFailed = true;
+                            onLog("[SOUNDBAR] Audio analysis unavailable - soundbar layer skipped, render continues.");
+                        }
+                        else
+                        {
+                            var sbSettings = new SoundBarSettings
+                            {
+                                Style = SoundBarVisualizerPreset.FindStyle(job.SoundBarStyle)?.Id ?? SoundBarStyleId.NeonBars,
+                                PaletteId = string.IsNullOrWhiteSpace(job.SoundBarPalette) ? "ncs-cyan" : job.SoundBarPalette,
+                                XPercent = Math.Clamp(job.SoundBarXPercent, 0.0, 1.0),
+                                YPercent = Math.Clamp(job.SoundBarYPercent, 0.0, 1.0),
+                                WidthPercent = Math.Clamp(job.SoundBarWidthPercent, 0.02, 1.0),
+                                HeightPercent = Math.Clamp(job.SoundBarHeightPercent, 0.02, 1.0),
+                                Opacity = Math.Clamp(job.SoundBarOpacity, 0.05, 1.0),
+                                Sensitivity = Math.Clamp(job.SoundBarSensitivity, 0.1, 4.0),
+                                Smoothing = Math.Clamp(job.SoundBarSmoothing, 0.05, 5.0),
+                                BarCount = Math.Clamp(job.SoundBarBarCount, 8, 256),
+                                RingCount = Math.Clamp(job.SoundBarRingCount, 1, 12),
+                                Roundness = Math.Clamp(job.SoundBarRoundness, 0.0, 1.0),
+                                GlowIntensity = Math.Clamp(job.SoundBarGlowIntensity, 0.0, 3.0),
+                                LoopSeconds = soundBarLoopSeconds,
+                                FrameRate = 30.0
+                            };
+
+                            var sbPalette = ColorPresets.GetOrDefault(sbSettings.PaletteId);
+                            var sbProfile = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
+                            string soundBarTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+
+                            soundBarOverlay = await SoundBarVisualizerPreset.GenerateOverlayAsync(
+                                soundBarAnalysis,
+                                sbSettings,
+                                sbPalette,
+                                sbProfile.CanvasWidth,
+                                sbProfile.CanvasHeight,
+                                soundBarTag,
+                                onLog,
+                                token);
+
+                            if (soundBarOverlay == null)
+                            {
+                                soundBarAnalysisFailed = true;
+                                onLog("[SOUNDBAR] Overlay generation failed - soundbar layer skipped.");
+                            }
+                            else
+                            {
+                                onLog($"[SOUNDBAR] Generated {soundBarOverlay.FrameCount} frames @ {sbProfile.CanvasWidth}x{sbProfile.CanvasHeight} / {soundBarOverlay.FrameRate:F2}fps (loop {soundBarLoopSeconds:F1}s, style={job.SoundBarStyle}, palette={sbSettings.PaletteId})");
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        soundBarAnalysisFailed = true;
+                        soundBarOverlay = null;
+                        onLog($"[SOUNDBAR-ERROR] {ex.Message} - soundbar layer skipped, render continues.");
+                    }
+                }
+
                 // [MODIFIED] BUILD VIDEO FILTER - Skip scaling if Upscayl was used
                 StringBuilder filterChain = new StringBuilder();
 
@@ -2947,6 +3053,73 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     return graph;
                 }
 
+                // ═══════════════════════════════════════════════════════════════
+                // SOUNDBAR: reserve the soundbar input slot, then expose the graph
+                // builder every overlay branch below composes into its own chain.
+                //
+                // Because the -i arguments are appended to `cmd` in chronological order
+                // at `postInputInsertPoint`, inserting here - before the big if/else
+                // chain - makes the soundbar the FIRST generated-overlay input. Advancing
+                // generatedOverlayInputBaseIndex immediately afterwards guarantees every
+                // branch allocates an index strictly greater than soundBarInputIndex.
+                // ═══════════════════════════════════════════════════════════════
+                if (job.EnableSoundBar && soundBarOverlay != null && !soundBarAnalysisFailed)
+                {
+                    try
+                    {
+                        string soundBarInputArgs =
+                            $"-f image2 -pattern_type sequence -start_number 1 -framerate {soundBarOverlay.FrameRate.ToString("F3", CultureInfo.InvariantCulture)} -i \"{soundBarOverlay.OverlayPattern}\" ";
+                        cmd.Insert(postInputInsertPoint, soundBarInputArgs);
+                        postInputInsertPoint += soundBarInputArgs.Length;
+
+                        soundBarInputIndex = generatedOverlayInputBaseIndex;
+                        generatedOverlayInputBaseIndex++;
+                        soundBarLayerActive = true;
+
+                        tempTemplateArtifacts.AddRange(soundBarOverlay.TempArtifacts);
+                        onLog($"[SOUNDBAR] Reserved input #{soundBarInputIndex} <- {Path.GetFileName(soundBarOverlay.OverlayPattern)} ({soundBarOverlay.FrameCount} frames @ {soundBarOverlay.FrameRate:F2}fps)");
+                    }
+                    catch (Exception ex)
+                    {
+                        soundBarLayerActive = false;
+                        soundBarOverlay = null;
+                        onLog($"[SOUNDBAR-INPUT-ERROR] {ex.Message} - soundbar layer skipped, render continues.");
+                    }
+                }
+
+                /// <summary>
+                /// Builds the soundbar composite graph for the branch that is currently
+                /// assembling its filter chain. Returns an empty string (and permanently
+                /// disables the layer) when there is nothing usable to composite.
+                /// </summary>
+                string BuildSoundBarGraphStage(string baseInputLabel, string outputLabel, string baseVideoFilters = "")
+                {
+                    if (!soundBarLayerActive || soundBarOverlay == null)
+                        return string.Empty;
+
+                    try
+                    {
+                        string graph = SoundBarVisualizerPreset.BuildSingleClipGraph(
+                            baseInputLabel,
+                            baseVideoFilters,
+                            $"[{soundBarInputIndex}:v]",
+                            soundBarOverlay.FrameCount,
+                            soundBarOverlay.FrameRate,
+                            estimatedOutputDuration,
+                            outputLabel,
+                            onLog);
+
+                        onLog($"[SOUNDBAR] Layer composited from input #{soundBarInputIndex} -> [{outputLabel}]");
+                        return graph;
+                    }
+                    catch (Exception ex)
+                    {
+                        soundBarLayerActive = false;
+                        onLog($"[SOUNDBAR-GRAPH-ERROR] {ex.Message} - soundbar layer skipped, render continues.");
+                        return string.Empty;
+                    }
+                }
+
                 if (useLightLeakBurnWithOverlayEffect)
                 {
                     int overlayInputBaseIndex = generatedOverlayInputBaseIndex;
@@ -3096,6 +3269,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         graphParts.Add(snowfallGraphAfterOverlay);
                         currentOutputLabel = "[snowstage]";
+                    }
+
+                    // SOUNDBAR (1/16): composited after every overlay stage, before the
+                    // watermark/logo pass. All three sub-paths below (watermark / audio
+                    // mix / plain) read currentOutputLabel, so one insert covers them all.
+                    string soundBarStageGraph = BuildSoundBarGraphStage(currentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(soundBarStageGraph))
+                    {
+                        graphParts.Add(soundBarStageGraph);
+                        currentOutputLabel = "[soundbarout]";
                     }
 
                     if (hasImageOverlayAssets)
@@ -3248,14 +3431,24 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         estimatedOutputDuration,
                         "burnout",
                         onLog);
+                    // SOUNDBAR (2/16): the burn graph output label is a literal, so promote it to a
+                    // local that the soundbar stage can advance.
+                    string lightLeakBurnStageLabel = "[burnout]";
+                    string lightLeakBurnSoundBarGraph = BuildSoundBarGraphStage(lightLeakBurnStageLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(lightLeakBurnSoundBarGraph))
+                    {
+                        lightLeakBurnBaseGraph = $"{lightLeakBurnBaseGraph};{lightLeakBurnSoundBarGraph}";
+                        lightLeakBurnStageLabel = "[soundbarout]";
+                    }
+
                     string lightLeakBurnVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"[burnout]{fadeVideoFilter}[vout]"
-                        : "[burnout]format=yuv420p[vout]";
+                        ? $"{lightLeakBurnStageLabel}{fadeVideoFilter}[vout]"
+                        : $"{lightLeakBurnStageLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
                     {
                         string watermarkGraph = BuildWatermarkFilterComplex(
-                            "[burnout]",
+                            lightLeakBurnStageLabel,
                             string.Empty,
                             fadeVideoFilter,
                             watermarkInputIndex,
@@ -3433,6 +3626,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         rgbGraphParts.Add(rgbSnowfallGraph);
                         rgbCurrentOutputLabel = "[snowstage]";
+                    }
+
+                    // SOUNDBAR (3/16)
+                    string rgbSoundBarGraph = BuildSoundBarGraphStage(rgbCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(rgbSoundBarGraph))
+                    {
+                        rgbGraphParts.Add(rgbSoundBarGraph);
+                        rgbCurrentOutputLabel = "[soundbarout]";
                     }
 
                     string rgbVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
@@ -3621,6 +3822,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         polaroid2CurrentOutputLabel = "[snowstage]";
                     }
 
+                    // SOUNDBAR (4/16)
+                    string polaroid2SoundBarGraph = BuildSoundBarGraphStage(polaroid2CurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(polaroid2SoundBarGraph))
+                    {
+                        polaroid2GraphParts.Add(polaroid2SoundBarGraph);
+                        polaroid2CurrentOutputLabel = "[soundbarout]";
+                    }
+
                     string polaroid2VideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
                         ? $"{polaroid2CurrentOutputLabel}{fadeVideoFilter}[vout]"
                         : $"{polaroid2CurrentOutputLabel}format=yuv420p[vout]";
@@ -3788,6 +3997,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         dashedBaseGraph = $"{dashedBaseGraph};{dashedDreamyDotGraph}";
                         dashedCurrentOutputLabel = "[dreamydotstage]";
+                    }
+
+                    // SOUNDBAR (5/16)
+                    string dashedAndScratchSoundBarGraph = BuildSoundBarGraphStage(dashedCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(dashedAndScratchSoundBarGraph))
+                    {
+                        dashedBaseGraph = $"{dashedBaseGraph};{dashedAndScratchSoundBarGraph}";
+                        dashedCurrentOutputLabel = "[soundbarout]";
                     }
 
                     string dashedVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
@@ -3978,6 +4195,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         dashedCurrentOutputLabel = "[snowstage]";
                     }
 
+                    // SOUNDBAR (6/16)
+                    string dashedSoundBarGraph = BuildSoundBarGraphStage(dashedCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(dashedSoundBarGraph))
+                    {
+                        dashedGraphParts.Add(dashedSoundBarGraph);
+                        dashedCurrentOutputLabel = "[soundbarout]";
+                    }
+
                     string dashedVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
                         ? $"{dashedCurrentOutputLabel}{fadeVideoFilter}[vout]"
                         : $"{dashedCurrentOutputLabel}format=yuv420p[vout]";
@@ -4144,14 +4369,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         estimatedOutputDuration,
                         "scratchout",
                         onLog);
+                    // SOUNDBAR (7/16): literal [scratchout] promoted to a local the soundbar can advance.
+                    string lightLeakScratchStageLabel = "[scratchout]";
+                    string lightLeakScratchSoundBarGraph = BuildSoundBarGraphStage(lightLeakScratchStageLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(lightLeakScratchSoundBarGraph))
+                    {
+                        scratchBaseGraph = $"{scratchBaseGraph};{lightLeakScratchSoundBarGraph}";
+                        lightLeakScratchStageLabel = "[soundbarout]";
+                    }
+
                     string finalVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? "[scratchout]" + fadeVideoFilter + "[vout]"
-                        : "[scratchout]format=yuv420p[vout]";
+                        ? lightLeakScratchStageLabel + fadeVideoFilter + "[vout]"
+                        : lightLeakScratchStageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
                     {
                         string watermarkGraph = BuildWatermarkFilterComplex(
-                            "[scratchout]",
+                            lightLeakScratchStageLabel,
                             string.Empty,
                             fadeVideoFilter,
                             watermarkInputIndex,
@@ -4296,14 +4530,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         "rainout",
                         onLog);
 
+                    // SOUNDBAR (8/16)
+                    string rainStageLabel = "[rainout]";
+                    string rainSoundBarGraph = BuildSoundBarGraphStage(rainStageLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(rainSoundBarGraph))
+                    {
+                        rainBaseGraph = $"{rainBaseGraph};{rainSoundBarGraph}";
+                        rainStageLabel = "[soundbarout]";
+                    }
+
                     string rainVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? "[rainout]" + fadeVideoFilter + "[vout]"
-                        : "[rainout]format=yuv420p[vout]";
+                        ? rainStageLabel + fadeVideoFilter + "[vout]"
+                        : rainStageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
                     {
                         string watermarkGraph = BuildWatermarkFilterComplex(
-                            "[rainout]",
+                            rainStageLabel,
                             string.Empty,
                             fadeVideoFilter,
                             watermarkInputIndex,
@@ -4440,14 +4683,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         "dreamydot2out",
                         onLog);
 
+                    // SOUNDBAR (9/16)
+                    string dreamyDot2StageLabel = "[dreamydot2out]";
+                    string dreamyDot2SoundBarGraph = BuildSoundBarGraphStage(dreamyDot2StageLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(dreamyDot2SoundBarGraph))
+                    {
+                        dreamyDot2BaseGraph = $"{dreamyDot2BaseGraph};{dreamyDot2SoundBarGraph}";
+                        dreamyDot2StageLabel = "[soundbarout]";
+                    }
+
                     string dreamyDot2VideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? "[dreamydot2out]" + fadeVideoFilter + "[vout]"
-                        : "[dreamydot2out]format=yuv420p[vout]";
+                        ? dreamyDot2StageLabel + fadeVideoFilter + "[vout]"
+                        : dreamyDot2StageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
                     {
                         string watermarkGraph = BuildWatermarkFilterComplex(
-                            "[dreamydot2out]",
+                            dreamyDot2StageLabel,
                             string.Empty,
                             fadeVideoFilter,
                             watermarkInputIndex,
@@ -4598,6 +4850,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         lightLeakGraphParts.Add(lightLeakSnowfallGraph);
                         lightLeakCurrentOutputLabel = "[snowstage]";
+                    }
+
+                    // SOUNDBAR (10/16)
+                    string lightLeakSoundBarGraph = BuildSoundBarGraphStage(lightLeakCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(lightLeakSoundBarGraph))
+                    {
+                        lightLeakGraphParts.Add(lightLeakSoundBarGraph);
+                        lightLeakCurrentOutputLabel = "[soundbarout]";
                     }
 
                     string lightLeakVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
@@ -4760,6 +5020,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         dreamyDotCurrentOutputLabel = "[snowstage]";
                     }
 
+                    // SOUNDBAR (11/16)
+                    string dreamyDotSoundBarGraph = BuildSoundBarGraphStage(dreamyDotCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(dreamyDotSoundBarGraph))
+                    {
+                        dreamyDotGraphParts.Add(dreamyDotSoundBarGraph);
+                        dreamyDotCurrentOutputLabel = "[soundbarout]";
+                    }
+
                     string dreamyDotVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
                         ? $"{dreamyDotCurrentOutputLabel}{fadeVideoFilter}[vout]"
                         : $"{dreamyDotCurrentOutputLabel}format=yuv420p[vout]";
@@ -4891,14 +5159,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         "snowout",
                         ref snowOverlayInputIndex);
 
+                    // SOUNDBAR (12/16)
+                    string snowStageLabel = "[snowout]";
+                    string snowSoundBarGraph = BuildSoundBarGraphStage(snowStageLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(snowSoundBarGraph))
+                    {
+                        snowBaseGraph = $"{snowBaseGraph};{snowSoundBarGraph}";
+                        snowStageLabel = "[soundbarout]";
+                    }
+
                     string snowVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"[snowout]{fadeVideoFilter}[vout]"
-                        : "[snowout]format=yuv420p[vout]";
+                        ? $"{snowStageLabel}{fadeVideoFilter}[vout]"
+                        : $"{snowStageLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
                     {
                         string watermarkGraph = BuildWatermarkFilterComplex(
-                            "[snowout]",
+                            snowStageLabel,
                             string.Empty,
                             fadeVideoFilter,
                             watermarkInputIndex,
@@ -5040,6 +5317,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         scratchGraphParts.Add(scratchSnowfallGraph);
                         scratchCurrentOutputLabel = "[snowstage]";
+                    }
+
+                    // SOUNDBAR (13/16)
+                    string scratchSoundBarGraph = BuildSoundBarGraphStage(scratchCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(scratchSoundBarGraph))
+                    {
+                        scratchGraphParts.Add(scratchSoundBarGraph);
+                        scratchCurrentOutputLabel = "[soundbarout]";
                     }
 
                     string scratchVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
@@ -5202,6 +5487,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         recipeCurrentOutputLabel = "[snowstage]";
                     }
 
+                    // SOUNDBAR (14/16)
+                    string recipeSoundBarGraph = BuildSoundBarGraphStage(recipeCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(recipeSoundBarGraph))
+                    {
+                        recipeGraphParts.Add(recipeSoundBarGraph);
+                        recipeCurrentOutputLabel = "[soundbarout]";
+                    }
+
                     string recipeVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
                         ? $"{recipeCurrentOutputLabel}{fadeVideoFilter}[vout]"
                         : $"{recipeCurrentOutputLabel}format=yuv420p[vout]";
@@ -5355,6 +5648,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         recipeCurrentOutputLabel = "[snowstage]";
                     }
 
+                    // SOUNDBAR (15/16)
+                    string recipeParticleSoundBarGraph = BuildSoundBarGraphStage(recipeCurrentOutputLabel, "soundbarout");
+                    if (!string.IsNullOrWhiteSpace(recipeParticleSoundBarGraph))
+                    {
+                        recipeGraphParts.Add(recipeParticleSoundBarGraph);
+                        recipeCurrentOutputLabel = "[soundbarout]";
+                    }
+
                     string recipeVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
                         ? $"{recipeCurrentOutputLabel}{fadeVideoFilter}[vout]"
                         : $"{recipeCurrentOutputLabel}format=yuv420p[vout]";
@@ -5477,16 +5778,20 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         onLog($"[FFMPEG-FILTER-COMPLEX] {finalFilterComplex}");
                     }
                 }
-                else if (hasImageOverlayAssets)
-                {
-                    string filterComplex = BuildWatermarkFilterComplex(
-                        "[0:v]",
-                        filterChain.ToString(),
-                        fadeVideoFilter,
-                        watermarkInputIndex,
-                        brandLogoInputIndex,
-                        job,
-                        onLog);
+                // SOUNDBAR (16/16): no overlay preset branch matched. This path normally emits a
+                // plain -vf filter chain, which cannot take a second input, so the
+                // condition is widened to soundBarLayerActive and the soundbar stage
+                // is built into a filter_complex that also carries filterChain.
+                else if (hasImageOverlayAssets || soundBarLayerActive)
+                    {
+                    string plainSoundBarGraph = BuildSoundBarGraphStage("[0:v]", "soundbarout", filterChain.ToString());
+                    bool plainSoundBarApplied = !string.IsNullOrWhiteSpace(plainSoundBarGraph);
+                    string plainStageLabel = plainSoundBarApplied ? "[soundbarout]" : "[0:v]";
+                    string plainBaseFilters = plainSoundBarApplied ? string.Empty : filterChain.ToString();
+
+                    string filterComplex = plainSoundBarApplied
+                        ? $"{plainSoundBarGraph};{BuildWatermarkFilterComplex(plainStageLabel, plainBaseFilters, fadeVideoFilter, watermarkInputIndex, brandLogoInputIndex, job, onLog)}"
+                        : BuildWatermarkFilterComplex(plainStageLabel, plainBaseFilters, fadeVideoFilter, watermarkInputIndex, brandLogoInputIndex, job, onLog);
 
                     if (needsAudioMixing)
                     {
@@ -11367,6 +11672,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private const string LocalApiRenderStatusPath = "/api/render/status";
         private const string LocalApiQueueAddPath = "/api/queue/add";
         private const string LocalApiQueueStartPath = "/api/queue/start";
+        private const string LocalApiSoundBarPresetsPath = "/api/soundbar/presets";
         private static readonly byte[] BlockingApiHeartbeatBytes = Encoding.UTF8.GetBytes(" \n");
 
         private readonly JsonSerializerOptions _localApiJsonOptions = new JsonSerializerOptions
@@ -11407,6 +11713,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (chkOverlayIntro != null) chkOverlayIntro.IsChecked = false;
             UpdateAudioEditSummary();
             UpdateSnowfallOpacityUi();
+
+            PopulateSoundBarComboBoxes();
+            UpdateSoundBarDescription();
+            UpdateSoundBarUiState();
 
             UpdateHostModeButtonState();
         }
@@ -13048,6 +13358,329 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             LogSystem("[SLOW-MOTION-AUDIO] Audio will keep original speed");
         }
 
+        // ══════════════════════════════════════════════════════════════════════
+        // SOUNDBAR (Audio Visualizer) - UI layer
+        // ══════════════════════════════════════════════════════════════════════
+
+        private CancellationTokenSource? _soundBarPreviewCts;
+
+        /// <summary>
+        /// Short picker labels for the style combo, keyed by canonical style id.
+        /// <para>
+        /// The id list itself is NOT duplicated here - it comes from
+        /// <see cref="SoundBarVisualizerPreset.AllStyles"/>, so a style added to or removed
+        /// from the canonical table can never go missing from the picker. That mattered: a
+        /// hard-coded id list that drifted would make <c>FindStyle</c> return null and silently
+        /// render neon-bars instead of what the user picked, with nothing in the log.
+        /// </para>
+        /// <para>
+        /// These are menu labels only. The long copy lives in the description strip underneath,
+        /// which is fed straight from the same canonical table. Any style without an override
+        /// falls back to its canonical <c>Name</c>, so a brand new style still shows something
+        /// sensible without a code change here.
+        /// </para>
+        /// </summary>
+        private static readonly Dictionary<string, string> SoundBarStyleDisplayLabels =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["neon-bars"] = "Neon Bars (đáy)",
+                ["mirror-spectrum"] = "Center Mirror Spectrum",
+                ["pill-bars"] = "Pill Bar Row",
+                ["dense-columns"] = "Dense Thin Columns",
+                ["dot-matrix"] = "Dot Matrix Grid",
+                ["radial-ring"] = "Radial Spectrum Ring",
+                ["dual-rings"] = "Dual Counter Rings",
+                ["ripple-rings"] = "Ripple Pulse Rings",
+                ["spoke-lines"] = "Radial Spoke Lines",
+                ["wave-ribbon"] = "Waveform Ribbon",
+                ["center-column"] = "Center Sound Column",
+                ["peak-stars"] = "Peak Star Field"
+            };
+
+        private void PopulateSoundBarComboBoxes()
+        {
+            if (cmbSoundBarStyle != null && cmbSoundBarStyle.Items.Count == 0)
+            {
+                try
+                {
+                    int added = 0;
+                    foreach (SoundBarStyleInfo style in SoundBarVisualizerPreset.AllStyles)
+                    {
+                        if (string.IsNullOrWhiteSpace(style.StyleId))
+                            continue;
+
+                        string label = SoundBarStyleDisplayLabels.TryGetValue(style.StyleId, out string? customLabel)
+                            ? customLabel
+                            : style.Name;
+
+                        cmbSoundBarStyle.Items.Add(new ComboBoxItem { Content = label, Tag = style.StyleId });
+                        added++;
+                    }
+
+                    if (added == 0)
+                        throw new InvalidOperationException("SoundBarVisualizerPreset.AllStyles returned no usable styles.");
+
+                    LogSystem($"[SOUNDBAR] Loaded {added} style(s) from SoundBarVisualizerPreset");
+                }
+                catch (Exception ex)
+                {
+                    // Never let a style-table load failure break startup.
+                    LogSystem($"[SOUNDBAR-WARN] Style list unavailable ({ex.Message}); falling back to neon-bars.");
+                    cmbSoundBarStyle.Items.Clear();
+                    cmbSoundBarStyle.Items.Add(new ComboBoxItem { Content = "Neon Bars (đáy)", Tag = "neon-bars" });
+                }
+
+                cmbSoundBarStyle.SelectedIndex = 0;
+            }
+
+            if (cmbSoundBarPalette != null && cmbSoundBarPalette.Items.Count == 0)
+            {
+                try
+                {
+                    int added = 0;
+                    foreach (ColorPreset preset in ColorPresets.All)
+                    {
+                        if (string.IsNullOrWhiteSpace(preset.Id))
+                            continue;
+
+                        cmbSoundBarPalette.Items.Add(new ComboBoxItem { Content = preset.Name, Tag = preset.Id });
+                        added++;
+                    }
+
+                    if (added == 0)
+                        throw new InvalidOperationException("ColorPresets.All returned no usable palettes.");
+
+                    LogSystem($"[SOUNDBAR] Loaded {added} palette(s) from ColorPresets");
+                }
+                catch (Exception ex)
+                {
+                    // Never let a palette-table load failure break startup.
+                    LogSystem($"[SOUNDBAR-WARN] Palette list unavailable ({ex.Message}); falling back to ncs-cyan.");
+                    cmbSoundBarPalette.Items.Clear();
+                    cmbSoundBarPalette.Items.Add(new ComboBoxItem { Content = "NCS Cyan", Tag = "ncs-cyan" });
+                }
+
+                cmbSoundBarPalette.SelectedIndex = 0;
+            }
+
+            if (cmbSoundBarAudioSource != null && cmbSoundBarAudioSource.Items.Count == 0)
+            {
+                cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Tự động (ưu tiên audio ngoài)", Tag = "auto" });
+                cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Chỉ audio ngoài", Tag = "external" });
+                cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Chỉ audio trong video", Tag = "video" });
+                cmbSoundBarAudioSource.SelectedIndex = 0;
+            }
+        }
+
+        private string GetSelectedSoundBarStyleId()
+        {
+            return (cmbSoundBarStyle?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "neon-bars";
+        }
+
+        private void ChkEnableSoundBar_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateSoundBarUiState();
+
+            if (chkEnableSoundBar?.IsChecked == true)
+                ScheduleSoundBarPreview();
+            else
+                CancelSoundBarPreview();
+        }
+
+        private void CmbSoundBar_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateSoundBarDescription();
+            UpdateSoundBarUiState();
+            ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// Opacity / sensitivity / smoothing / bar-count sliders all feed the same debounced
+        /// preview pass. ScheduleSoundBarPreview coalesces a whole drag into a single render,
+        /// so no throttle of its own is needed here. It no-ops while the soundbar is off, which
+        /// also covers the ValueChanged that WPF raises while InitializeComponent parses XAML.
+        /// </summary>
+        private void SldSoundBar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// X / Y / width / height boxes. No IsKeyboardFocusWithin guard: this file does not use
+        /// one anywhere, and the 250 ms debounce already swallows the intermediate states of
+        /// "5" -> "50". Unparseable text falls back to the field default inside ParsePercent,
+        /// so a half-typed value can never throw or blank the preview.
+        /// </summary>
+        private void TxtSoundBarPercent_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            ScheduleSoundBarPreview();
+        }
+
+        private void UpdateSoundBarDescription()
+        {
+            if (txtSoundBarDescription == null)
+                return;
+
+            try
+            {
+                var style = SoundBarVisualizerPreset.FindStyle(GetSelectedSoundBarStyleId());
+                txtSoundBarDescription.Text = style?.Description ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                LogSystem($"[SOUNDBAR-WARN] Style description unavailable: {ex.Message}");
+                txtSoundBarDescription.Text = string.Empty;
+            }
+        }
+
+        private void UpdateSoundBarUiState()
+        {
+            bool enabled = chkEnableSoundBar?.IsChecked == true;
+
+            if (pnlSoundBarSettings != null)
+                pnlSoundBarSettings.IsEnabled = enabled;
+
+            if (brdSoundBarPreview != null)
+                brdSoundBarPreview.Opacity = enabled ? 1.0 : 0.45;
+        }
+
+        /// <summary>
+        /// Debounces preview regeneration so dragging through the combo boxes does not
+        /// spawn one render pass per keystroke-equivalent interaction.
+        /// </summary>
+        private void ScheduleSoundBarPreview()
+        {
+            if (chkEnableSoundBar?.IsChecked != true)
+                return;
+
+            _ = RegenerateSoundBarPreviewAsync();
+        }
+
+        private void CancelSoundBarPreview()
+        {
+            try { _soundBarPreviewCts?.Cancel(); } catch { }
+            try { _soundBarPreviewCts?.Dispose(); } catch { }
+            _soundBarPreviewCts = null;
+        }
+
+        private async Task RegenerateSoundBarPreviewAsync()
+        {
+            CancelSoundBarPreview();
+            _soundBarPreviewCts = new CancellationTokenSource();
+            CancellationToken token = _soundBarPreviewCts.Token;
+
+            try
+            {
+                // 250 ms debounce.
+                await Task.Delay(250, token);
+
+                var settings = new SoundBarSettings
+                {
+                    Style = SoundBarVisualizerPreset.FindStyle(GetSelectedSoundBarStyleId())?.Id ?? SoundBarStyleId.NeonBars,
+                    PaletteId = (cmbSoundBarPalette?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ncs-cyan",
+                    XPercent = ParsePercent(txtSoundBarXPercent?.Text, 50.0) / 100.0,
+                    YPercent = ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0,
+                    WidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0),
+                    HeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0),
+                    Opacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, 0.05, 1.0),
+                    Sensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, 0.1, 4.0),
+                    Smoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, 0.05, 5.0),
+                    BarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, 8.0, 256.0)),
+                    RingCount = 2,
+                    Roundness = 1.0,
+                    GlowIntensity = 1.0,
+                    LoopSeconds = 5.0,
+                    FrameRate = 30.0
+                };
+
+                ColorPreset palette = ColorPresets.GetOrDefault(settings.PaletteId);
+                string previewDir = Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_preview");
+                Directory.CreateDirectory(previewDir);
+
+                // GeneratePreviewPngAsync renders one deterministic frame (no audio file needed)
+                // and caches it under previewDir, so the returned file is intentionally NOT deleted.
+                string? previewPath = await SoundBarVisualizerPreset.GeneratePreviewPngAsync(
+                    settings,
+                    palette,
+                    480,
+                    270,
+                    previewDir,
+                    LogSystem,
+                    token);
+
+                if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(previewPath) || !File.Exists(previewPath))
+                    return;
+
+                byte[] raw = await File.ReadAllBytesAsync(previewPath, token);
+                using var ms = new MemoryStream(raw);
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.StreamSource = ms;
+                bmp.EndInit();
+                bmp.Freeze();
+
+                if (token.IsCancellationRequested)
+                    return;
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (imgSoundBarPreview != null)
+                        imgSoundBarPreview.Source = bmp;
+
+                    if (txtSoundBarPreviewHint != null)
+                        txtSoundBarPreviewHint.Visibility = Visibility.Collapsed;
+                });
+
+                LogSystem("[SOUNDBAR] Preview updated");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                LogSystem($"[SOUNDBAR-PREVIEW-WARN] {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private void ApplySoundBarSettingsToJob(RenderJob job)
+        {
+            if (job == null)
+                return;
+
+            job.EnableSoundBar = chkEnableSoundBar?.IsChecked ?? false;
+            job.SoundBarStyle = (cmbSoundBarStyle?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "neon-bars";
+            job.SoundBarPalette = (cmbSoundBarPalette?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ncs-cyan";
+            job.SoundBarAudioSource = (cmbSoundBarAudioSource?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
+            job.SoundBarXPercent = Math.Clamp(ParsePercent(txtSoundBarXPercent?.Text, 50.0) / 100.0, 0.0, 1.0);
+            job.SoundBarYPercent = Math.Clamp(ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0, 0.0, 1.0);
+            job.SoundBarWidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0);
+            job.SoundBarHeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0);
+            job.SoundBarOpacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, 0.05, 1.0);
+            job.SoundBarSensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, 0.1, 4.0);
+            job.SoundBarSmoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, 0.05, 5.0);
+            job.SoundBarBarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, 8.0, 256.0));
+            job.SoundBarRoundness = 1.0;
+            job.SoundBarGlowIntensity = 1.0;
+            job.SoundBarRingCount = 2;
+            job.SoundBarLoopSeconds = 5.0;
+        }
+
+        /// <summary>
+        /// Parses a UI percentage field. Accepts both '.' and ',' as the decimal separator
+        /// so the box works under Vietnamese and invariant locales.
+        /// </summary>
+        private static double ParsePercent(string? text, double fallback)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return fallback;
+
+            string normalized = text.Trim().Replace(',', '.');
+            return double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)
+                ? v
+                : fallback;
+        }
+
         private async void BtnAddJob_Click(object sender, RoutedEventArgs e)
         {
             if (_listVideoPaths == null || _listVideoPaths.Count == 0)
@@ -13354,7 +13987,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     TextGlowColor = (cmbTextGlowColor.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "Cyan Neon",
                     TextOverlayAnimation = (cmbTextAnimation.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     TextOverlayEffectDuration = double.TryParse(txtTextEffectDuration.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double te) ? te : 5.0,
-                    EnableAudioSpectrum = chkAudioSpectrum.IsChecked ?? false,
                     EnableCaptionSync = chkCaptionSync.IsChecked ?? false,
                     CaptionSyncLanguage = (cmbCaptionLang.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     CaptionSyncModelSize = (cmbCaptionModel.SelectedItem as ComboBoxItem)?.Content.ToString(),
@@ -13366,6 +13998,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     CaptionSyncFontSize = (int)sldCaptionFontSize.Value,
                     CaptionSyncColor = "white" // Using white default, could add color picker later
                 };
+
+                ApplySoundBarSettingsToJob(job);
 
                 if (job.MergeVideos && job.MergeInputPaths.Count > 1)
                 {
@@ -13793,7 +14427,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     TextGlowColor = (cmbTextGlowColor.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "Cyan Neon",
                     TextOverlayAnimation = (cmbTextAnimation.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     TextOverlayEffectDuration = double.TryParse(txtTextEffectDuration.Text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double te) ? te : 5.0,
-                    EnableAudioSpectrum = chkAudioSpectrum.IsChecked ?? false,
                     EnableCaptionSync = chkCaptionSync.IsChecked ?? false,
                     CaptionSyncLanguage = (cmbCaptionLang.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     CaptionSyncModelSize = (cmbCaptionModel.SelectedItem as ComboBoxItem)?.Content.ToString(),
@@ -13805,6 +14438,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     CaptionSyncFontSize = (int)sldCaptionFontSize.Value,
                     CaptionSyncColor = "white"
                 };
+
+                ApplySoundBarSettingsToJob(job);
 
                 if (IsImageSourcePath(job.SourcePath))
                 {
@@ -14308,6 +14943,22 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         OutputFileSize = outputFileSize,
                         EncodingTime = state.Done ? encodingTime : null
                     });
+                    return;
+                }
+
+                if (path.Equals(LocalApiSoundBarPresetsPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!context.Request.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await WriteApiResponseAsync(context.Response, 405, new LocalhostRenderResponse
+                        {
+                            Success = false,
+                            Message = "Method not allowed. Use GET /api/soundbar/presets"
+                        });
+                        return;
+                    }
+
+                    await WriteApiResponseAsync(context.Response, 200, BuildSoundBarPresetsResponse());
                     return;
                 }
 
@@ -15470,6 +16121,33 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 job.CaptionSyncColor = request.CaptionSyncColor ?? GetFeatureString(request, "captionSyncColor", "captionColor") ?? "white";
                 job.CaptionSyncXPercent = request.CaptionSyncXPercent ?? GetFeatureDouble(request, "captionSyncXPercent", "captionXPercent", "captionX") ?? 50.0;
                 job.CaptionSyncYPercent = request.CaptionSyncYPercent ?? GetFeatureDouble(request, "captionSyncYPercent", "captionYPercent", "captionY") ?? 85.0;
+
+                // SOUNDBAR (audio visualizer) mapping. Every value is clamped here so the
+                // render pipeline never sees an out-of-range style request.
+                job.EnableSoundBar = request.EnableSoundBar
+                    ?? GetFeatureBool(request, "enableSoundBar", "soundBar", "soundbar") ?? false;
+                if (job.EnableSoundBar)
+                {
+                    job.SoundBarStyle = SoundBarVisualizerPreset.NormalizeStyleId(
+                        request.SoundBarStyle ?? GetFeatureString(request, "soundBarStyle", "soundbarStyle"));
+                    job.SoundBarPalette = string.IsNullOrWhiteSpace(request.SoundBarPalette)
+                        ? "ncs-cyan"
+                        : request.SoundBarPalette.Trim();
+                    job.SoundBarAudioSource = NormalizeSoundBarAudioSource(
+                        request.SoundBarAudioSource ?? GetFeatureString(request, "soundBarAudioSource", "soundbarAudioSource"));
+                    job.SoundBarXPercent = NormalizeSoundBarFraction(request.SoundBarXPercent, 0.50);
+                    job.SoundBarYPercent = NormalizeSoundBarFraction(request.SoundBarYPercent, 0.82);
+                    job.SoundBarWidthPercent = NormalizeSoundBarFraction(request.SoundBarWidthPercent, 0.62, 0.02);
+                    job.SoundBarHeightPercent = NormalizeSoundBarFraction(request.SoundBarHeightPercent, 0.26, 0.02);
+                    job.SoundBarOpacity = Math.Clamp(request.SoundBarOpacity ?? 1.0, 0.05, 1.0);
+                    job.SoundBarSensitivity = Math.Clamp(request.SoundBarSensitivity ?? 1.0, 0.1, 4.0);
+                    job.SoundBarSmoothing = Math.Clamp(request.SoundBarSmoothing ?? 1.0, 0.05, 5.0);
+                    job.SoundBarBarCount = (int)Math.Round((double)Math.Clamp(request.SoundBarBarCount ?? 64, 8, 256), MidpointRounding.AwayFromZero);
+                    job.SoundBarRingCount = (int)Math.Round((double)Math.Clamp(request.SoundBarRingCount ?? 2, 1, 12), MidpointRounding.AwayFromZero);
+                    job.SoundBarRoundness = Math.Clamp(request.SoundBarRoundness ?? 1.0, 0.0, 1.0);
+                    job.SoundBarGlowIntensity = Math.Clamp(request.SoundBarGlowIntensity ?? 1.0, 0.0, 3.0);
+                    job.SoundBarLoopSeconds = Math.Clamp(request.SoundBarLoopSeconds ?? 5.0, 1.0, 20.0);
+                }
 
                 if (job.MergeVideos && job.MergeInputPaths.Count > 1)
                 {
@@ -17435,6 +18113,106 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 "original" => "None (Original)",
                 "none (original)" => "None (Original)",
                 _ => "None (Original)"
+            };
+        }
+
+        /// <summary>
+        /// Maps an incoming audio-source string onto "auto" / "external" / "video".
+        /// </summary>
+        private static string NormalizeSoundBarAudioSource(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "auto";
+
+            return raw.Trim().ToLowerInvariant() switch
+            {
+                "external" or "ext" or "audio1" or "track1" => "external",
+                "video" or "source" or "internal" or "original" => "video",
+                _ => "auto"
+            };
+        }
+
+        /// <summary>
+        /// Normalizes a soundbar placement fraction. Callers may send either 0.0-1.0 or a
+        /// 0-100 percentage; anything above 1.0 is read as a percentage so BAS scripts do
+        /// not silently collapse the layer into the corner.
+        /// </summary>
+        private static double NormalizeSoundBarFraction(double? raw, double fallback, double min = 0.0)
+        {
+            if (!raw.HasValue || double.IsNaN(raw.Value) || double.IsInfinity(raw.Value))
+                return fallback;
+
+            double value = raw.Value;
+            if (value > 1.0)
+                value /= 100.0;
+
+            return Math.Clamp(value, min, 1.0);
+        }
+
+        /// <summary>
+        /// Builds the GET /api/soundbar/presets payload: two SEPARATE arrays, <c>soundBarStyles</c>
+        /// (one entry per visualizer style, in menu order) and <c>soundBarPalettes</c> (one entry
+        /// per colour palette). They are deliberately not concatenated into one flat array - the two
+        /// shapes have different member names ("styleId" vs "id") and no boundary marker was ever
+        /// emitted, so a flat client had to probe every element just to split them.
+        /// </summary>
+        private LocalhostRenderResponse BuildSoundBarPresetsResponse()
+        {
+            var styles = new List<object>();
+
+            foreach (SoundBarStyleInfo style in SoundBarVisualizerPreset.AllStyles)
+            {
+                styles.Add(new
+                {
+                    styleId = style.StyleId,
+                    name = style.Name,
+                    description = style.Description,
+                    usesFft = style.UsesFft,
+                    usesWaveform = style.UsesWaveform,
+                    usesOnset = style.UsesOnset,
+                    usesRms = style.UsesRms,
+                    defaultBarCount = style.DefaultBarCount
+                });
+            }
+
+            var palettes = new List<object>();
+
+            foreach (ColorPreset palette in ColorPresets.All)
+            {
+                IReadOnlyList<GradientStopSpec> paletteStops = palette.Stops ?? Array.Empty<GradientStopSpec>();
+                var stops = new List<object>(paletteStops.Count);
+                foreach (GradientStopSpec stop in paletteStops)
+                {
+                    stops.Add(new
+                    {
+                        offset = stop.Offset,
+                        hex = stop.Hex
+                    });
+                }
+
+                palettes.Add(new
+                {
+                    id = palette.Id,
+                    name = palette.Name,
+                    vibe = palette.Vibe,
+                    genres = palette.Genres,
+                    stops,
+                    core = palette.Core,
+                    glow = palette.Glow,
+                    bgTint = palette.BgTint,
+                    accent = palette.Accent,
+                    glowStrength = palette.GlowStrength
+                });
+            }
+
+            LogSystem($"[SOUNDBAR-PRESETS] Serving {styles.Count} style(s) and {palettes.Count} palette(s)");
+
+            return new LocalhostRenderResponse
+            {
+                Success = true,
+                Message = "Soundbar visualizer styles and palettes",
+                SoundBarStyles = styles,
+                SoundBarPalettes = palettes
             };
         }
 

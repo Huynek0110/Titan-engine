@@ -173,6 +173,32 @@ namespace TitanEngine {
         public string? TextOverlayColor { get; set; }
         public string? TextOverlayStyle { get; set; } = "Aesthetic Lyric (Georgia Italic)";
         public bool EnableAudioSpectrum { get; set; } = false;
+
+        // ===== SOUNDBAR (audio visualizer) =====
+        // Renders an audio-reactive PNG sequence once, then composites it over the
+        // video with ffmpeg `overlay=`. Every value here is optional; each one has a
+        // safe default so a bare `enableSoundBar: true` already produces a valid render.
+        public bool EnableSoundBar { get; set; } = false;
+        /// <summary>Stable style id, e.g. "neon-bars". See GET /api/soundbar/presets.</summary>
+        public string SoundBarStyle { get; set; } = "neon-bars";
+        /// <summary>Stable palette id, e.g. "ncs-cyan".</summary>
+        public string SoundBarPalette { get; set; } = "ncs-cyan";
+        public double SoundBarXPercent { get; set; } = 0.50;
+        public double SoundBarYPercent { get; set; } = 0.82;
+        public double SoundBarWidthPercent { get; set; } = 0.62;
+        public double SoundBarHeightPercent { get; set; } = 0.26;
+        public double SoundBarOpacity { get; set; } = 1.0;
+        public double SoundBarSensitivity { get; set; } = 1.0;
+        public double SoundBarSmoothing { get; set; } = 1.0;
+        public int SoundBarBarCount { get; set; } = 64;
+        public int SoundBarRingCount { get; set; } = 2;
+        public double SoundBarRoundness { get; set; } = 1.0;
+        public double SoundBarGlowIntensity { get; set; } = 1.0;
+        public double SoundBarLoopSeconds { get; set; } = 5.0;
+        /// <summary>"auto" | "external" | "video".</summary>
+        public string SoundBarAudioSource { get; set; } = "auto";
+        // ===== END SOUNDBAR =====
+
         public bool AddQuotes { get; set; } = true;
         public bool DisableTextScroll { get; set; } = false;
         public double? TextOverlayXPercent { get; set; }
@@ -262,6 +288,14 @@ namespace TitanEngine {
                 else if (!string.IsNullOrWhiteSpace(CropAspectRatio) &&
                     !CropAspectRatio.Equals("Free", StringComparison.OrdinalIgnoreCase))
                     info += $" | CropAR:{CropAspectRatio}";
+                if (EnableSoundBar)
+                {
+                    string style = string.IsNullOrWhiteSpace(SoundBarStyle) ? "neon-bars" : SoundBarStyle.Trim();
+                    string palette = string.IsNullOrWhiteSpace(SoundBarPalette) ? "ncs-cyan" : SoundBarPalette.Trim();
+                    string xText = SoundBarXPercent.ToString("P0", CultureInfo.InvariantCulture);
+                    string yText = SoundBarYPercent.ToString("P0", CultureInfo.InvariantCulture);
+                    info += $" | SOUNDBAR[{style}/{palette} x={xText} y={yText}]";
+                }
                 return info;
             }
         }
@@ -320,6 +354,26 @@ namespace TitanEngine {
         public string? TextGlowColor { get; set; }
         public string? TextOverlayAnimation { get; set; }
         public double? TextOverlayEffectDuration { get; set; }
+
+        // ===== SOUNDBAR (audio visualizer) =====
+        // Legacy EnableAudioSpectrum above is intentionally left untouched.
+        public bool? EnableSoundBar { get; set; }
+        public string? SoundBarStyle { get; set; }
+        public string? SoundBarPalette { get; set; }
+        public double? SoundBarXPercent { get; set; }
+        public double? SoundBarYPercent { get; set; }
+        public double? SoundBarWidthPercent { get; set; }
+        public double? SoundBarHeightPercent { get; set; }
+        public double? SoundBarOpacity { get; set; }
+        public double? SoundBarSensitivity { get; set; }
+        public double? SoundBarSmoothing { get; set; }
+        public int? SoundBarBarCount { get; set; }
+        public int? SoundBarRingCount { get; set; }
+        public double? SoundBarRoundness { get; set; }
+        public double? SoundBarGlowIntensity { get; set; }
+        public double? SoundBarLoopSeconds { get; set; }
+        public string? SoundBarAudioSource { get; set; }
+        // ===== END SOUNDBAR =====
 
         public string? ColorGrading { get; set; }
         public double? ColorIntensity { get; set; }
@@ -518,6 +572,20 @@ namespace TitanEngine {
         public string? RainOverlayIntensity { get; set; }
         public string? MusicSyncMode { get; set; }
         public List<LocalhostQueueJobInfo>? Jobs { get; set; }
+
+        // ===== SOUNDBAR (audio visualizer) =====
+        /// <summary>
+        /// Populated only by GET /api/soundbar/presets. Styles and palettes are two SEPARATE
+        /// arrays (they used to share one flat list with no boundary marker, so a client had to
+        /// probe every element for a "styleId" member just to tell the two shapes apart).
+        /// Both are declared as List&lt;object&gt; so the payload shape stays owned by the
+        /// soundbar style / colour palette tables rather than being mirrored here.
+        /// </summary>
+        public List<object>? SoundBarStyles { get; set; }
+
+        /// <summary>See <see cref="SoundBarStyles"/>. Palettes use "id", not "styleId".</summary>
+        public List<object>? SoundBarPalettes { get; set; }
+        // ===== END SOUNDBAR =====
     }
 
     public class LocalhostQueueJobInfo

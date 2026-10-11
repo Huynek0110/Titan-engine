@@ -559,6 +559,56 @@
                             </StackPanel>
                         </GroupBox>
 
+                        <!-- 2.4 SOUNDBAR (Audio Visualizer) -->
+                        <GroupBox Header="🎵 SOUNDBAR (Audio Visualizer)" Foreground="#00FFCC" FontSize="13" ToolTip="Dải sóng nhạc phản ứng theo audio, cộng thêm vào MỌI hiệu ứng khác">
+                            <StackPanel>
+                                <CheckBox x:Name="chkEnableSoundBar" Content="Bật SOUNDBAR" Foreground="#00FFCC" IsChecked="False" Margin="0,0,0,8" ToolTip="Thêm dải sóng nhạc phản ứng theo audio vào video" Checked="ChkEnableSoundBar_Changed" Unchecked="ChkEnableSoundBar_Changed"/>
+                                <StackPanel x:Name="pnlSoundBarSettings">
+                                    <Border x:Name="brdSoundBarPreview" Height="144" Background="#0A0A12" BorderBrush="#313244" BorderThickness="1" CornerRadius="4" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Image x:Name="imgSoundBarPreview" Stretch="Uniform" SnapsToDevicePixels="True"/>
+                                            <TextBlock x:Name="txtSoundBarPreviewHint" Text="Chọn kiểu + màu để xem trước" Foreground="#555" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock x:Name="txtSoundBarDescription" Text="" Foreground="#7A7A8A" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                    <TextBlock Text="KIỂU HIỂN THỊ" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbSoundBarStyle" Height="28" SelectionChanged="CmbSoundBar_Changed" Margin="0,0,0,8"/>
+                                    <TextBlock Text="BẢNG MÀU" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbSoundBarPalette" Height="28" SelectionChanged="CmbSoundBar_Changed" Margin="0,0,0,8"/>
+                                    <TextBlock Text="NGUỒN ÂM THANH" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbSoundBarAudioSource" Height="28" Margin="0,0,0,8"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="Độ đục" Foreground="#DDD" FontSize="11"/>
+                                        <TextBlock Text="{Binding ElementName=sldSoundBarOpacity, Path=Value, StringFormat={}{0:F2}}" Foreground="#00FFCC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Slider x:Name="sldSoundBarOpacity" Minimum="0.1" Maximum="1.0" Value="1.0" Margin="0,0,0,8" ValueChanged="SldSoundBar_ValueChanged"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="Độ nhạy" Foreground="#DDD" FontSize="11"/>
+                                        <TextBlock Text="{Binding ElementName=sldSoundBarSensitivity, Path=Value, StringFormat={}{0:F2}}" Foreground="#00FFCC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Slider x:Name="sldSoundBarSensitivity" Minimum="0.3" Maximum="2.5" Value="1.0" Margin="0,0,0,8" ValueChanged="SldSoundBar_ValueChanged"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="Mượt (smoothing)" Foreground="#DDD" FontSize="11"/>
+                                        <TextBlock Text="{Binding ElementName=sldSoundBarSmoothing, Path=Value, StringFormat={}{0:F2}}" Foreground="#00FFCC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Slider x:Name="sldSoundBarSmoothing" Minimum="0.2" Maximum="3.0" Value="1.0" Margin="0,0,0,8" ValueChanged="SldSoundBar_ValueChanged"/>
+                                    <Grid Margin="0,0,0,6">
+                                        <TextBlock Text="Số thanh" Foreground="#DDD" FontSize="11"/>
+                                        <TextBlock Text="{Binding ElementName=sldSoundBarBarCount, Path=Value, StringFormat={}{0:0}}" Foreground="#00FFCC" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Slider x:Name="sldSoundBarBarCount" Minimum="8" Maximum="256" Value="64" TickFrequency="8" IsSnapToTickEnabled="True" Margin="0,0,0,8" ValueChanged="SldSoundBar_ValueChanged"/>
+                                    <TextBlock Text="Vị trí X (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="txtSoundBarXPercent" Text="50" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ X (0 - 100%)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBlock Text="Vị trí Y (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="txtSoundBarYPercent" Text="82" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ Y (0 - 100%)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBlock Text="Rộng (% cạnh ngang)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="txtSoundBarWidthPercent" Text="62" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Bề rộng dải sóng (% chiều ngang khung hình)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBlock Text="Cao (% cạnh dọc)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="txtSoundBarHeightPercent" Text="26" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Chiều cao dải sóng (% chiều dọc khung hình)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
                         <!-- 2.5 SLOW MOTION -->
                         <GroupBox Header="⏱ SLOW MOTION" Foreground="#FF6600" FontSize="13">
                             <StackPanel>
@@ -703,8 +753,6 @@
                                     <Slider x:Name="sldOverlayFontSize" Minimum="16" Maximum="150" Value="32" TickFrequency="2"/>
                                     <TextBlock Text="{Binding ElementName=sldOverlayFontSize, Path=Value, StringFormat={}{0:0}px}" Foreground="#FF66CC" FontWeight="Bold" HorizontalAlignment="Right"/>
                                 </Grid>
-
-                                <CheckBox x:Name="chkAudioSpectrum" Content="🎵 Sóng nhạc Visualizer (Góc dưới)" Foreground="#00FFCC" IsChecked="True" Margin="0,0,0,4" ToolTip="Tạo dải sóng nhạc chuyển động ở góc dưới video giống video mẫu"/>
 
                                 <Separator Margin="0,4,0,8" Background="#4A2A5A"/>
 

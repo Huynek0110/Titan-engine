@@ -10,6 +10,9 @@ TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
   2) POST /api/queue/start
   3) GET /api/render/status?jobId=...
 
+Optional discovery call (any time, no body):
+  GET /api/soundbar/presets  -> soundbar styles + colour palettes
+
 Completion rule in BAS:
 - done == true
 - then check jobSuccess == true
@@ -50,6 +53,10 @@ Result:
 
 [F] POST /api/render/wait
 - Blocking mode (wait until done)
+
+[G] GET /api/soundbar/presets
+- Read-only discovery. Lists every soundbar style + colour palette (no body required)
+- Use it to build a picker instead of hard-coding ids. See sections 9 and 10.
 
 ============================================================
 3) MERGE VIDEOS + MERGE AUDIO VIA API
@@ -571,6 +578,10 @@ Text:
 - captionSyncFontSize
 - captionSyncColor
 
+Soundbar (GET /api/soundbar/presets returns its own, smaller payload):
+- soundBarStyles   -> array of style entries
+- soundBarPalettes -> array of palette entries
+
 ============================================================
 7) BAS FLOW EXAMPLE (QUEUE + MERGE)
 ============================================================
@@ -599,7 +610,226 @@ GET /api/render/status?jobId=<jobId_from_step_A>
 Stop when done == true.
 
 ============================================================
-8) TROUBLESHOOT
+9) SOUNDBAR - AUDIO VISUALIZER (enableSoundBar)
+============================================================
+Adds an audio-reactive bar / ring / waveform layer over the video. The bars are
+rendered ONCE as a transparent PNG loop and then composited with FFmpeg overlay=,
+so the soundbar COMPOSES with every other effect (overlay, watermark, brand logo,
+template, upscale). You never have to choose between soundbar and other effects.
+
+Enable with:
+- enableSoundBar: true to render the soundbar layer (default false)
+
+Style / look:
+- soundBarStyle: one of the 12 canonical ids (see GET /api/soundbar/presets)
+- soundBarPalette: palette id, default "ncs-cyan"
+- soundBarOpacity: 0.1 - 1.0 (default 1.0)
+- soundBarSensitivity: 0.3 - 2.5 (default 1.0). Higher = taller, more reactive bars.
+- soundBarSmoothing: 0.2 - 3.0 (default 1.0). Higher = calmer / lazier motion.
+- soundBarBarCount: 8 - 256 (default 64). Number of bars / columns / spokes.
+- soundBarRoundness: 0.0 - 1.0 (default 1.0). 0 = flat hard-cap bars,
+  1 = fully rounded pill caps.
+- soundBarGlowIntensity: 0.0 - 3.0 (default 1.0). Multiplier on the additive glow.
+- soundBarLoopSeconds: 1.0 - 20.0 (default 5.0). Length of the generated loop.
+  The loop is repeated to cover the whole video.
+
+Position / size (percent of the output frame):
+- soundBarXPercent: 0.0 - 1.0 (default 0.50). Anchor X. Accepts 0-100 too.
+- soundBarYPercent: 0.0 - 1.0 (default 0.82). Anchor Y. Accepts 0-100 too.
+- soundBarWidthPercent: 0.02 - 1.0 (default 0.62)
+- soundBarHeightPercent: 0.02 - 1.0 (default 0.26)
+
+Audio source:
+- soundBarAudioSource: "auto" (default) | "external" | "video"
+  auto     = prefer the external audio track, fall back to the video's own audio
+  external = only the external audio track
+  video    = only the source video's own audio track
+
+Analysis tuning:
+- soundBarRingCount: 1 - 12 (default 2). Extra rings for dual-rings / ripple-rings.
+
+Canonical soundBarStyle values:
+- neon-bars          (Neon Bars, bottom-anchored)
+- mirror-spectrum   (Center Mirror Spectrum)
+- pill-bars         (Pill Bar Row)
+- dense-columns     (Dense Thin Columns)
+- dot-matrix        (Dot Matrix Grid)
+- radial-ring       (Radial Spectrum Ring)
+- dual-rings        (Dual Counter Rings)
+- ripple-rings      (Ripple Pulse Rings)
+- spoke-lines       (Radial Spoke Lines)
+- wave-ribbon       (Waveform Ribbon)
+- center-column     (Center Sound Column)
+- peak-stars        (Peak Star Field)
+
+Notes:
+- Every field is optional. A bare "enableSoundBar": true already renders correctly.
+- Out-of-range values are clamped, not rejected. An unknown style id falls back to
+  "neon-bars"; an unknown audio source falls back to "auto".
+- If the audio cannot be analysed, the soundbar layer is SKIPPED and the video
+  still renders. A soundbar failure never aborts a job.
+- Aliases: soundBarStyle -> soundbarStyle, soundBarPalette -> soundbarPalette,
+  soundBarAudioSource -> soundbarAudioSource, enableSoundBar -> soundBar / soundbar.
+
+!!! PERCENT FIELD WARNING - READ BEFORE SENDING X / Y / WIDTH / HEIGHT !!!
+The four position/size fields are:
+  soundBarXPercent, soundBarYPercent, soundBarWidthPercent, soundBarHeightPercent
+
+They accept TWO notations, and the switch happens at exactly 1.0:
+  - any value ABOVE 1.0 is read as a PERCENTAGE and divided by 100
+  - any value at or below 1.0 is read as a FRACTION and used as-is
+
+Consequence: 1.0 means 100 %, NOT 1 %. It is the single worst value you can send.
+  "soundBarYPercent": 1     -> means 100 %  (soundbar pinned to the frame BOTTOM)
+  "soundBarYPercent": 1.0   -> means 100 %  (same thing)
+  "soundBarYPercent": 0.01  -> means 1 %    (near the very top of the frame)
+There is no way to express "1 %" with a value of 1. Send 0.01 instead.
+
+Safe values - use one of these two forms and nothing else:
+  FORM A (recommended, percent):  1.0 - 100.0
+                                    e.g. 50.0 = 50 %, 82.0 = 82 %, 100.0 = 100 %
+                                    NOTE: the value 1.0 is EXCLUDED from this range
+                                    because it is indistinguishable from the
+                                    fraction 1.0 and resolves to 100 %.
+  FORM B (fraction):               0.01 - 0.99
+                                    e.g. 0.50 = 50 %, 0.82 = 82 %
+  Anything you send below 0.01 is clamped up to the field minimum, and anything
+  above 100.0 is clamped down to 100.0. The four fields have their own minimums:
+  X and Y allow 0.0 - 1.0 (0 % - 100 %); WIDTH and HEIGHT clamp to 0.02 - 1.0.
+
+This notation is applied on the job as submitted and is never re-normalised later,
+so double-check your computed percentages before posting.
+
+Example:
+POST http://localhost:5555/api/queue/add
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "audioFile": "C:\\Users\\lemin\\Desktop\\music.mp3",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\soundbar.mp4",
+  "enableSoundBar": true,
+  "soundBarStyle": "radial-ring",
+  "soundBarPalette": "ncs-cyan",
+  "soundBarAudioSource": "external",
+  "soundBarXPercent": 0.5,
+  "soundBarYPercent": 0.5,
+  "soundBarWidthPercent": 0.5,
+  "soundBarHeightPercent": 0.5,
+  "soundBarOpacity": 0.9,
+  "soundBarSensitivity": 1.4,
+  "soundBarSmoothing": 0.8,
+  "soundBarBarCount": 96,
+  "soundBarGlowIntensity": 1.3,
+  "soundBarLoopSeconds": 6
+}
+
+Then:
+1) POST /api/queue/start
+2) GET /api/render/status?jobId=<jobId_from_add_response>
+
+============================================================
+10) GET /api/soundbar/presets
+============================================================
+Read-only discovery endpoint. Returns every soundbar style and every colour
+palette so BAS can build a picker without hard-coding ids. No body required.
+
+Method: GET (any other method returns 405)
+Path:   /api/soundbar/presets
+
+Response fields:
+- success: true
+- message: "Soundbar visualizer styles and palettes"
+- soundBarStyles:  array of style entries (12 today), in menu order
+- soundBarPalettes: array of palette entries
+
+The two lists are SEPARATE arrays, not one flat list. Older builds returned a single
+"soundBarPresets" array with the styles first and the palettes after, with no marker
+at the boundary - a client had to probe every element for a "styleId" member just to
+tell the two shapes apart. Read soundBarStyles and soundBarPalettes directly.
+
+Style entry (every member is always present):
+- styleId:          stable id, e.g. "neon-bars"
+- name:             display name
+- description:      one-line description of the style
+- usesFft:          true when the style needs the FFT band data
+- usesWaveform:     true when the style needs per-column min/max waveform data
+- usesOnset:        true when the style reacts to onset (beat) detection
+- usesRms:          true when the style uses overall RMS loudness
+- defaultBarCount:  suggested bar count for this style
+
+Palette entry:
+- id:           stable id, e.g. "ncs-cyan"
+- name:         display name
+- vibe:         short mood descriptor
+- genres:       comma-separated music genres the palette suits
+- stops:        colour ramp, array of { offset: 0.0-1.0, hex: "#AARRGGBB" }
+- core:         primary bar colour
+- glow:         additive glow colour
+- bgTint:       faint background tint used for the preview plate
+- accent:       highlight / peak colour
+- glowStrength: glow multiplier for this palette
+
+Example response (abridged - 2 of 12 styles, 1 of N palettes shown):
+GET http://localhost:5555/api/soundbar/presets
+
+{
+  "success": true,
+  "message": "Soundbar visualizer styles and palettes",
+  "soundBarStyles": [
+    {
+      "styleId": "neon-bars",
+      "name": "Neon Bars",
+      "description": "Classic rising gradient bars with a white-hot tip and a three-pass bloom.",
+      "usesFft": true,
+      "usesWaveform": false,
+      "usesOnset": false,
+      "usesRms": false,
+      "defaultBarCount": 64
+    },
+    {
+      "styleId": "radial-ring",
+      "name": "Radial Ring",
+      "description": "Bars radiating from a centre hub with a slow rotation.",
+      "usesFft": true,
+      "usesWaveform": false,
+      "usesOnset": false,
+      "usesRms": false,
+      "defaultBarCount": 72
+    }
+  ],
+  "soundBarPalettes": [
+    {
+      "id": "ncs-cyan",
+      "name": "NCS Cyan",
+      "vibe": "EDM / festival neon",
+      "genres": "EDM, Future Bass, Festival",
+      "stops": [
+        { "offset": 0.0, "hex": "#FF00E5FF" },
+        { "offset": 0.5, "hex": "#FF00B3FF" },
+        { "offset": 1.0, "hex": "#FF7A5CFF" }
+      ],
+      "core": "#FF00E5FF",
+      "glow": "#FF00B3FF",
+      "bgTint": "#FF0A0A12",
+      "accent": "#FFFFFFFF",
+      "glowStrength": 1.25
+    }
+  ]
+}
+
+All 12 canonical soundBarStyle values, in the order soundBarStyles returns them:
+- neon-bars, mirror-spectrum, pill-bars, dense-columns, dot-matrix, radial-ring,
+  dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars
+
+Notes:
+- Host mode must be ON, otherwise the endpoint returns 503 like every other route.
+- Any method other than GET returns 405.
+- Palette entries may omit vibe / genres / stops / glowStrength if the palette table
+  does not define them. styleId / name / description are always present.
+- Use the returned styleId / id values verbatim as soundBarStyle / soundBarPalette.
+  Never build an id yourself - an unknown id silently renders neon-bars.
+
+============================================================
+11) TROUBLESHOOT
 ============================================================
 - 503 Host mode is OFF:
   Turn HOST button ON.
@@ -620,6 +850,21 @@ Stop when done == true.
   "fadeInSeconds": number
   "fadeOutSeconds": number
   and check these values in API response.
+
+- Soundbar missing from the output:
+  Check /api/render/status for a "[SOUNDBAR]" line in the app log. If the log says
+  "Audio analysis unavailable" the source had no decodable audio; add an audioFile
+  or set soundBarAudioSource to "external". If it says "Overlay generation failed"
+  the PNG loop could not be written; retry, and check free disk space in the
+  system temp folder.
+
+- Soundbar sits at the very edge of the frame:
+  You almost certainly sent 1 meaning 1 %. It means 100 %. See the PERCENT FIELD
+  WARNING in section 9 - send 0.01 for 1 %, or 1.0-100.0 for whole percentages.
+
+- Soundbar renders as plain bars no matter what you asked for:
+  The style id was not recognised, so it fell back to "neon-bars". Call
+  GET /api/soundbar/presets and copy a styleId verbatim from soundBarStyles.
 
 ============================================================
 END
