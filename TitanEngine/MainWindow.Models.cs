@@ -178,6 +178,10 @@ namespace TitanEngine {
         // Renders an audio-reactive PNG sequence once, then composites it over the
         // video with ffmpeg `overlay=`. Every value here is optional; each one has a
         // safe default so a bare `enableSoundBar: true` already produces a valid render.
+        //
+        // Ranges below are the CONTRACT ranges and match both the renderer clamp
+        // (SoundBarStyleRenderer) and BAS_LOCALHOST_API_GUIDE. The authoritative
+        // constants are SoundBarMin*/SoundBarMax* in EngineCore.
         public bool EnableSoundBar { get; set; } = false;
         /// <summary>Stable style id, e.g. "neon-bars". See GET /api/soundbar/presets.</summary>
         public string SoundBarStyle { get; set; } = "neon-bars";
@@ -187,13 +191,35 @@ namespace TitanEngine {
         public double SoundBarYPercent { get; set; } = 0.82;
         public double SoundBarWidthPercent { get; set; } = 0.62;
         public double SoundBarHeightPercent { get; set; } = 0.26;
+        /// <summary>0.05 - 1.0. Higher = more opaque.</summary>
         public double SoundBarOpacity { get; set; } = 1.0;
+        /// <summary>
+        /// 0.0 - 3.0. Higher = taller, more reactive bars. The renderer clamps at 3.0,
+        /// so anything above it is inert - do not widen this without widening the renderer.
+        /// </summary>
         public double SoundBarSensitivity { get; set; } = 1.0;
+        /// <summary>
+        /// 0.0 - 1.0. Higher = calmer / lazier motion. The renderer clamps at 1.0 and derives
+        /// its one-pole coefficient as k = 1 - 0.85 * smoothing, so every value above 1.0
+        /// produced the identical k = 0.15. 1.0 is the calmest response that exists.
+        /// </summary>
         public double SoundBarSmoothing { get; set; } = 1.0;
+        /// <summary>8 - 256. Number of bars / columns / spokes.</summary>
         public int SoundBarBarCount { get; set; } = 64;
+        /// <summary>
+        /// 1 - 8, but only two styles read it: dual-rings clamps to 2-6 and ripple-rings to
+        /// 1-8. Every other style ignores it (and does not re-render when it changes).
+        /// </summary>
         public int SoundBarRingCount { get; set; } = 2;
+        /// <summary>0.0 - 1.0. 0 = flat hard caps, 1 = fully rounded pill caps.</summary>
         public double SoundBarRoundness { get; set; } = 1.0;
+        /// <summary>0.0 - 3.0. Multiplier on the additive glow.</summary>
         public double SoundBarGlowIntensity { get; set; } = 1.0;
+        /// <summary>
+        /// 1.0 - 6.0 seconds. The loop is repeated to cover the video. 6.0 s is the hard
+        /// ceiling: the render path runs at a fixed 30 fps and the generator caps at 180
+        /// frames, so anything longer was silently truncated to 6.0 s anyway.
+        /// </summary>
         public double SoundBarLoopSeconds { get; set; } = 5.0;
         /// <summary>"auto" | "external" | "video".</summary>
         public string SoundBarAudioSource { get; set; } = "auto";

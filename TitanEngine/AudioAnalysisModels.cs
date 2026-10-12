@@ -67,7 +67,12 @@ namespace TitanEngine
         public int BarCount { get; set; } = 64;
         public double LoopSeconds { get; set; } = 5.0;
         public double FrameRate { get; set; } = 30.0;
-        /// <summary>Extra ring count for DualRings / RippleRings. Clamped 1..12.</summary>
+        /// <summary>
+        /// Extra ring count for DualRings / RippleRings. Accepted as 1..12 at the settings layer,
+        /// but the renderer clamps it per style before drawing: DualRings uses 2..6 and RippleRings
+        /// uses 1..8, so a value outside those windows is silently brought into range rather than
+        /// rejected.
+        /// </summary>
         public int RingCount { get; set; } = 2;
         /// <summary>0..1. 0 = flat hard-cap bars, 1 = fully rounded pill caps.</summary>
         public double Roundness { get; set; } = 1.0;
@@ -84,11 +89,14 @@ namespace TitanEngine
     public sealed class AudioFrameData
     {
         /// <summary>
-        /// Log-spaced band magnitudes, length = bandCount, each 0..1. Normalised against a per-frame
-        /// reference rather than a fixed dBFS window: an absolute floor keeps the noise floor flat,
-        /// a floor blended with the frame's own loudest band keeps quiet passages moving, and a
-        /// whole frame whose loudest band is below the silence level is all zeros. So a value of
-        /// 0 means "inaudible for this frame", never "quiet track".
+        /// Log-spaced band magnitudes, length = bandCount, each 0..1. Normalised per frame rather
+        /// than against a fixed dBFS window: the reference floor tracks the frame's own loudest
+        /// band, bounded below by an absolute backstop that stops a quiet frame's ramp being
+        /// stretched arbitrarily wide, the top of the ramp sits a few dB above that same peak, and
+        /// the whole frame fades out below the silence level. So a quiet track still drives visible
+        /// motion instead of pinning to zero, and 0 usually means "below this frame's floor" -
+        /// though a band far under a very loud frame's peak does also reach 0 on a frame that is
+        /// otherwise plainly not silent.
         /// </summary>
         public float[] Bands { get; set; } = Array.Empty<float>();
         /// <summary>Per-column waveform minimum, length = waveformColumns, range -1..1.</summary>

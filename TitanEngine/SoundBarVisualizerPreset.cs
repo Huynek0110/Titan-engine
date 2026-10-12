@@ -39,36 +39,56 @@ namespace TitanEngine
     public static class SoundBarVisualizerPreset
     {
         /// <summary>
-        /// Bumping this invalidates every cached PNG sequence without touching the disk.
+        /// Bumping this invalidates every cached PNG sequence AND every cached picker thumbnail,
+        /// without touching the disk. It is the ONLY thing that can: neither key can see a pixel
+        /// change that is not a tunable, so renderer-level edits have to move this constant.
+        /// <para>
+        /// There is deliberately no second, independent preview tag. <see cref="BuildPreviewCacheKey"/>
+        /// used to hash its own <c>PreviewVersion</c> while <see cref="BuildCacheKey"/> hashed this
+        /// one, which meant every renderer bump invalidated 150-frame sequences and left every picker
+        /// thumbnail stale forever - while the doc on both keys claimed they covered "the same visual
+        /// material". Both keys hash this constant now.
+        /// </para>
+        /// <para>
+        /// HISTORY. The invariant is "bump on every pixel-affecting change", not the wording.
+        /// <list type="bullet">
+        /// <item>
         /// r2: bar-cap arcs corrected to CounterClockwise, loop-periodic rotation for DualRings /
         /// SpokeLines, minimum bar reach on silent bands, palette top gradient stop preserved,
         /// DualRings laid out for any RingCount, wedge arc radius fixed, BarCount clamped centrally.
         /// None of those pixel changes are visible in the cache-key material, so the version - not the
-        /// material - is what forces the stale concave-cap sequences to be re-rendered.
-        /// <para>
+        /// material - is what forced the stale concave-cap sequences to be re-rendered.
+        /// </item>
+        /// <item>
         /// r3: five styles re-measured wrong and were re-geometried. RadialRing / DualRings /
         /// SpokeLines gained a bounded per-frame auto-gain so the annulus actually reaches its plot
         /// box (it drew ~106 px inside a ~274 px circle) and a glow halo capped at 4 % of the outer
         /// radius (it was t*5.0 unbounded, which erased the ring into a white teardrop);
-        /// DualRings ray thickness is now bounded by the angular slot arc instead of the ring band
-        /// width, so 2-6 rings stay distinct; SpokeLines got a resolution-scaled 2 px legibility
-        /// floor (it was 1.1 px, i.e. invisible); CenterColumn maps RMS/peak through a
-        /// -30..-3 dBFS window (Rms 0.13 was a 20 px stub in a 280 px plot) and its peak-hold tick
-        /// is a flat-capped short line that is skipped while there is no peak, instead of a
-        /// round-capped zero-length line that painted a glowing white disc on the baseline;
-        /// PeakStars picks peaks by log-frequency bucketing with a neighbourhood-contrast test
-        /// instead of a strict local-maximum test, so the stars span the width instead of only the
-        /// lowest bands. Finally, every band-driven style applies a one-sided +3 dB/octave
-        /// pink-noise tilt (anchored at 0 dB on the lowest band, capped at +9 dB, silent bands
-        /// untouched) so a tonal track no longer goes flat across the right third of the plot.
-        /// As with r2, none of this is visible in the cache-key material, so the version bump is
-        /// what forces the broken sequences to be re-rendered rather than replayed from cache.
-        /// </para>
+        /// DualRings ray thickness bounded by the angular slot arc instead of the ring band width, so
+        /// 2-6 rings stay distinct; SpokeLines got a resolution-scaled 2 px legibility floor;
+        /// CenterColumn maps RMS/peak through a -30..-3 dBFS window and its peak-hold tick became a
+        /// flat-capped short line that is skipped while there is no peak; PeakStars picks peaks by
+        /// log-frequency bucketing with a neighbourhood-contrast test; every band-driven style gained
+        /// a one-sided +3 dB/octave pink-noise tilt.
+        /// </item>
+        /// <item>
+        /// r4, r5, r6: intermediate renderer revisions whose individual pixel changes were never
+        /// recorded here. They are deliberately NOT reconstructed from memory - a version log that
+        /// guesses at its own history is worse than one that admits the gap.
+        /// </item>
+        /// <item>
+        /// r7 (this one): the overlay is scaled to the output canvas before compositing, so it is no
+        /// longer a 1280-px overlay occupying the top-left 44 % (1920x1080) or 11 % (4K) of the frame;
+        /// the preview key covers this constant; and the renderer fixed, in SoundBarStyleRenderer,
+        /// the Opacity-inverted coreAlways path, the RippleRings zero-glow blank frame, the
+        /// near-step-function pink-noise tilt, the vanishing zero-length rays, the 1 px reach floors
+        /// that quantised the new band range away, the radial floor-lifter that flattened its own top
+        /// decile, and the glow clamp that degenerated to three identical strokes at DEFAULT
+        /// DualRings settings.
+        /// </item>
+        /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r3";
-
-        /// <summary>Version tag for the single-frame picker preview key. Independent of the sequence key.</summary>
-        private const string PreviewVersion = "soundbar-preview-r1";
+        private const string RendererVersion = "soundbar-r7";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
@@ -130,15 +150,20 @@ namespace TitanEngine
         }
 
         /// <summary>
-        /// SHA-256 over the same visual material as <see cref="BuildCacheKey"/> - style, palette (with its
-        /// stops), canvas size and every tunable in <see cref="SoundBarSettings"/> - truncated to 12 hex
-        /// characters. Used as the picker preview's filename so dragging X/Y/Width/Height/Opacity/
-        /// Sensitivity/Smoothing/BarCount (the UI re-requests on a 250 ms debounce) actually re-renders
-        /// instead of returning the previously written PNG.
+        /// SHA-256 over the same visual material as <see cref="BuildCacheKey"/> - the renderer version,
+        /// style, palette (with its stops), canvas size and every tunable in
+        /// <see cref="SoundBarSettings"/> - truncated to 12 hex characters. Used as the picker
+        /// preview's filename so dragging X/Y/Width/Height/Opacity/Sensitivity/Smoothing/BarCount (the
+        /// UI re-requests on a 250 ms debounce) actually re-renders instead of returning the
+        /// previously written PNG.
         /// <para>
         /// Deliberately EXCLUDES fps, loop length, frame count and the audio fingerprint: the preview
-        /// renders one fixed synthetic frame, so none of those can change a preview pixel. Overlay keys
-        /// stay stable because they still hash their own material in <see cref="BuildCacheKey"/>.
+        /// renders one fixed synthetic frame, so none of those can change a preview pixel. Overlay
+        /// keys stay stable because they still hash their own material in <see cref="BuildCacheKey"/>.
+        /// <para>
+        /// It hashes <see cref="RendererVersion"/>, NOT a preview-specific tag. The two used to be
+        /// separate constants, which meant every renderer bump re-rendered the 150-frame sequences and
+        /// left every thumbnail stale - the two keys claimed the same material and did not share it.
         /// </para>
         /// </summary>
         public static string BuildPreviewCacheKey(
@@ -154,7 +179,7 @@ namespace TitanEngine
             int safeH = Math.Max(16, height);
 
             var material = new StringBuilder(768);
-            material.Append(PreviewVersion).Append('|');
+            material.Append(RendererVersion).Append('|');
             AppendGeometryCacheMaterial(material, safeSettings, safePalette, safeW, safeH, safeW, safeH);
 
             return HashMaterial(material, PreviewKeyHexLength);
@@ -219,6 +244,14 @@ namespace TitanEngine
         /// <summary>
         /// Renders the full PNG sequence (or reuses the cached one). Never throws: failures are logged and
         /// null is returned so the pipeline can continue without a soundbar.
+        /// <para>
+        /// A render that is cancelled or that throws leaves a directory of PNGs with NO manifest. The
+        /// manifest is what makes a directory a usable cache, and nothing else ever lists a directory
+        /// for cleanup, so without <see cref="DeletePartialTempRoot"/> those frames accumulated in the
+        /// temp tree forever (a 150-frame 1280x720 sequence is tens of MB). The partial directory is
+        /// deleted on both failure paths; whether a SUCCESSFUL directory should be cleaned up at all is
+        /// a separate question, answered by whoever owns <see cref="SoundBarGeneratedOverlay.TempArtifacts"/>.
+        /// </para>
         /// </summary>
         public static async Task<SoundBarGeneratedOverlay?> GenerateOverlayAsync(
             AudioAnalysisResult analysis,
@@ -230,6 +263,10 @@ namespace TitanEngine
             Action<string> onLog,
             CancellationToken token)
         {
+            // Non-null from the moment the cache directory is chosen until the manifest is committed.
+            // Cleared on success so the catch blocks below leave the finished cache alone.
+            string? pendingTempRoot = null;
+
             try
             {
                 if (onLog == null)
@@ -264,6 +301,7 @@ namespace TitanEngine
                     : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
 
                 string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_cache", styleId, cacheKey);
+                pendingTempRoot = tempRoot;
                 string overlayPattern = Path.Combine(tempRoot, "soundbar_%04d.png");
                 string previewDir = Path.Combine(tempRoot, "preview");
                 string manifestPath = Path.Combine(tempRoot, "manifest.json");
@@ -330,24 +368,76 @@ namespace TitanEngine
                 };
 
                 WriteManifest(manifestPath, overlay, styleId, safePalette.Id, analysis.AudioFingerprint, cacheKey);
+
+                // Committed: the directory is now a valid cache and must survive.
+                pendingTempRoot = null;
+
                 onLog($"[SOUNDBAR] Generated {styleId} overlay ({safeTag}) -> {cacheKey}, palette={safePalette.Id}, target={safeW}x{safeH}, render={renderW}x{renderH}, fps={safeFps.ToString("F3", CultureInfo.InvariantCulture)}, frames={frameCount}, preview={previewDir}");
                 return overlay;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
+                DeletePartialTempRoot(pendingTempRoot, onLog);
                 onLog?.Invoke("[SOUNDBAR] Cancelled.");
                 return null;
             }
             catch (Exception ex)
             {
+                DeletePartialTempRoot(pendingTempRoot, onLog);
                 onLog?.Invoke($"[SOUNDBAR-ERROR] Soundbar overlay generation failed: {ex.Message}");
                 return null;
             }
         }
 
         /// <summary>
-        /// Builds the three-section ffmpeg graph: base -> rgba, looping overlay -> rgba, merge.
-        /// All numbers use <see cref="CultureInfo.InvariantCulture"/>.
+        /// Removes a cache directory left behind by a cancelled or failed render. Never throws: the
+        /// directory is a cache artefact, so failing to delete it must not mask the original error.
+        /// <para>
+        /// Called only while <c>pendingTempRoot</c> is still set, i.e. before the manifest is written,
+        /// so it can never touch a valid cache. It is recursive because the preview frames live in a
+        /// subdirectory of the same root.
+        /// <para>
+        /// Known pre-existing hazard, unchanged by this: two renders that resolve to the same cache
+        /// key (same settings, palette and audio fingerprint) run concurrently, and one failing will
+        /// delete the other's in-flight frames. The frames are rewritten on the retry, so the cost is
+        /// wasted work, not a corrupt cache - and the write/manifest race that already existed here
+        /// is a strictly larger version of the same hazard.
+        /// </para>
+        /// </summary>
+        private static void DeletePartialTempRoot(string? tempRoot, Action<string>? onLog)
+        {
+            if (string.IsNullOrWhiteSpace(tempRoot))
+                return;
+
+            try
+            {
+                if (!Directory.Exists(tempRoot))
+                    return;
+
+                Directory.Delete(tempRoot, recursive: true);
+                onLog?.Invoke($"[SOUNDBAR] Discarded the partial render directory {tempRoot}.");
+            }
+            catch (Exception ex)
+            {
+                onLog?.Invoke($"[SOUNDBAR] Could not delete the partial render directory {tempRoot}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Builds the three-section ffmpeg graph: base -> rgba, looping overlay scaled to the output
+        /// canvas -> rgba, merge. All numbers use <see cref="CultureInfo.InvariantCulture"/>.
+        /// <para>
+        /// <paramref name="canvasWidth"/> / <paramref name="canvasHeight"/> MUST be the OUTPUT canvas
+        /// size, NOT <see cref="SoundBarGeneratedOverlay.Width"/> / <see cref="SoundBarGeneratedOverlay.Height"/>.
+        /// The generated sequence is rasterised by <see cref="ResolveRenderSize"/> at a long edge of at
+        /// most <see cref="MaxRenderEdge"/> (1280) px, and neither <c>overlay</c> nor the looped image
+        /// input scales its second operand, so without the explicit scale chain below the soundbar was
+        /// composited 1:1 into the top-left corner: 44 % of a 1920x1080 frame, 11 % of a 4K one. This
+        /// is the same <c>scale=...:force_original_aspect_ratio=increase,crop=...,setsar=1</c> chain
+        /// every other compositing preset in the pipeline uses (RainOverlayPreset,
+        /// DreamyDotOverlay2Preset). Because the sequence is rendered at the canvas aspect ratio, the
+        /// scale is a uniform upscale and the crop never actually cuts.
+        /// </para>
         /// </summary>
         public static string BuildSingleClipGraph(
             string baseInputLabel,
@@ -355,6 +445,8 @@ namespace TitanEngine
             string overlayInputLabel,
             int loopFrameCount,
             double frameRate,
+            int canvasWidth,
+            int canvasHeight,
             double outputDurationSeconds,
             string outputLabel,
             Action<string> onLog)
@@ -366,6 +458,8 @@ namespace TitanEngine
             string fps = Math.Clamp(SafeDouble(frameRate, 30.0), 1.0, 120.0).ToString("F3", inv);
             string duration = Math.Max(0.10, SafeDouble(outputDurationSeconds, 1.0)).ToString("F3", inv);
             int safeLoopFrameCount = Math.Max(1, loopFrameCount);
+            int safeWidth = Math.Max(2, canvasWidth);
+            int safeHeight = Math.Max(2, canvasHeight);
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
                 ? $"{safeBaseInput}format=rgba[soundbarbase]"
@@ -375,11 +469,14 @@ namespace TitanEngine
                 $"{safeOverlayInput}format=rgba," +
                 $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
                 $"setpts=N/{fps}/TB," +
+                $"scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
+                $"crop={safeWidth}:{safeHeight}," +
+                $"setsar=1," +
                 $"trim=duration={duration}[soundbaroverlay]";
 
             string mergeChain = $"[soundbarbase][soundbaroverlay]overlay=shortest=0:eof_action=repeat:format=auto[{safeOutput}]";
 
-            onLog?.Invoke($"[SOUNDBAR] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}");
+            onLog?.Invoke($"[SOUNDBAR] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}, canvas={safeWidth}x{safeHeight}");
             return $"{baseChain};{overlayChain};{mergeChain}";
         }
 
@@ -683,7 +780,17 @@ namespace TitanEngine
                 if (!string.Equals(cached.CacheKey, cacheKey, StringComparison.OrdinalIgnoreCase))
                     return false;
 
+                // Validate BOTH ends of the sequence, not just the first frame. A partially-evicted directory
+                // (Temp cleaner, antivirus quarantine, a disk-full retry) still has frame 0001 and
+                // still passes, and ffmpeg then loops a truncated sequence: the soundbar freezes
+                // partway through and jumps back to frame 1 - which reads as a rendering bug, not a
+                // cache miss. Probing the last frame is O(1) and catches every gap in between, since
+                // the frames are only ever written in order into a directory that has no manifest
+                // until the whole render completes.
                 if (!File.Exists(FormatSequenceFilePath(overlayPattern, 1)))
+                    return false;
+
+                if (cached.FrameCount > 1 && !File.Exists(FormatSequenceFilePath(overlayPattern, cached.FrameCount)))
                     return false;
 
                 // TempArtifacts stays empty on a cache hit so the pipeline's cleanup does not delete the cache.

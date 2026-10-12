@@ -40,8 +40,21 @@ namespace TitanEngine
         /// <summary>Upper frequency edge of the last band, in Hz. Clamped down to Nyquist.</summary>
         public const float DefaultFMax = 16000f;
 
-        /// <summary>Attack time constant, in seconds, of the band / RMS / peak envelope.</summary>
-        public const double DefaultAttackTau = 0.015;
+        /// <summary>
+        /// Attack time constant, in seconds, of the band / RMS / peak envelope.
+        /// <para>
+        /// It was 0.015 s, which is very nearly zero at any real frame rate: with
+        /// <c>k = 1 - exp(-dt / tau)</c> the old constant closed 89 % of the gap to the target in a
+        /// single 30 fps frame (<c>k = 0.892</c>), 43 % at 120 fps and 99.9 % at 10 fps. Only the
+        /// 0.130 s release was ever visible, so the bars snapped up and floated down - the
+        /// opposite of the bounce the envelope exists to produce. At 0.06 s the same step closes
+        /// 43 % per frame at 30 fps and 13 % at 120 fps, so the rise takes about two frames at
+        /// normal rates while the release still outlasts it by 2.2x. (At 10 fps a single frame is
+        /// 0.1 s - longer than the time constant itself - so the rise is still nearly per-frame
+        /// there; that is the frame rate, not the constant.)
+        /// </para>
+        /// </summary>
+        public const double DefaultAttackTau = 0.06;
 
         /// <summary>Release time constant, in seconds, of the band / RMS / peak envelope.</summary>
         public const double DefaultReleaseTau = 0.130;
@@ -67,8 +80,13 @@ namespace TitanEngine
         /// <summary>Flux must exceed the adaptive mean by this factor to fire an onset.</summary>
         private const double OnsetSensitivity = 1.6;
 
-        /// <summary>Minimum number of frames between two onsets.</summary>
-        private const int OnsetRefractoryFrames = 4;
+        /// <summary>
+        /// Minimum time between two onsets, in seconds. This replaces the old frame count of 4,
+        /// which meant 0.400 s at 10 fps but only 0.033 s at 120 fps - a five-frame minimum gap
+        /// there rejects most of what passes at 30 fps. Converted the same way as
+        /// <see cref="OnsetMeanTauSeconds"/>: 4 frames at 30 fps is 4 / 30 = 0.133 s.
+        /// </summary>
+        private const double OnsetRefractorySeconds = 0.13;
 
         /// <summary>
         /// Absolute level gate for onsets, in linear RMS; 1e-3 is about -60 dBFS.
@@ -78,7 +96,7 @@ namespace TitanEngine
         /// on a full-scale hit, and on audio that is only a couple of LSB of dither above digital
         /// silence, where the mean is itself noise and almost every frame is a 1.6x outlier. A
         /// purely relative threshold can never block those cases, so this absolute floor on the
-        /// frame's RMS is checked first.
+        /// frame's raw, pre-envelope RMS is checked first.
         /// </para>
         /// </summary>
         private const double OnsetMinRms = 1e-3;
@@ -93,35 +111,85 @@ namespace TitanEngine
         private const double BandMagnitudeEpsilon = 1e-9;
 
         /// <summary>
-        /// Absolute zero point of the band level mapping, in dBFS: nothing below it can ever be
-        /// lifted into a visible bar, however quiet the rest of the frame is.
+        /// Loudness dimmer and minimum ramp width, in dBFS. The frame-relative floor may never
+        /// sit below it, so it bounds how much of a quiet frame's range the mapping can throw away,
+        /// and a frame whose own peak is at or under it gets a ramp only as wide as the gap from
+        /// its floor to its ceiling.
         /// <para>
-        /// This is the replacement for the old fixed -60 dBFS floor. Log-spaced bands give the
-        /// high-frequency end very wide buckets, and on real tonal music most of those bands
-        /// measure well below -60 dBFS, so the old <c>(dBFS + 60) / 60</c> ramp pinned them to
-        /// exactly 0.0 - and a 0.0 stays 0.0 through any downstream gain. Programme peaks sit near
-        /// -12 dBFS while individual wide high-frequency bands routinely land 60-75 dB under that,
-        /// which is why the floor has to be deep enough to keep them.
+        /// It is no longer a "nothing is audible down here" threshold. The frame gate at
+        /// <see cref="BandFrameSilenceDb"/> does that job, and it is this constant that bounds the
+        /// ramp: it replaced the -96 dBFS floor because a measured log-band array spans only about
+        /// 43 dB, so a floor 96 dB under a -22 dBFS peak gave an ~89 dB ramp and pushed every
+        /// band that actually carries programme content into its top few per cent.
+        /// </para>
+        /// <para>
+        /// Cost, stated plainly: the backstop is a step, not a fade. A frame peaking at -72 dBFS
+        /// maps entirely to zero bands, while one peaking a single dB higher already renders its
+        /// loudest band at ~0.2. The <see cref="BandFrameFadeDb"/> ramp only reaches down to
+        /// -80 dBFS, so it cannot smooth that edge.
         /// </para>
         /// </summary>
-        private const double BandFloorAbsoluteDb = -96.0;
+        private const double BandFloorAbsoluteDb = -72.0;
 
         /// <summary>
-        /// How far below the loudest band of the current frame the relative floor is anchored, in
-        /// dB. Blended with <see cref="BandFloorAbsoluteDb"/>, it gives every frame roughly the
-        /// same visible range whether the passage is quiet or loud.
+        /// How far below the loudest band of the current frame the reference floor is anchored, in
+        /// dB. Blended with <see cref="BandFloorAbsoluteDb"/> and clamped up to it, it gives every
+        /// frame roughly the same visible range whether the passage is quiet or loud.
+        /// <para>
+        /// 54 dB is the measured span of a real band array (about 43 dB from the strongest band to
+        /// the weakest that still carries content) plus margin. It replaces 72 dB, which was sized
+        /// while the ceiling was still fixed at full scale: deepening a floor only stretches the
+        /// ramp, so a -22 dBFS peak was pushed further into the top of it (0.600), not lifted out
+        /// of it. Deepening the floor was never what raises loud bands.
+        /// </para>
         /// </summary>
-        private const double BandFloorRelativeBelowPeakDb = 72.0;
+        private const double BandFloorRelativeBelowPeakDb = 54.0;
 
         /// <summary>
         /// Weight of the relative (frame-peak) floor against the absolute one: 0 is purely
-        /// absolute, 1 is purely relative. The blend is always floored at
+        /// absolute, 1 is purely relative. The blend is always clamped up to
         /// <see cref="BandFloorAbsoluteDb"/> afterwards.
+        /// <para>
+        /// 1.0 is the only value that works alongside a peak-anchored ceiling. At the old 0.75 the
+        /// floor was still dragged a quarter of the way back to the absolute value, which puts a
+        /// fixed term back into a reference that is supposed to be frame-relative and drags the
+        /// top of the ramp down again for loud frames.
+        /// </para>
         /// </summary>
-        private const double BandFloorRelativeWeight = 0.75;
+        private const double BandFloorRelativeWeight = 1.0;
 
-        /// <summary>Top of the band mapping, in dBFS. A band here renders as a full-height bar.</summary>
-        private const double BandCeilingDb = 0.0;
+        /// <summary>
+        /// How far above the loudest band of the current frame the top of the band ramp sits, in
+        /// dB. The mapping's upper anchor.
+        /// <para>
+        /// This was a fixed <c>BandCeilingDb = 0.0</c> - full scale - while the floor tracked the
+        /// frame peak. Real programme peaks 12-25 dB below full scale, so the top of the ramp was
+        /// structurally unreachable: a -22 dBFS frame put its loudest band at 0.600 and the whole
+        /// array inside 0.10-0.58, and the measured spread sat in 0.096-0.578. Four successive
+        /// fixes each read that as a floor problem - a deeper floor, a relative floor, a gamma, a
+        /// renderer-side tilt - and none of them could lift a ceiling that was 22 dB above the
+        /// signal. Fixing the floor alone changes the distribution; only raising the ceiling puts
+        /// loud bands near 1.0.
+        /// </para>
+        /// <para>
+        /// <b>Trade-off, stated rather than hidden:</b> with the ceiling anchored to the peak, every
+        /// frame peaking above roughly -18 dBFS renders its loudest band at the same ~0.944. So
+        /// cross-frame loudness dynamics live below about -50 dBFS, and two loud passages of very
+        /// different loudness look equally loud. That is the unavoidable cost of letting loud bands
+        /// reach the top of the plot; the alternative is the defect this replaces. Per-frame
+        /// absolute loudness remains available to the renderer through
+        /// <see cref="AudioFrameData.Rms"/> and <see cref="AudioFrameData.Peak"/>.
+        /// </para>
+        /// <para>
+        /// Note that no band ever reaches 1.0: <c>framePeakDb</c> is the maximum over the bands, so no
+        /// band can sit above the ceiling and <c>t</c> tops out at <c>1.06 * 54 / 57 = 1.004</c>,
+        /// which the linear branch renders as 0.944. That is the peak band of every frame above
+        /// about -18 dBFS; once the absolute backstop takes over as the floor (peak below -18
+        /// dBFS) the peak band lands lower still, 0.909 at a -40 dBFS peak. The 6 % shortfall is
+        /// the soft knee's own headroom - see <see cref="BandKneeFraction"/> - and is deliberate.
+        /// </para>
+        /// </summary>
+        private const double BandCeilingHeadroomDb = 3.0;
 
         /// <summary>
         /// Fraction of a frame's range, measured up from its reference floor, that is covered by
@@ -197,6 +265,13 @@ namespace TitanEngine
             Action<string> onLog,
             CancellationToken token)
         {
+            // Declared outside the try on purpose: a 5 s slice is about 2.6 MB of .raw, and every
+            // path out of this method that has produced it must be able to delete it, including
+            // the failure path. Declared inside, anything that threw after ffmpeg succeeded - the
+            // fingerprint, the per-frame array clone, an out-of-memory - landed in the catch below
+            // with the file still on disk and leaked it once per render.
+            string? rawPath = null;
+
             try
             {
                 if (token.IsCancellationRequested)
@@ -222,7 +297,7 @@ namespace TitanEngine
                     ? Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_analysis")
                     : tempRoot.Trim();
                 Directory.CreateDirectory(root);
-                string rawPath = Path.Combine(root, $"soundbar_{Guid.NewGuid():N}.raw");
+                rawPath = Path.Combine(root, $"soundbar_{Guid.NewGuid():N}.raw");
 
                 onLog?.Invoke(string.Format(
                     CultureInfo.InvariantCulture,
@@ -320,6 +395,10 @@ namespace TitanEngine
             }
             catch (Exception ex)
             {
+                // The decode may already have written megabytes to disk before whatever threw.
+                if (rawPath != null)
+                    TryDeleteFile(rawPath);
+
                 onLog?.Invoke($"[SOUNDBAR-ANALYSIS-ERROR] {ex.Message}");
                 return null;
             }
@@ -331,7 +410,10 @@ namespace TitanEngine
         /// <param name="rawPath">Path to the <c>s16le</c> file written by ffmpeg.</param>
         /// <param name="sampleRate">
         /// Receives the sample rate the file was decoded at, which is always
-        /// <see cref="DefaultSampleRate"/> because raw PCM carries no rate of its own.
+        /// <see cref="DefaultSampleRate"/> because raw s16le carries no rate of its own and cannot
+        /// be asked for one. That makes this assignment and the <c>-ar</c> literal in
+        /// <see cref="BuildDecodeArguments"/> two independent hard-coded copies of one number, with
+        /// nothing to catch them if they disagree - change both together.
         /// </param>
         /// <returns>
         /// Samples scaled to -1..1. Empty when the path is missing, unreadable or empty.
@@ -480,8 +562,9 @@ namespace TitanEngine
         /// above it.
         /// <para>
         /// The two pieces meet exactly at the knee: both give <c>KNEE / 2</c> at
-        /// <c>t == KNEE</c>, and with <c>span</c> scaled by <c>1 + KNEE / 2</c> the linear branch
-        /// reaches exactly 1.0 at <see cref="BandCeilingDb"/>. The result is non-decreasing in
+        /// <c>t == KNEE</c>, and with <paramref name="span"/> scaled by <c>1 + KNEE / 2</c> the
+        /// linear branch reaches exactly 1.0 at the frame's ceiling
+        /// (<c>framePeakDb + BandCeilingHeadroomDb</c>). The result is non-decreasing in
         /// <paramref name="decibels"/>, which is what keeps the bars in order, and it is exactly 0
         /// for any band at or below <paramref name="referenceDb"/>, so the soft knee - not the hard
         /// clamp - is what decides how quietly the floor appears.
@@ -489,7 +572,7 @@ namespace TitanEngine
         /// </summary>
         /// <param name="decibels">The band's level in dBFS.</param>
         /// <param name="referenceDb">Level that maps to 0 for this frame; never below the absolute floor.</param>
-        /// <param name="span">dB between <paramref name="referenceDb"/> and a full-height band; greater than 0.</param>
+        /// <param name="span">dB from <paramref name="referenceDb"/> up to the frame's ceiling; greater than 0.</param>
         private static double MapBandLevel(double decibels, double referenceDb, double span)
         {
             double t = (decibels - referenceDb) / span;
@@ -581,6 +664,13 @@ namespace TitanEngine
         /// <summary>
         /// Builds the ffmpeg decode command. The codec, rate and channel count are fixed so the
         /// reader downstream can assume 16-bit mono PCM.
+        /// <para>
+        /// The <c>-ar 22050</c> literal below and the <see cref="DefaultSampleRate"/> that
+        /// <see cref="ReadRawS16MonoToFloat"/> reports are two separate hard-coded copies of the
+        /// same number, because raw s16le has no header to carry the rate. Nothing checks them
+        /// against each other: parameterise one and the other silently lies, and every derived
+        /// duration (frame hop, window length, loop length) is off by the ratio. Change both.
+        /// </para>
         /// </summary>
         private static string BuildDecodeArguments(string inputPath, string rawPath, double startSeconds, double loopSeconds)
         {
@@ -851,27 +941,47 @@ namespace TitanEngine
                 // downstream gain, so the renderer's pink-noise tilt could not bring them back.
                 // Log bands give the high-frequency end very wide buckets and on real tonal music
                 // most of those bands measure well below -60 dBFS, which is why the right third of
-                // every bar style rendered as a dead flat line. The mapping is now:
+                // every bar style rendered as a dead flat line.
                 //
-                //   framePeak = max over bands of dBFS                          (per-frame loudness)
-                //   relative  = framePeak - BandFloorRelativeBelowPeakDb        (-72 dB under it)
-                //   blended   = absolute + W * (relative - absolute)           (W = 0.75)
-                //   reference = max(absolute, blended)   -> the floor never drops below absolute
-                //   span      = (0 dBFS - reference) / (1 + KNEE / 2)           (knee headroom)
-                //   t         = (dBFS - reference) / span                      (0..1 over the frame)
-                //   value     = t * t / (2 * KNEE)               for t <  KNEE   (quadratic knee)
-                //             = t - KNEE / 2                     for t >= KNEE   (linear to 1)
-                //   frameGate = clamp((framePeak + 80 dB) / 8 dB, 0, 1)        (silence gate)
-                //   band      = clamp(frameGate * value, 0, 1), then attack/release smoothing
+                // FIX 10: the floor is frame-relative but the ceiling was still fixed at full scale,
+                // which is a ceiling problem wearing a floor problem's clothes. Real programme peaks
+                // 12-25 dB below full scale, so no floor setting could ever bring the loudest band
+                // near the top of the plot. The mapping, per frame, is:
                 //
-                // Three properties this buys:
-                //   * A band 60-75 dB under a loud frame's peak - ordinary high-frequency programme
-                //     content - now lands at roughly 0.15-0.35 instead of 0.
-                //   * The reference tracks the frame peak, so a quiet passage still drives visible
-                //     motion while a loud one does not saturate every band to 1.0.
+                //   framePeak = max over bands of dBFS                    (this frame's loudness)
+                //   relative  = framePeak - BandFloorRelativeBelowPeakDb   (54 dB below it)
+                //   blended   = absolute + W * (relative - absolute)       (W = 1, purely relative)
+                //   reference = max(absolute, blended)                     (floor never below absolute)
+                //   ceiling   = framePeak + BandCeilingHeadroomDb          (3 dB above the loudest band)
+                //   span      = (ceiling - reference) / (1 + KNEE / 2)      (knee headroom)
+                //   t         = (dBFS - reference) / span                  (0..1 over the frame)
+                //   value     = t * t / (2 * KNEE)       for t <  KNEE      (quadratic knee)
+                //             = t - KNEE / 2             for t >= KNEE      (linear to 1)
+                //   frameGate = clamp((framePeak + 80 dB) / 8 dB, 0, 1)     (silence fade)
+                //   band      = clamp(frameGate * value, 0, 1)              (then attack/release)
+                //
+                // Worked for a frame peaking at -22 dBFS, reference = max(-72, -22 - 54) = -72,
+                // ceiling = -19 and span = 53 / 1.06 = 50.0, so the array now runs the whole ramp:
+                //
+                //   band dBFS   -22   -35   -45   -55   -62   -65   -70   -72
+                //   value       0.94  0.68  0.48  0.28  0.14  0.08  0.007  0.00
+                //
+                // where the old constants gave 0.600 / 0.408 / 0.282 / 0.178 / 0.118 / 0.095 /
+                // 0.063 / 0.051 for the same bands - every one of them in the middle of the plot,
+                // nothing near either end. The measured array span goes from 0.096-0.578 to
+                // 0.000-0.940, which is the bar-saturation defect.
+                //
+                // Two properties this buys:
+                //   * Every frame spans the full ramp whatever the absolute level of the programme:
+                //     the loudest band lands near 0.94 and the weakest real band near 0. Loud frames
+                //     used to be stuck at 0.60 with nothing below 0.10 - the plateau this fixes.
                 //   * value is a non-decreasing function of band level and frameGate is a single
                 //     non-negative scalar per frame, so a louder band can never render smaller than
                 //     a quieter one in the same frame.
+                //
+                // The price is in BandCeilingHeadroomDb: above about -18 dBFS the loudest band is a
+                // constant ~0.944 regardless of how loud the frame actually is. That is inherent to
+                // anchoring the ceiling to the peak and is documented there.
                 if (double.IsNaN(framePeakDb))
                     framePeakDb = BandFrameSilenceDb;
 
@@ -898,18 +1008,29 @@ namespace TitanEngine
                     if (referenceDb < BandFloorAbsoluteDb)
                         referenceDb = BandFloorAbsoluteDb;
 
+                    // The top of the ramp is anchored to the frame's own loudest band, not to full
+                    // scale: a fixed 0 dBFS ceiling sat 12-25 dB above real programme peaks and was
+                    // the reason loud bands could never reach the plot. See BandCeilingHeadroomDb.
+                    double ceilingDb = framePeakDb + BandCeilingHeadroomDb;
+
                     // Dividing by (1 + KNEE / 2) pays back the offset the soft knee costs above the
-                    // knee, so a full-scale band still reaches exactly 1.0 at BandCeilingDb.
-                    double mappingSpan = (BandCeilingDb - referenceDb) / (1.0 + (0.5 * BandKneeFraction));
+                    // knee, so a band sitting exactly on the ceiling still reaches 1.0. The guard
+                    // covers the degenerate case of a peak within a dB of the absolute floor, where
+                    // the ramp would otherwise collapse to nothing.
+                    double mappingSpan = (ceilingDb - referenceDb) / (1.0 + (0.5 * BandKneeFraction));
                     if (mappingSpan < 1.0)
                         mappingSpan = 1.0;
 
                     for (int b = 0; b < bandTotal; b++)
                     {
-                        float rawBand = (float)Math.Clamp(
-                            frameGate * MapBandLevel(bandDecibels[b], referenceDb, mappingSpan),
-                            0.0,
-                            1.0);
+                        float mapped = (float)MapBandLevel(bandDecibels[b], referenceDb, mappingSpan);
+
+                        // No gamma. It existed to pull the mid and low bands down out of a plateau
+                        // that was really caused by a ceiling the frame could never reach, so all it
+                        // did was crush the quiet end a second time: at 1.8 a band that mapped to
+                        // 0.50 read 0.29, one that mapped to 0.30 read 0.11, and anything inside
+                        // the knee was raised to the 1.8 power after already being squared.
+                        float rawBand = (float)Math.Clamp(frameGate * mapped, 0.0, 1.0);
 
                         bands[b] = EnvelopeStep(previousBands[b], rawBand, dt, DefaultAttackTau, DefaultReleaseTau);
                         previousBands[b] = bands[b];
@@ -954,8 +1075,11 @@ namespace TitanEngine
                     Bass = MeanRange(bands, bandLow, bandHigh, bandTotal, bassLo, bassHi),
                     Mid = MeanRange(bands, bandLow, bandHigh, bandTotal, bassHi, midHi),
                     Treble = MeanRange(bands, bandLow, bandHigh, bandTotal, midHi, binCount),
-                    // FIX 1: the frame's RMS gates the fire, so silence cannot produce onsets.
-                    Onset = onsetDetector.Process(magnitudes, fluxBinLimit, rms)
+                    // FIX 1: the frame's RMS gates the fire, so silence cannot produce onsets. It is
+                    // rawRms, not the smoothed envelope: an envelope follower lags its target by
+                    // design, so gating on it would judge the leading edge of a transient by the
+                    // quiet that preceded it and swallow exactly the hits that matter.
+                    Onset = onsetDetector.Process(magnitudes, fluxBinLimit, rawRms)
                 };
             }
 
@@ -1194,30 +1318,36 @@ namespace TitanEngine
         {
             private readonly float[] _previousMagnitudes;
             private readonly double _meanAlpha;
+            private readonly double _dtSeconds;
             private double _mean;
-            private int _framesSinceOnset;
+            private double _secondsSinceOnset;
 
             /// <param name="magnitudeCount">Length of the per-frame magnitude spectrum.</param>
             /// <param name="dtSeconds">
-            /// Time since the previous frame. The adaptive mean is a seconds-based EMA
-            /// (<c>alpha = 1 - exp(-dt / OnsetMeanTauSeconds)</c>) so the baseline tracks at the same
-            /// speed at 10, 30 or 60 fps, instead of a fixed rate that meant 5 s, 1.67 s and 0.83 s
-            /// respectively for the same constant.
+            /// Time since the previous frame. Both of the detector's time constants are in
+            /// seconds: the adaptive mean is an EMA (<c>alpha = 1 - exp(-dt / OnsetMeanTauSeconds)</c>)
+            /// so the baseline tracks at the same speed at 10, 30 or 60 fps, instead of a fixed rate
+            /// that meant 5 s, 1.67 s and 0.83 s respectively for the same constant, and the
+            /// refractory period is <see cref="OnsetRefractorySeconds"/> of wall clock rather than a
+            /// frame count that meant 0.400 s at 10 fps and 0.033 s at 120 fps.
             /// </param>
             public OnsetDetector(int magnitudeCount, double dtSeconds)
             {
                 _previousMagnitudes = new float[Math.Max(1, magnitudeCount)];
-                double dt = dtSeconds > 0.0 ? dtSeconds : 1.0 / 30.0;
-                _meanAlpha = 1.0 - Math.Exp(-dt / OnsetMeanTauSeconds);
+                _dtSeconds = dtSeconds > 0.0 ? dtSeconds : 1.0 / 30.0;
+                _meanAlpha = 1.0 - Math.Exp(-_dtSeconds / OnsetMeanTauSeconds);
                 _mean = 0.0;
-                _framesSinceOnset = OnsetRefractoryFrames;
+
+                // Starts already refractory, so the first frames of a track cannot fire a burst of
+                // onsets against the still-zeroed magnitude history.
+                _secondsSinceOnset = OnsetRefractorySeconds;
             }
 
             /// <summary>Feeds one frame's magnitudes and reports whether an onset fired.</summary>
             /// <param name="magnitudes">This frame's spectrum.</param>
             /// <param name="binLimit">Highest bin the flux sums over.</param>
-            /// <param name="rms">This frame's RMS; below <see cref="OnsetMinRms"/> the frame is too
-            /// quiet to be an onset at all, checked before the flux comparison.</param>
+            /// <param name="rms">This frame's raw, un-smoothed RMS; below <see cref="OnsetMinRms"/>
+            /// the frame is too quiet to be an onset at all, checked before the flux comparison.</param>
             public bool Process(ReadOnlySpan<float> magnitudes, int binLimit, double rms)
             {
                 int limit = Math.Clamp(binLimit, 1, Math.Min(magnitudes.Length, _previousMagnitudes.Length));
@@ -1235,26 +1365,34 @@ namespace TitanEngine
                 // The baseline tracks every frame, loud or quiet, so a track that fades in is already
                 // adapted by the time it is loud enough to matter.
                 _mean += (flux - _mean) * _meanAlpha;
-                _framesSinceOnset++;
+                _secondsSinceOnset += _dtSeconds;
 
                 // The absolute level gate comes first: flux > mean * 1.6 is purely relative and so
                 // is scale invariant - it fires on dither-level noise and at the same rate on a
                 // fade to -100 dBFS as on a full-scale hit. OnsetMinRms is what stops that.
                 bool fired = rms >= OnsetMinRms
                     && flux > _mean * OnsetSensitivity
-                    && _framesSinceOnset >= OnsetRefractoryFrames;
+                    && _secondsSinceOnset >= OnsetRefractorySeconds;
 
                 if (fired)
-                    _framesSinceOnset = 0;
+                    _secondsSinceOnset = 0.0;
 
                 return fired;
             }
         }
 
         /// <summary>
+        /// <summary>
         /// In-place iterative radix-2 Cooley-Tukey decimation-in-time FFT. The bit-reversal
         /// permutation and the twiddle tables are computed once in the constructor, so the
         /// butterfly loop never calls into <see cref="Math"/> trig.
+        /// <para>
+        /// The length is validated, not rounded. It used to be rounded up to the next power of two
+        /// while <see cref="Forward"/> silently returned when the buffers were shorter than that,
+        /// so a non-power-of-two length produced no transform and no error - the caller then read
+        /// the previous frame's spectrum back as if it were current. A wrong FFT length is a
+        /// programming error, not something to paper over.
+        /// </para>
         /// </summary>
         private sealed class Radix2Fft
         {
@@ -1263,11 +1401,19 @@ namespace TitanEngine
             private readonly float[] _cosine;
             private readonly float[] _sine;
 
+            /// <exception cref="ArgumentException">
+            /// <paramref name="size"/> is not a power of two of at least 2.
+            /// </exception>
             public Radix2Fft(int size)
             {
-                int n = size < 2 ? 2 : size;
-                if ((n & (n - 1)) != 0)
-                    n = NextPowerOfTwo(n);
+                if (size < 2 || (size & (size - 1)) != 0)
+                {
+                    throw new ArgumentException(
+                        $"FFT length must be a power of two of at least 2; got {size}.",
+                        nameof(size));
+                }
+
+                int n = size;
 
                 _size = n;
                 _reversed = new int[n];
@@ -1291,15 +1437,28 @@ namespace TitanEngine
                 }
             }
 
-            /// <summary>Transform length. Inputs longer than this are ignored by <see cref="Forward"/>.</summary>
+            /// <summary>Transform length. <see cref="Forward"/> requires buffers of at least this length.</summary>
             public int Size => _size;
 
             /// <summary>Runs the forward transform over the first <see cref="Size"/> elements.</summary>
+            /// <exception cref="ArgumentException">
+            /// A buffer is shorter than <see cref="Size"/>. Returning quietly would leave the buffers
+            /// untransformed and hand the caller a stale spectrum.
+            /// </exception>
             public void Forward(float[] real, float[] imaginary)
             {
                 int n = _size;
-                if (real == null || imaginary == null || real.Length < n || imaginary.Length < n)
-                    return;
+                if (real == null)
+                    throw new ArgumentNullException(nameof(real));
+
+                if (imaginary == null)
+                    throw new ArgumentNullException(nameof(imaginary));
+
+                if (real.Length < n)
+                    throw new ArgumentException($"FFT input must be at least {n} samples; got {real.Length}.", nameof(real));
+
+                if (imaginary.Length < n)
+                    throw new ArgumentException($"FFT input must be at least {n} samples; got {imaginary.Length}.", nameof(imaginary));
 
                 for (int i = 0; i < n; i++)
                 {
@@ -1350,15 +1509,6 @@ namespace TitanEngine
                     reversed = (reversed << 1) | ((value >> i) & 1);
 
                 return reversed;
-            }
-
-            private static int NextPowerOfTwo(int value)
-            {
-                int power = 1;
-                while (power < value)
-                    power <<= 1;
-
-                return power;
             }
         }
     }

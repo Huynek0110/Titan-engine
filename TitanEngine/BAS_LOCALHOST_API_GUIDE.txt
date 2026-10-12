@@ -1,5 +1,11 @@
 TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
 
+CANONICAL COPY. This is the file the csproj ships (Content +
+CopyToOutputDirectory=PreserveNewest), so it is the one that reaches
+bin\Release\net8.0-windows\. Edit THIS one. The repo-root copy of the same name
+is a partial duplicate that drifts behind - see the banner at the top of that
+file for the list of sections it is missing.
+
 Release guide path after build:
 - C:\Users\Huy\Desktop\TitanEngine\TitanEngine\TitanEngine\bin\Release\net8.0-windows\BAS_LOCALHOST_API_GUIDE.txt
 
@@ -835,15 +841,62 @@ Enable with:
 Style / look:
 - soundBarStyle: one of the 12 canonical ids (see GET /api/soundbar/presets)
 - soundBarPalette: palette id, default "ncs-cyan"
-- soundBarOpacity: 0.1 - 1.0 (default 1.0)
-- soundBarSensitivity: 0.3 - 2.5 (default 1.0). Higher = taller, more reactive bars.
-- soundBarSmoothing: 0.2 - 3.0 (default 1.0). Higher = calmer / lazier motion.
+- soundBarOpacity: 0.05 - 1.0 (default 1.0)
+- soundBarSensitivity: 0.0 - 3.0 (default 1.0). Higher = taller, more reactive bars.
+- soundBarSmoothing: 0.0 - 1.0 (default 1.0). Higher = calmer / lazier motion.
 - soundBarBarCount: 8 - 256 (default 64). Number of bars / columns / spokes.
 - soundBarRoundness: 0.0 - 1.0 (default 1.0). 0 = flat hard-cap bars,
   1 = fully rounded pill caps.
 - soundBarGlowIntensity: 0.0 - 3.0 (default 1.0). Multiplier on the additive glow.
-- soundBarLoopSeconds: 1.0 - 20.0 (default 5.0). Length of the generated loop.
+- soundBarLoopSeconds: 1.0 - 6.0 (default 5.0). Length of the generated loop.
   The loop is repeated to cover the whole video.
+
+!!! TWO DIFFERENT RANGES - API vs UI SLIDER !!!
+The API range and the desktop slider range are NOT always the same number, so
+both are listed here. Send the API range; the slider range is only what the app
+happens to expose in the Soundbar panel.
+
+  field                 API range (send this)      UI slider range
+  --------------------  -----------------------   ------------------
+  soundBarOpacity       0.05 - 1.0                 0.1 - 1.0
+  soundBarSensitivity   0.0  - 3.0                 0.0 - 3.0
+  soundBarSmoothing     0.0  - 1.0                 0.0 - 1.0
+  soundBarBarCount      8    - 256                 8 - 256
+  soundBarRingCount     1    - 8                   (no slider; API only)
+  soundBarLoopSeconds   1.0  - 6.0                 (no slider; API only)
+  soundBarRoundness     0.0  - 1.0                 (no slider; API only)
+  soundBarGlowIntensity 0.0  - 3.0                 (no slider; API only)
+
+Out-of-range values are CLAMPED, never rejected. A value outside the API range
+is therefore accepted and quietly pinned to the nearest end - it does not error,
+and it does not do anything you did not ask for either.
+
+!!! WHY THESE RANGES - THEY ARE THE REAL ONES !!!
+Every API range above is exactly the range the renderer consumes. Sending more
+than that buys nothing, because the extra numbers all collapse onto the same
+clamped result:
+
+- soundBarSmoothing 0.0 - 1.0
+  The renderer clamps to 0.0-1.0 and derives a one-pole filter coefficient
+  k = 1 - 0.85 * smoothing. So 0.0 = raw bands (no filter at all), 1.0 = the
+  calmest motion that exists (k = 0.15), and EVERY value above 1.0 produced the
+  identical k = 0.15. An older build of this guide advertised 0.2-3.0 here,
+  which meant roughly the top 58 % of the documented range was a dead zone.
+
+- soundBarSensitivity 0.0 - 3.0
+  The renderer clamps to 0.0-3.0, so anything above 3.0 is identical to 3.0.
+
+- soundBarRingCount 1 - 8, and only two styles read it
+  dual-rings    clamps to 2 - 6  (so 1 becomes 2, 7-8 become 6)
+  ripple-rings  clamps to 1 - 8
+  all 10 other styles IGNORE the field entirely - sending 9 changes nothing.
+  Request 9 rings on dual-rings and you get 6, with no warning. Pick the style
+  first, then pick a ring count inside that style's own range.
+
+- soundBarLoopSeconds 1.0 - 6.0
+  The render path runs the generator at a fixed 30 fps and the generator emits
+  at most 180 frames, so 6.0 s is a hard ceiling. Anything longer was silently
+  truncated to 6.0 s. Ask for longer loops by rendering a shorter video.
 
 Position / size (percent of the output frame):
 - soundBarXPercent: 0.0 - 1.0 (default 0.50). Anchor X. Accepts 0-100 too.
@@ -858,7 +911,8 @@ Audio source:
   video    = only the source video's own audio track
 
 Analysis tuning:
-- soundBarRingCount: 1 - 12 (default 2). Extra rings for dual-rings / ripple-rings.
+- soundBarRingCount: 1 - 8 (default 2). Only read by dual-rings (2-6) and
+  ripple-rings (1-8). See the per-style note above.
 
 Canonical soundBarStyle values:
 - neon-bars          (Neon Bars, bottom-anchored)
@@ -878,6 +932,10 @@ Notes:
 - Every field is optional. A bare "enableSoundBar": true already renders correctly.
 - Out-of-range values are clamped, not rejected. An unknown style id falls back to
   "neon-bars"; an unknown audio source falls back to "auto".
+- Re-rendering with UNCHANGED soundbar settings is fast: the PNG loop is cached
+  on disk and reused instead of being generated again (~4 s saved). The cache is
+  bounded at one entry per style, so changing any style or palette setting and
+  then changing it back will regenerate that loop.
 - If the audio cannot be analysed, the soundbar layer is SKIPPED and the video
   still renders. A soundbar failure never aborts a job.
 - Aliases: soundBarStyle -> soundbarStyle, soundBarPalette -> soundbarPalette,
@@ -931,7 +989,7 @@ POST http://localhost:5555/api/queue/add
   "soundBarSmoothing": 0.8,
   "soundBarBarCount": 96,
   "soundBarGlowIntensity": 1.3,
-  "soundBarLoopSeconds": 6
+  "soundBarLoopSeconds": 4
 }
 
 Then:
@@ -1012,18 +1070,19 @@ GET http://localhost:5555/api/soundbar/presets
     {
       "id": "ncs-cyan",
       "name": "NCS Cyan",
-      "vibe": "EDM / festival neon",
-      "genres": "EDM, Future Bass, Festival",
+      "vibe": "Clean cyan energy - the signature NCS opener look.",
+      "genres": "Melodic House, Future Bounce, Pop",
       "stops": [
-        { "offset": 0.0, "hex": "#FF00E5FF" },
-        { "offset": 0.5, "hex": "#FF00B3FF" },
-        { "offset": 1.0, "hex": "#FF7A5CFF" }
+        { "offset": 0.0, "hex": "#062B3A" },
+        { "offset": 0.45, "hex": "#00C8E0" },
+        { "offset": 0.82, "hex": "#00F0FF" },
+        { "offset": 1.0, "hex": "#C8FBFF" }
       ],
-      "core": "#FF00E5FF",
-      "glow": "#FF00B3FF",
-      "bgTint": "#FF0A0A12",
-      "accent": "#FFFFFFFF",
-      "glowStrength": 1.25
+      "core": "#EAFEFF",
+      "glow": "#00E5FF",
+      "bgTint": "#04141C",
+      "accent": "#00FFC8",
+      "glowStrength": 1.0
     }
   ]
 }

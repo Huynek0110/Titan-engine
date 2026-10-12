@@ -47,23 +47,7 @@ namespace TitanEngine
         private readonly Dictionary<int, Star> _stars = new Dictionary<int, Star>(64);
         private int _lastOnsetFrame = -1;
 
-        /// <summary>Number of ripples currently alive in the pool.</summary>
-        public int RippleCount => _ripples.Count;
-
-        /// <summary>Number of tracked peak stars.</summary>
-        public int PeakStarCount => _stars.Count;
-
-        /// <summary>Clears every pooled ripple and star. Call this when restarting a loop from frame zero.</summary>
-        public void Reset()
-        {
-            _ripples.Clear();
-            _stars.Clear();
-            _lastOnsetFrame = -1;
-        }
-
         internal IReadOnlyList<Ripple> Ripples => _ripples;
-
-        internal int LastOnsetFrame => _lastOnsetFrame;
 
         internal void NoteOnset(int frameIndex, int maxLiveRings)
         {
@@ -128,7 +112,11 @@ namespace TitanEngine
     /// rasterises on the CPU and silently drops shader effects):
     /// <list type="bullet">
     /// <item>Never uses <c>Effect</c>/<c>BlurEffect</c> - glow is faked with three stroke passes.</item>
-    /// <item>Glow = wide (t*5.0, a~0.08), mid (t*2.4, a~0.22), core (t*1.0, a~0.92) of the SAME geometry.</item>
+    /// <item>Glow = wide (t*5.0, a~0.08), mid (t*2.4, a~0.22), core (t*1.0, a~0.92) of the SAME geometry.
+    /// When the halo is clamped the wide/mid pair compresses but NEVER collapses onto the core - see
+    /// <see cref="DrawGlowPasses"/>.</item>
+    /// <item><see cref="FrameContext.AlphaFactor"/> (Opacity) is applied on EVERY draw path, including
+    /// the glow-off one, so the slider is never inverted for a single style.</item>
     /// <item>One <see cref="StreamGeometry"/> with many figures, drawn three times - never a call per bar.</item>
     /// <item>Every brush / pen / geometry is frozen; they are shared across STA threads.</item>
     /// <item>Everything is clamped inside [0,width] x [0,height].</item>
@@ -168,10 +156,34 @@ namespace TitanEngine
         /// </summary>
         private const double PinkBandHighHz = 11025.0;
 
-        /// <summary>Slope of the pink-noise tilt, in dB per octave of band frequency.</summary>
-        private const double PinkTiltDbPerOctave = 3.0;
+        /// <summary>
+        /// Slope of the pink-noise tilt, in dB per octave of band frequency. DELIBERATELY ZERO.
+        /// <para>
+        /// The ramp was introduced to rescue "HF bands read as a dead flat line", on the premise that
+        /// the analyser's decibel floor was keeping the noise floor flat. Measured exactly, the old
+        /// +3 dB/octave ramp was not a tilt: <c>gainDb(i) = clamp(3.0 * octaves(i), 0, 9)</c> is
+        /// exactly 1.0 at band 0 only, reaches x2.818 at band 24, and pins 40 of 64 bands (62.5 %) at
+        /// the +9 dB ceiling. It cost three separate defects:
+        /// <list type="number">
+        /// <item>A 2.9x discontinuity at <see cref="PinkSilenceFloor"/>: a value just above the floor
+        /// passes through at x1.0 and the next representable float jumps to x2.818. Bands
+        /// oscillating across that boundary - which the DSP change makes the norm for quiet HF, not
+        /// the exception - shimmer frame to frame.</item>
+        /// <item>It manufactured motion out of the noise floor: the effective gate drops from 0.0039
+        /// to 0.0039 / 2.818 = 0.0014, so sub-pixel dither becomes visible.</item>
+        /// <item>It decoupled Sensitivity, because it is applied AFTER it: Sensitivity 3 gives band 0
+        /// a x3 ceiling and band 60 a x8.45 ceiling - one slider, 2.8:1 of asymmetry.</item>
+        /// </list>
+        /// The premise has since been fixed upstream twice over, so the tilt is now neutral: the gain
+        /// table is all 1.0, <see cref="ApplyPinkTilt"/> is the identity, and
+        /// <see cref="Sensitivity"/> is the only level knob left. Restore a non-zero value here (and
+        /// widen <see cref="PinkTiltMaxDb"/>) only with a curve that is genuinely linear in log
+        /// frequency across the whole band array, never a clamp that saturates half of it.
+        /// </para>
+        /// </summary>
+        private const double PinkTiltDbPerOctave = 0.0;
 
-        /// <summary>Ceiling of the pink-noise tilt, in dB. x2.82 - deliberately modest.</summary>
+        /// <summary>Ceiling of the pink-noise tilt, in dB. x2.82. Unreachable while the slope is 0.</summary>
         private const double PinkTiltMaxDb = 9.0;
 
         /// <summary>
@@ -185,14 +197,104 @@ namespace TitanEngine
         /// </summary>
         private const double RadialHaloFraction = 0.04;
 
-        /// <summary>Level the loudest bar of a radial frame is normalised to, in 0..1 of the annulus.</summary>
-        private const double RadialAutoGainTarget = 0.94;
-
         /// <summary>Most a single frame's auto-gain may lift the radial shapes. Bounds noise-only frames.</summary>
         private const double RadialAutoGainLimit = 4.0;
 
-        /// <summary>Frame peak at or below which no auto-gain is applied, so silence stays silent.</summary>
+        /// <summary>Reference level at or below which no auto-gain is applied, so silence stays silent.</summary>
         private const double RadialAutoGainFloor = 0.02;
+
+        /// <summary>
+        /// Reference percentile for radial normalisation. Normalising against the single loudest band
+        /// let one transient own the whole ring: every other bar collapsed onto the hub radius, which
+        /// is why RadialRing read as a solid blob with one spike and SpokeLines read as a single
+        /// sliver. Note the flat caps were not what hid those rays - a peak-referenced gain still
+        /// left short but NON-ZERO lengths, and <c>PenLineCap.Flat</c> paints those fine; flat caps
+        /// only draw nothing at exactly zero length. The 90th percentile tracks the body of the
+        /// spectrum instead of its outlier.
+        /// </summary>
+        private const double RadialPercentile = 0.90;
+
+        /// <summary>
+        /// Level the reference percentile is lifted to BEFORE the gamma curve is applied.
+        /// <para>
+        /// This was 0.62, which is not a target the gamma can deliver on: 0.62 ^ 0.45 = 0.806, so
+        /// the p90 band drew 80.6 % of the annulus and the peak drew 100 % - the entire top decile
+        /// was compressed into [0.806, 1.000] and a loud passage could not be told from a quiet one.
+        /// 0.92 keeps the headroom that makes the normalisation a normalisation: after the gamma the
+        /// p90 band lands at ~0.963, so the top decile spans [0.963, 1.000] and the auto-gain still
+        /// has 8 % of the annulus to work with.
+        /// </para>
+        /// </summary>
+        private const double RadialPercentileTarget = 0.92;
+
+        /// <summary>
+        /// Threshold applied to the GAINED level BEFORE the gamma. At or below it the band draws at
+        /// the hub radius, i.e. not at all.
+        /// <para>
+        /// Without it the gamma is itself a floor-lifter: 0.0039 ^ 0.45 = 0.083, so a band sitting on
+        /// ONE 8-bit code already drew 8-16 % of the annulus and the radial response never reached
+        /// zero except at exact zero. At 0.0078 (two codes) the two quietest representable codes are
+        /// hub-length and the gamma only ever acts on genuinely audible bands.
+        /// </para>
+        /// </summary>
+        private const double RadialNoiseFloor = 0.0078;
+
+        /// <summary>
+        /// Perceptual compression applied to radial levels. Music spectra are heavily skewed - in the
+        /// distribution this curve was fitted against (the pre-DSP-change one) the bass bands sat near
+        /// 0.9 while most of the array was under 0.1 - so a linear radial mapping spends almost the
+        /// entire annulus on the first handful of bars. A gamma below 1 lifts the quiet majority while
+        /// barely touching the peak, so the ring and the starburst both read as shapes instead of a
+        /// dot with a spike. It is now applied to a floor-subtracted, rescaled level
+        /// (<see cref="RadialNoiseFloor"/>), so it compresses the audible range rather than the noise
+        /// floor.
+        /// </summary>
+        private const double RadialGamma = 0.45;
+
+        /// <summary>
+        /// Smallest radial bar length, in px of radius, so a flat-capped style can always paint a ray.
+        /// Matches the wedge floor in <see cref="DrawRadialWedges"/>; shared through
+        /// <see cref="FillRadialBarSet"/> so the rays and the wedges can never disagree.
+        /// </summary>
+        private const double MinRadialReach = 0.5;
+
+        /// <summary>
+        /// Shortest column the four linear bar styles will paint, as a fraction of the length a
+        /// full-scale band would reach.
+        /// <para>
+        /// This used to be a hard 1.0 px. Against the new DSP range that floor binds below
+        /// value = 1/187 = 0.00534 on a 187 px plot, so every band more than ~25 dB under the frame
+        /// ceiling collapsed to an identical 1 px rail - roughly half the high-frequency bands -
+        /// and the whole new dynamic range was spent above that rail. A proportional floor only
+        /// guards the exactly-zero case, which is all it was ever for. Capped at 1.0 px so a large
+        /// canvas cannot turn it into a visible stub of its own.
+        /// </para>
+        /// </summary>
+        private const double MinimumReachFraction = 0.004;
+
+        /// <summary>Thickness of the widest glow pass, as a multiple of the element's own stroke.</summary>
+        private const double GlowWideRatio = 5.0;
+
+        /// <summary>Thickness of the middle glow pass, as a multiple of the element's own stroke.</summary>
+        private const double GlowMidRatio = 2.4;
+
+        private const double GlowWideAlpha = 0.08;
+        private const double GlowMidAlpha = 0.22;
+        private const double GlowCoreAlpha = 0.92;
+
+        /// <summary>
+        /// Narrowest halo-to-core and mid-to-core ratios the halo clamp may leave behind.
+        /// <para>
+        /// The clamp scales the halo and mid passes down by the same factor and floors both at the
+        /// core thickness, so once <c>maxHaloThickness &lt; t</c> all three passes collapse onto
+        /// <c>t</c> and the glow stops being a glow. That is not a corner case: at the DEFAULT job for
+        /// DualRings <c>t = 8.25</c> and <c>maxHalo = 3.67</c>, so the unmodified recipe drew three
+        /// identical 8.25 px strokes. These floors guarantee the stack still reads as 1 : 1.35 : 1.9
+        /// when the clamp binds, and never bind at all when it does not.
+        /// </para>
+        /// </summary>
+        private const double GlowMinMidRatio = 1.35;
+        private const double GlowMinWideRatio = 1.9;
 
         /// <summary>Bottom of the CenterColumn decibel window, dBFS. x0.0316 linear.</summary>
         private const double CenterColumnFloorDb = -30.0;
@@ -324,11 +426,13 @@ namespace TitanEngine
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
-                // Minimum reach, matching MirrorSpectrum / PillBars / DenseColumns. Without it a silent
-                // band is a zero-length line, and a zero-length line with PenLineCap.Round paints a
-                // filled dot of diameter `t` in the near-white Core colour - a row of hot white beads
-                // floating on the baseline with no bar attached. A short rounded stub reads correctly.
-                double reach = Math.Max(1.0, value * plot.Height);
+                // Minimum reach, matching MirrorSpectrum / PillBars / DenseColumns. Without it a
+                // silent band is a zero-length line, and a zero-length line with PenLineCap.Round
+                // paints a filled dot of diameter `t` in the near-white Core colour - a row of hot
+                // white beads floating on the baseline with no bar attached. A short rounded stub
+                // reads correctly. It is a FRACTION of the plot height, not a fixed 1.0 px: a hard
+                // pixel floor quantises every genuinely quiet band onto the same rail.
+                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height);
                 double tipY = plot.Bottom - reach;
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), plot.Bottom, tipY, barWidth));
             }
@@ -356,7 +460,7 @@ namespace TitanEngine
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
-                double reach = Math.Max(1.0, value * halfHeight);
+                double reach = Math.Max(MinimumReach(halfHeight), value * halfHeight);
                 double x = plot.X + (slot * (i + 0.5));
                 columns.Add(new ColumnSpec(x, midY, midY - reach, barWidth));
                 columns.Add(new ColumnSpec(x, midY, midY + reach, barWidth));
@@ -389,7 +493,8 @@ namespace TitanEngine
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
-                double reach = Math.Max(1.0, value * plot.Height * breathe);
+                double span = plot.Height * breathe;
+                double reach = Math.Max(MinimumReach(span), value * span);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
             }
 
@@ -417,7 +522,7 @@ namespace TitanEngine
             {
                 // Deliberately unsmoothed: the curtain is meant to look raw and slightly ragged.
                 float value = ctx.SampleBand(i, barCount, false);
-                double reach = Math.Max(1.0, value * plot.Height);
+                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), plot.Bottom, plot.Bottom - reach, thickness));
             }
 
@@ -502,28 +607,17 @@ namespace TitanEngine
             double rotation = ctx.Time * 360.0;
             double span = 360.0 / barCount;
 
-            var levels = new double[barCount];
+            var rawLevels = new double[barCount];
             for (int i = 0; i < barCount; i++)
-                levels[i] = ctx.SampleBand(i, barCount, true);
+                rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-            double gain = ResolveRadialGain(levels);
+            double[] levels = ResolveRadialLevels(rawLevels);
 
             var tipRadii = new double[barCount];
             var angles = new double[barCount];
-            var rays = new List<ColumnSpec>(barCount);
+            var rays = new List<RaySpec>(barCount);
 
-            for (int i = 0; i < barCount; i++)
-            {
-                double angle = rotation + (span * i);
-                double tip = inner + (Math.Clamp(levels[i] * gain, 0.0, 1.0) * (outer - inner));
-
-                angles[i] = angle;
-                tipRadii[i] = tip;
-
-                Point from = PointOnCircle(center, inner, angle);
-                Point to = PointOnCircle(center, tip, angle);
-                rays.Add(new ColumnSpec(from.X, from.Y, to.X, to.Y));
-            }
+            FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
 
             DrawRadialWedges(dc, ctx, center, inner, tipRadii, angles, span);
             DrawRadialRays(dc, ctx, rays, Math.Max(0.6, (outer - inner) * 0.020), PenLineCap.Round, RadialHaloExtent(outer));
@@ -566,8 +660,8 @@ namespace TitanEngine
             int bandLength = bands?.Length ?? 0;
             int slice = Math.Max(1, bandLength / ringCount);
 
-            var levels = new double[barCount];
-            var rays = new List<ColumnSpec>(barCount);
+            var rawRingLevels = new double[barCount];
+            var rays = new List<RaySpec>(barCount);
 
             for (int ring = 0; ring < ringCount; ring++)
             {
@@ -605,23 +699,12 @@ namespace TitanEngine
                 // Each ring normalises against its OWN frequency slice, so the quiet high-frequency
                 // ring still reaches its outer radius instead of collapsing into the hub.
                 for (int i = 0; i < barCount; i++)
-                    levels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
+                    rawRingLevels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
 
-                double gain = ResolveRadialGain(levels);
+                double[] levels = ResolveRadialLevels(rawRingLevels);
                 rays.Clear();
 
-                for (int i = 0; i < barCount; i++)
-                {
-                    double angle = rotation + (span * i);
-                    double tip = ringInner + (Math.Clamp(levels[i] * gain, 0.0, 1.0) * (ringOuter - ringInner));
-
-                    angles[i] = angle;
-                    tipRadii[i] = tip;
-
-                    Point from = PointOnCircle(center, ringInner, angle);
-                    Point to = PointOnCircle(center, tip, angle);
-                    rays.Add(new ColumnSpec(from.X, from.Y, to.X, to.Y));
-                }
+                FillRadialBarSet(levels, center, ringInner, ringOuter, rotation, span, tipRadii, angles, rays);
 
                 DrawRadialWedges(dc, ctx, center, ringInner, tipRadii, angles, span);
 
@@ -675,45 +758,78 @@ namespace TitanEngine
                     double radius = inner + ((outer - inner) * eased);
                     double fade = Math.Pow(1.0 - t, 1.6) * (0.35 + (0.65 * ripple.Energy));
 
+                    // Drop fully-faded ripples HERE rather than letting them survive the count check
+                    // below and then be skipped by the alpha cutoff in the draw loop. A ripple that is
+                    // still alive but has decayed to nothing used to leave ringRadii non-empty, which
+                    // suppressed the idle fallback and produced a 100 % transparent frame - the figure
+                    // silently vanished for ~0.1 s on healthy audio (measured on frames 134-136).
+                    // The drawn core alpha is 0.92 * fade, so gating the COUNT on bare `fade` kept
+                    // ripples alive (suppressing the idle fallback) long after they had stopped being
+                    // visible - measured as 6 consecutive frames at <= 5.5 % alpha.
+                    //
+                    // The gate is on `fade` ALONE. It used to be `fade * GlowIntensity`, which meant
+                    // the whole style went 100 % transparent at GlowIntensity = 0: the gate dropped
+                    // every ripple, and every ripple also had to clear the alpha cutoff inside the
+                    // draw loop. The glow knob is applied where it belongs - in the alpha of the
+                    // passes (see DrawGlowPasses) - so turning glow off now means "flat rings, no
+                    // bloom", which is what it means in every other style.
+                    if (fade <= 0.05)
+                        continue;
+
                     ringRadii.Add(radius);
                     ringAlpha.Add(Math.Clamp(fade, 0.0, 1.0));
                 }
             }
 
-            if (ringRadii.Count == 0)
+            // Whether the lists below are real ripples or the idle stand-in. Only real ripples have a
+            // "youngest" ring to bloom, and the idle set has no such member.
+            bool hasLiveRipple = ringRadii.Count > 0;
+
+            if (!hasLiveRipple)
             {
                 // No live ripple (first frame, or a cached preview): show a calm idle ring set.
+                // `t` spans [0, 1) and NOT [1/N, 1]. With the old i+1 over maxLive the LAST entry was
+                // t = 1 and its alpha was 0.30 * (1 - 1) = 0, so at RingCount = 1 - or with glow
+                // off - the outermost ring of the idle set was a guaranteed no-op.
                 for (int i = 0; i < maxLive; i++)
                 {
-                    double t = (i + 1) / (double)maxLive;
+                    double t = i / (double)maxLive;
                     ringRadii.Add(inner + ((outer - inner) * t));
                     ringAlpha.Add(0.30 * (1.0 - t));
                 }
             }
 
-            // Three additive passes per ring, halo first and core last. At most eight rings are alive
-            // so the per-ring fade is worth the extra draws.
-            double intensity = ctx.GlowIntensity;
+            // The shared three-pass glow recipe, halo first and core last, with the ripple's own
+            // fade folded in as the per-shape alpha scale. `coreAlways` is what keeps the style
+            // alive at GlowIntensity = 0: the core still paints at `Accent` x fade, flat, with no
+            // bloom. The halo is now bounded by RadialHaloExtent(outer) like the other three radial
+            // styles, instead of an unbounded thickness * 5.0 that could halo wider than the ring.
             for (int i = 0; i < ringRadii.Count; i++)
             {
                 double radius = Math.Clamp(ringRadii[i], 0.5, outer);
-                double alpha = ringAlpha[i] * intensity;
-                if (alpha <= 0.004)
-                    continue;
 
                 var ellipse = new EllipseGeometry(center, radius, radius);
                 if (ellipse.CanFreeze)
                     ellipse.Freeze();
 
-                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.08 * alpha)), thickness * 5.0), ellipse);
-                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.22 * alpha)), thickness * 2.4), ellipse);
-                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Accent, 0.92 * alpha)), thickness), ellipse);
+                DrawGlowPasses(
+                    dc,
+                    ellipse,
+                    thickness,
+                    ctx.Resolved,
+                    ctx.GlowIntensity,
+                    ctx.AlphaFactor,
+                    PenLineCap.Round,
+                    RadialHaloExtent(outer),
+                    coreAlways: true,
+                    alphaScale: ringAlpha[i],
+                    coreColor: ctx.Resolved.Accent);
             }
 
             // Soft bloom tracking the youngest ripple.
             double leadRadius = ringRadii[ringRadii.Count - 1];
             double leadAlpha = ringAlpha[ringAlpha.Count - 1];
-            if (leadAlpha > 0.02)
+            if (hasLiveRipple && leadAlpha > 0.02)
             {
                 RadialGradientBrush bloom = CreateRadialGlowBrush(
                     ctx.Resolved.Glow,
@@ -748,22 +864,17 @@ namespace TitanEngine
             // See DrawDualRings for the full rationale.
             double rotation = ctx.Time * -360.0;
 
-            var levels = new double[barCount];
+            var rawLevels = new double[barCount];
             for (int i = 0; i < barCount; i++)
-                levels[i] = ctx.SampleBand(i, barCount, true);
+                rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-            double gain = ResolveRadialGain(levels);
+            double[] levels = ResolveRadialLevels(rawLevels);
 
-            var rays = new List<ColumnSpec>(barCount);
-            for (int i = 0; i < barCount; i++)
-            {
-                double angle = rotation + (span * i);
-                double tip = inner + (Math.Clamp(levels[i] * gain, 0.0, 1.0) * (outer - inner));
+            var rays = new List<RaySpec>(barCount);
 
-                Point from = PointOnCircle(center, inner, angle);
-                Point to = PointOnCircle(center, tip, angle);
-                rays.Add(new ColumnSpec(from.X, from.Y, to.X, to.Y));
-            }
+            // SpokeLines draws no wedges, so it passes null for the two wedge-only outputs rather than
+            // allocating a pair of barCount-sized arrays per frame for FillRadialBarSet to fill.
+            FillRadialBarSet(levels, center, inner, outer, rotation, span, null, null, rays);
 
             // Legibility floor. The proportional term (outer - inner) * 0.014 is ~1.1 px at
             // 1280x720 and shrinks again as the canvas or the plot grows, so the whole style
@@ -774,7 +885,7 @@ namespace TitanEngine
             double floorPx = OverlayLayoutHelper.ScaleFromHdReference(ctx.Layout, 2.0, 2.0, 8.0);
             double thickness = Math.Clamp((outer - inner) * 0.014, floorPx, floorPx * 3.0);
 
-            DrawRadialRays(dc, ctx, rays, thickness, PenLineCap.Flat, RadialHaloExtent(outer));
+            DrawRadialRays(dc, ctx, rays, thickness, PenLineCap.Flat, RadialHaloExtent(outer), coreAlways: true);
         }
 
         // ------------------------------------------------------------------
@@ -856,7 +967,7 @@ namespace TitanEngine
             if (rim.CanFreeze)
                 rim.Freeze();
 
-            DrawGlowPasses(dc, rim, Math.Max(0.6, plot.Height * 0.012), ctx.Resolved, ctx.GlowIntensity, PenLineCap.Round);
+            DrawGlowPasses(dc, rim, Math.Max(0.6, plot.Height * 0.012), ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, PenLineCap.Round);
         }
 
         // ------------------------------------------------------------------
@@ -902,17 +1013,19 @@ namespace TitanEngine
             if (track.CanFreeze) track.Freeze();
             dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.14 * ctx.AlphaFactor)), thickness * 0.45), track);
 
+            // The four linear bar styles now floor at MinimumReach(span), a FRACTION of their span. This
+            // one deliberately keeps a flat 1.0 px floor: Rms and Peak are LINEAR and do not get the
+            // dynamic range the band array just gained, so there is nothing here to quantise away,
+            // and a meter stub should stay legible at any column height.
+            // At rms == 0 nothing is drawn at all: a 1 px line with a 28 px stroke and a
+            // PenLineCap.Round is still a 28 x 8.4 px glowing capsule parked on the baseline,
+            // which is the reported oval. The faint track above already reads as "meter at rest",
+            // so true digital silence draws the track and nothing else.
             double columnReach = rms > 0.0 ? Math.Max(1.0, rms * plot.Height) : 0.0;
-            if (columnReach >= MinColumnHeight)
+            if (columnReach > 0.0)
             {
                 var columns = new List<ColumnSpec>(1)
                 {
-                    // Same minimum reach as NeonBars / MirrorSpectrum / PillBars / DenseColumns so a
-                    // near-silent RMS paints a short stub rather than a bare round-capped dot.
-                    // At rms == 0 nothing is drawn at all: a 1 px line with a 28 px stroke and a
-                    // PenLineCap.Round is still a 28 x 8.4 px glowing capsule parked on the baseline,
-                    // which is the reported oval. The faint track above already reads as "meter at
-                    // rest", so true digital silence draws the track and nothing else.
                     new ColumnSpec(centerX, plot.Bottom, plot.Bottom - columnReach, thickness)
                 };
 
@@ -945,7 +1058,7 @@ namespace TitanEngine
                 }
 
                 if (tick.CanFreeze) tick.Freeze();
-                DrawGlowPasses(dc, tick, tickStroke, ctx.Resolved, ctx.GlowIntensity, PenLineCap.Flat, tickStroke * 3.0);
+                DrawGlowPasses(dc, tick, tickStroke, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, PenLineCap.Flat, tickStroke * 3.0);
 
                 Brush dotBrush = CreateBrush(WithAlpha(ctx.Resolved.Accent, 0.95 * ctx.AlphaFactor));
                 dc.DrawEllipse(dotBrush, null, new Point(centerX + tickHalf, tickY), tickStroke, tickStroke);
@@ -1054,16 +1167,15 @@ namespace TitanEngine
                 return;
 
             // Gradient body: columns bucketed by quantized height so one frozen brush serves many columns.
+            // Every caller already floors the reach above zero (MinimumReach for the four linear bar
+            // styles, CenterColumn's own 1.0 px floor, and it draws nothing at all when the
+            // sample is exactly zero), so a paintability test here can never bind. That is why
+            // there is none: the body and the glow pass below are built from the SAME list and
+            // can never disagree about what got painted.
             var buckets = new Dictionary<(int Height, bool Downward), List<ColumnSpec>>(columns.Count);
-            var painted = new List<ColumnSpec>(columns.Count);
             for (int i = 0; i < columns.Count; i++)
             {
                 ColumnSpec column = columns[i];
-                if (!IsPaintableColumn(column))
-                    continue;
-
-                painted.Add(column);
-
                 var key = ((int)Math.Round(Math.Min(column.Height, 4096.0)), column.TipY >= column.BaseY);
                 if (!buckets.TryGetValue(key, out List<ColumnSpec>? bucket))
                 {
@@ -1073,9 +1185,6 @@ namespace TitanEngine
 
                 bucket.Add(column);
             }
-
-            if (painted.Count == 0)
-                return;
 
             double roundness = Math.Clamp(ctx.Settings.Roundness, 0.0, 1.0);
             foreach (KeyValuePair<(int Height, bool Downward), List<ColumnSpec>> entry in buckets)
@@ -1093,36 +1202,52 @@ namespace TitanEngine
             }
 
             // Three-pass additive glow over the SAME line geometry: halo wide -> core last.
-            // Gated on the same paintable set as the body so a skipped stub can never leave a halo
-            // (and therefore a bright dot) hanging where there is no bar underneath it.
-            Geometry lines = BuildLineGeometry(painted);
-            DrawGlowPasses(dc, lines, glowThickness, ctx.Resolved, ctx.GlowIntensity, cap);
+            Geometry lines = BuildLineGeometry(columns);
+            DrawGlowPasses(dc, lines, glowThickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap);
         }
 
         /// <summary>
-        /// Shortest column that gets painted at all. Below this the gradient body is not worth drawing
-        /// and the round-capped glow line degenerates into a dot.
+        /// Shortest column any of the four linear bar styles will paint, for a bar whose full-scale
+        /// reach would be <paramref name="span"/> px. Proportional so it guards ONLY the exactly-zero
+        /// case; see <see cref="MinimumReachFraction"/> for why a hard 1.0 px floor is wrong now.
         /// </summary>
-        private const double MinColumnHeight = 0.30;
-
-        private static bool IsPaintableColumn(ColumnSpec column) => column.Height >= MinColumnHeight;
+        private static double MinimumReach(double span)
+            => ClampSafe(span * MinimumReachFraction, 0.0, 1.0);
 
         /// <summary>
         /// The mandatory neon trick: one geometry, three passes, halo first and core last.
-        /// Alphas are multiplied by <see cref="FrameContext.GlowIntensity"/> which already folds in
-        /// <c>settings.GlowIntensity</c>, <c>palette.GlowStrength</c> and <c>settings.Opacity</c>.
+        /// Alphas are multiplied by <paramref name="intensity"/> (always
+        /// <see cref="FrameContext.GlowIntensity"/>, which already folds in
+        /// <c>settings.GlowIntensity</c>, <c>palette.GlowStrength</c> and <c>settings.Opacity</c>) and by
+        /// <paramref name="alphaScale"/>, the per-shape fade of a style that draws several shapes at
+        /// different strengths.
         /// <para>
         /// <paramref name="maxHaloThickness"/> bounds the widest pass. The classic recipe asks for
         /// <c>t * 5.0</c>, which is unbounded with respect to the shape it is blooming: on an element
         /// much smaller than its own stroke budget the additive halo stops being a highlight and
         /// becomes the thing the eye sees - the reported white teardrop, where the ring measured
-        /// 106 x 86 px with the glow off and 106 x 230 px with it on. When the clamp binds, the
-        /// halo and mid passes are scaled down together (the core pass never is - it IS the shape),
-        /// so the recipe's proportions survive.
+        /// 106 x 86 px with the glow off and 106 x 230 px with it on. So the halo and mid passes are
+        /// scaled down together, while the core pass never is - it IS the shape.
+        /// <para>
+        /// The clamp does NOT preserve the recipe's proportions, and previously it did not even
+        /// preserve a GLOW: both scaled passes were floored at <c>t</c>, so whenever
+        /// <c>maxHaloThickness &lt; t</c> all three collapsed onto <c>t</c> and the shape was stroked
+        /// three times with the same pen. That is not a corner case - traced at the DEFAULT job for
+        /// DualRings, <c>t = 8.25</c> against <c>maxHalo = 3.67</c>, the default configuration drew no
+        /// glow at all. <see cref="GlowMinWideRatio"/> / <see cref="GlowMinMidRatio"/> are the floors
+        /// that keep the stack strictly ordered (core : mid : wide = 1 : 1.35 : 1.9 at worst).
         /// <para>
         /// The default is <see cref="double.PositiveInfinity"/>, so the clamp never binds and
         /// <c>t * 5.0</c> / <c>t * 2.4</c> / <c>t * 1.0</c> come out bit-identical for every
         /// pre-existing caller. Bar styles pass nothing and are unaffected by construction.
+        /// </para>
+        /// <para>
+        /// <paramref name="alphaFactor"/> is <see cref="FrameContext.AlphaFactor"/> (the Opacity
+        /// slider) and is honoured on EVERY path, including the flat-core path below. It cannot be
+        /// recovered from <paramref name="intensity"/> there, because the early-out is reached exactly
+        /// when <paramref name="intensity"/> is 0: without it a style whose only output is these
+        /// passes painted at alpha 255 at <c>Opacity = 0</c>, which inverted the slider for that one
+        /// style (SpokeLines) while every other style honoured it.
         /// </para>
         /// </summary>
         private static void DrawGlowPasses(
@@ -1131,40 +1256,70 @@ namespace TitanEngine
             double thickness,
             ResolvedPalette resolved,
             double intensity,
+            double alphaFactor,
             PenLineCap cap,
-            double maxHaloThickness = double.PositiveInfinity)
+            double maxHaloThickness = double.PositiveInfinity,
+            bool coreAlways = false,
+            double alphaScale = 1.0,
+            Color? coreColor = null)
         {
-            if (intensity <= 0.002)
+            // Opacity is the master fold. Nothing below - not the halo, not the mid, not the flat
+            // core - is allowed to draw at all when the user has turned it to zero.
+            if (alphaFactor <= 0.002)
                 return;
 
+            Color core = coreColor ?? resolved.Core;
+            double fade = Math.Clamp(alphaScale, 0.0, 1.0);
+
+            // A style whose ONLY output is these three passes has nothing left when glow is off:
+            // SpokeLines measured 150/150 fully transparent frames at GlowIntensity 0 because the
+            // early-out below skipped the halo, the mid AND the core. Those styles pass
+            // coreAlways = true so the core still paints - flat colour, no bloom, which is the
+            // correct meaning of "glow off". `alphaFactor` is applied here explicitly; before it
+            // was passed this branch used `resolved.Core` verbatim, and since TryParseHex always
+            // returns an OPAQUE colour, Opacity = 0 drew at alpha 255.
+            if (intensity <= 0.002)
+            {
+                if (coreAlways)
+                    dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(core, alphaFactor * fade)), Math.Max(0.25, thickness), cap), geometry);
+                return;
+            }
+
             double t = Math.Max(0.25, thickness);
-            double halo = t * 5.0;
+            double halo = t * GlowWideRatio;
             double scale = halo > maxHaloThickness ? (maxHaloThickness / halo) : 1.0;
-            double wideThickness = Math.Max(t, halo * scale);
-            double midThickness = Math.Max(t, (t * 2.4) * scale);
 
-            Pen wide = CreatePen(CreateBrush(WithAlpha(resolved.Glow, 0.08 * intensity)), wideThickness, cap);
-            Pen mid = CreatePen(CreateBrush(WithAlpha(resolved.Glow, 0.22 * intensity)), midThickness, cap);
-            Pen core = CreatePen(CreateBrush(WithAlpha(resolved.Core, 0.92 * intensity)), t, cap);
+            // Both scaled passes are clamped into [their own minimum ratio, ceiling], and mid is
+            // additionally capped at wide, so the three strokes are always strictly ordered. Without
+            // the ratio floors the two Math.Max(t, ...) terms below both returned t and the "glow"
+            // was three identical strokes.
+            double ceiling = Math.Max(t * GlowMinWideRatio, maxHaloThickness);
+            double wideThickness = Math.Max(t * GlowMinWideRatio, Math.Min(halo * scale, ceiling));
+            double midThickness = Math.Min(wideThickness, Math.Max(t * GlowMinMidRatio, Math.Min((t * GlowMidRatio) * scale, ceiling)));
 
-            dc.DrawGeometry(null, wide, geometry);
-            dc.DrawGeometry(null, mid, geometry);
-            dc.DrawGeometry(null, core, geometry);
+            Pen haloPen = CreatePen(CreateBrush(WithAlpha(resolved.Glow, GlowWideAlpha * intensity * fade)), wideThickness, cap);
+            Pen midPen = CreatePen(CreateBrush(WithAlpha(resolved.Glow, GlowMidAlpha * intensity * fade)), midThickness, cap);
+            Pen corePen = CreatePen(CreateBrush(WithAlpha(core, GlowCoreAlpha * intensity * fade)), t, cap);
+
+            dc.DrawGeometry(null, haloPen, geometry);
+            dc.DrawGeometry(null, midPen, geometry);
+            dc.DrawGeometry(null, corePen, geometry);
         }
 
         private static void DrawRadialRays(
             DrawingContext dc,
             FrameContext ctx,
-            List<ColumnSpec> rays,
+            List<RaySpec> rays,
             double thickness,
             PenLineCap cap,
-            double maxHaloThickness)
+            double maxHaloThickness,
+            bool coreAlways = false)
         {
             if (rays.Count == 0)
                 return;
 
-            Geometry geometry = BuildLineGeometry(rays);
-            DrawGlowPasses(dc, geometry, thickness, ctx.Resolved, ctx.GlowIntensity, cap, maxHaloThickness);
+            Geometry geometry = BuildRayGeometry(rays);
+            DrawGlowPasses(dc, geometry, thickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap, maxHaloThickness, coreAlways);
         }
 
         /// <summary>
@@ -1180,35 +1335,71 @@ namespace TitanEngine
         private static double RadialHaloExtent(double outer) => Math.Max(2.0, outer * RadialHaloFraction);
 
         /// <summary>
-        /// Per-frame auto-gain for the RADIAL styles only (RadialRing, DualRings, SpokeLines).
+        /// Turns raw band levels into radial bar lengths for RadialRing, DualRings and SpokeLines.
         /// <para>
-        /// Those three mapped the raw 0..1 band value straight onto the annulus length, so the drawn
-        /// extent was whatever the music happened to measure: on the 1280x720 test a real track
-        /// peaked near 0.12 and the ring came out 106 x 86 px inside a 660 x 280 plot box whose
-        /// inscribed circle is 274 px across. The fix is not to move the hub - it is to make the
-        /// LENGTHS use the box, so the loudest bar of the frame is normalised to
-        /// <see cref="RadialAutoGainTarget"/> of the annulus.
+        /// Three stages, and all three are load-bearing:
+        /// <list type="number">
+        /// <item><b>Percentile gain.</b> The reference is the <see cref="RadialPercentile"/> band, not
+        /// the peak. Peak-referenced gain hands the whole radius to whichever single band is loudest
+        /// right now; every other bar is pushed onto the hub radius and the wedges merge into one
+        /// filled disc - which is exactly the measured "solid blob with one spike" and "single
+        /// vertical sliver". (The flat caps were not the reason those rays vanished: a peak-referenced
+        /// gain still left short, non-zero lengths, which <c>PenLineCap.Flat</c> paints fine. They
+        /// draw nothing at exactly zero length, which is what <see cref="MinRadialReach"/> now
+        /// guards.)</item>
+        /// <item><b>Noise floor.</b> At or below <see cref="RadialNoiseFloor"/> the band is drawn at
+        /// the hub, i.e. not at all. This runs BEFORE the gamma because a gamma below 1 is itself a
+        /// floor-lifter: <c>0.0039 ^ 0.45 = 0.083</c>, so a band sitting on one 8-bit code already
+        /// drew 8-16 % of the annulus and the response never reached zero except at exact zero.</item>
+        /// <item><b>Gamma compression.</b> The audible remainder is rescaled to 0..1 and raised to
+        /// <see cref="RadialGamma"/>, so a large dynamic range still resolves as a ring rather than
+        /// as a dot with a spike.</item>
+        /// </list>
         /// <para>
-        /// The gain is bounded by <see cref="RadialAutoGainLimit"/> and is skipped entirely below
-        /// <see cref="RadialAutoGainFloor"/>, so a near-silent frame is lifted at most 4x rather
-        /// than to full scale, and digital silence is not amplified into a solid disc. It is also
-        /// one-sided (>= 1.0): a frame that already reaches 0.94 is left exactly as it was, so loud
-        /// passages are not pushed further and cannot clip.
+        /// The gain stays bounded by <see cref="RadialAutoGainLimit"/> and is skipped below
+        /// <see cref="RadialAutoGainFloor"/> so silence is never amplified into a solid disc. It is
+        /// also one-sided (&gt;= 1.0): a frame that already reaches
+        /// <see cref="RadialPercentileTarget"/> is left exactly as it was, so loud passages are not
+        /// pushed further and cannot clip.
+        /// <para>
+        /// <see cref="RadialPercentileTarget"/> is a PRE-gamma level, so it must be read before the
+        /// gamma, not after: the old 0.62 came out of the curve as 0.806 and flattened the whole top
+        /// decile of the spectrum into the top 19 % of the annulus. At 0.92 the p90 band lands at
+        /// ~0.963 post-gamma and the top decile spans [0.963, 1.000].
+        /// <para>
+        /// Returns a fresh array; the input is left untouched.
         /// </para>
         /// </summary>
-        private static double ResolveRadialGain(double[] levels)
+        private static double[] ResolveRadialLevels(double[] rawLevels)
         {
-            double peak = 0.0;
-            for (int i = 0; i < levels.Length; i++)
+            int count = rawLevels.Length;
+            var levels = new double[count];
+            if (count <= 0)
+                return levels;
+
+            double[] sorted = (double[])rawLevels.Clone();
+            Array.Sort(sorted);
+            int referenceIndex = Math.Clamp((int)(count * RadialPercentile), 0, count - 1);
+            double reference = sorted[referenceIndex];
+
+            double gain = reference <= RadialAutoGainFloor
+                ? 1.0
+                : Math.Clamp(RadialPercentileTarget / reference, 1.0, RadialAutoGainLimit);
+
+            double span = 1.0 - RadialNoiseFloor;
+            for (int i = 0; i < count; i++)
             {
-                if (levels[i] > peak)
-                    peak = levels[i];
+                double gained = Math.Clamp(rawLevels[i] * gain, 0.0, 1.0);
+                if (gained <= RadialNoiseFloor)
+                {
+                    levels[i] = 0.0;
+                    continue;
+                }
+
+                levels[i] = Math.Pow((gained - RadialNoiseFloor) / span, RadialGamma);
             }
 
-            if (peak <= RadialAutoGainFloor)
-                return 1.0;
-
-            return Math.Clamp(RadialAutoGainTarget / peak, 1.0, RadialAutoGainLimit);
+            return levels;
         }
 
         /// <summary>
@@ -1371,50 +1562,96 @@ namespace TitanEngine
         /// <summary>
         /// Applies the per-band pink-noise (1/f) compensation to one already-sensitivity-scaled value.
         /// <para>
-        /// <c>AudioSpectrumAnalyzer</c> lays its bands out log-spaced from 40 Hz to Nyquist (11.025 kHz
-        /// at its fixed 22.05 kHz rate) and decibel-maps each against an adaptive floor. Musical spectra
-        /// fall at roughly 3 dB per octave, so the top two or three octaves - which are also the
-        /// WIDEST log buckets and therefore the widest slice of the plot - are the ones that need
-        /// lifting, and before the analyser's floor was lowered they read as a dead flat
-        /// minimum-height line across the
-        /// right third of NeonBars / DenseColumns / MirrorSpectrum / PillBars. The default
-        /// Sensitivity and Smoothing cannot rescue that, because both act on level, not slope.
+        /// CURRENTLY THE IDENTITY. <see cref="PinkTiltDbPerOctave"/> is 0.0, so <c>gainDb(i)</c> is 0
+        /// for every band, the gain table is all 1.0, and the only thing this still does is refuse to
+        /// touch values at or below <see cref="PinkSilenceFloor"/>.
         /// <para>
-        /// The compensation is a linear ramp in log frequency, anchored at 0 dB on the lowest band:
+        /// It was not always so. The rationale for the ramp, for the record and so it is not
+        /// mistaken for a live premise again: <c>AudioSpectrumAnalyzer</c> lays its bands out
+        /// log-spaced from 40 Hz to Nyquist (11.025 kHz at its fixed 22.05 kHz rate) and decibel-maps
+        /// each against an adaptive floor; musical spectra fall at roughly 3 dB per octave, so the top
+        /// octaves - which are also the WIDEST log buckets, and so the widest slice of the plot - were
+        /// the ones that needed lifting, and while the analyser "kept the noise floor flat" they read
+        /// as a dead flat minimum-height line across the right third of NeonBars / DenseColumns /
+        /// MirrorSpectrum / PillBars. Neither Sensitivity nor Smoothing could rescue that, because
+        /// both act on level, not slope.
+        /// <para>
+        /// The premise has since been fixed in the analyser, twice, so the ramp is neutral. What it
+        /// actually computed is worth recording, because it was not a tilt:
         /// <code>
         ///   octaves(i) = log2(PinkBandHighHz / PinkBandLowHz) * i / (N - 1)   // 0 .. 8.11 octaves
         ///   gainDb(i)  = clamp(PinkTiltDbPerOctave * octaves(i), 0, PinkTiltMaxDb)
-        ///   gain(i)    = 10 ^ (gainDb(i) / 20)                               // 1.00 .. 2.82
+        ///   gain(i)    = 10 ^ (gainDb(i) / 20)
         ///   out(i)     = in(i) * gain(i)                                    // clamped to [0, 1]
         /// </code>
-        /// Three properties matter:
-        /// <list type="number">
-        /// <item>
-        /// It is a TILT, not a boost. The gain is exactly 1.0 over the low ~40 % of the spectrum, so
-        /// the bands that carry the perceived energy - and the left half of every bar style, which is
-        /// what already reads as correct - are bit-for-bit unchanged, and the overall perceived
-        /// loudness does not move. The symmetric (mean-1) form of the same ramp was rejected: it
-        /// also attenuates the bass by ~12 dB, which shrinks every bar style that is currently right.
-        /// </item>
-        /// <item>
-        /// Broadband noise cannot run away: the +9 dB ceiling (reached at band 23 of 64) bounds the
-        /// gain at x2.82, the ramp is one-sided so nothing is amplified at the low end, and the
-        /// output is clamped to [0, 1]. A -3 dB/octave signal becomes flat, which is the point.
-        /// </item>
-        /// <item>
-        /// <see cref="PinkSilenceFloor"/> short-circuits anything at or below one 8-bit code, so
-        /// digital silence and dither are never lifted into visible motion. True zero stays zero.
-        /// </item>
-        /// </list>
+        /// At 3 dB/octave the gain is exactly 1.0 at band 0 ONLY - not "over the low 40 % of the
+        /// spectrum", which is what the old note here claimed - it reaches x2.818 at band 24 and pins
+        /// 40 of 64 bands (62.5 %) at the +9 dB ceiling (which first binds at band 24, not 23). A
+        /// near-step function that bought three defects: a x2.9 discontinuity at
+        /// <see cref="PinkSilenceFloor"/> that shimmered as HF bands crossed it frame to frame; a
+        /// lowered effective noise gate of 0.0039 / 2.818 = 0.0014 that made sub-pixel dither
+        /// visible; and, because it is applied AFTER <c>Sensitivity</c>, a 2.8:1 asymmetry in what
+        /// that one slider means (Sensitivity 3 gave band 0 a x3 ceiling and band 60 a x8.45 one).
         /// </summary>
         private static float ApplyPinkTilt(float value, int index, int bandCount)
         {
+            // Identity while PinkTiltDbPerOctave is 0.0: the table is all 1.0 and the clamp below is a
+            // no-op on an input that is already in [0, 1]. Kept (rather than deleted) so the ramp is
+            // one constant away if the analyser ever regresses to a flat HF floor.
             if (value <= PinkSilenceFloor)
                 return value;
 
             float[] tilt = GetPinkTilt(bandCount);
             float gained = value * tilt[Math.Clamp(index, 0, tilt.Length - 1)];
             return gained >= 1f ? 1f : gained;
+        }
+
+        /// <summary>
+        /// Turns resolved radial levels into the per-bar angle / tip radius / ray triplet that
+        /// RadialRing, DualRings and SpokeLines all draw. Extracted so the three cannot drift apart:
+        /// they differed only in hub, outer radius, rotation and whether wedges are drawn on top.
+        /// <para>
+        /// The ray minimum reach is <see cref="MinRadialReach"/>, the same floor
+        /// <see cref="DrawRadialWedges"/> applies to each wedge. Without it a band at exactly zero -
+        /// which the new DSP makes common rather than exceptional - yields a zero-length ray, and a
+        /// zero-length ray with <c>PenLineCap.Flat</c> (SpokeLines) paints nothing at all, so rays
+        /// dropped out of the middle of the ring instead of reading as stubs at the hub.
+        /// <para>
+        /// <paramref name="rays"/> is appended to, never cleared: DualRings reuses one scratch list
+        /// across its rings and clears it itself. <paramref name="tipRadii"/> and
+        /// <paramref name="angles"/> are optional - a style that draws no wedges (SpokeLines) passes
+        /// null for both and gets the rays only.
+        /// </summary>
+        private static void FillRadialBarSet(
+            double[] levels,
+            Point center,
+            double inner,
+            double outer,
+            double rotation,
+            double span,
+            double[]? tipRadii,
+            double[]? angles,
+            List<RaySpec> rays)
+        {
+            int count = levels.Length;
+            if (tipRadii != null && angles != null)
+                count = Math.Min(count, Math.Min(tipRadii.Length, angles.Length));
+
+            for (int i = 0; i < count; i++)
+            {
+                double angle = rotation + (span * i);
+                double tip = Math.Max(inner + MinRadialReach, inner + (levels[i] * (outer - inner)));
+
+                if (tipRadii != null)
+                    tipRadii[i] = tip;
+
+                if (angles != null)
+                    angles[i] = angle;
+
+                Point from = PointOnCircle(center, inner, angle);
+                Point to = PointOnCircle(center, tip, angle);
+                rays.Add(new RaySpec(from.X, from.Y, to.X, to.Y));
+            }
         }
 
         /// <summary>
@@ -1444,7 +1681,7 @@ namespace TitanEngine
 
             for (int i = 0; i < count; i++)
             {
-                double tip = Math.Max(inner + 0.5, tipRadii[i]);
+                double tip = Math.Max(inner + MinRadialReach, tipRadii[i]);
                 double a0 = angles[i] - halfSpan;
                 double a1 = angles[i] + halfSpan;
                 if (a1 <= a0)
@@ -1536,6 +1773,36 @@ namespace TitanEngine
             return geometry;
         }
 
+        /// <summary>
+        /// Builds true line segments between arbitrary endpoints - the geometry the radial styles need.
+        /// One <see cref="StreamGeometry"/> for the whole ray set, so the three glow passes still cost
+        /// three draw calls regardless of how many rays there are.
+        /// </summary>
+        private static Geometry BuildRayGeometry(List<RaySpec> segments)
+        {
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext ctx = geometry.Open())
+            {
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    RaySpec segment = segments[i];
+                    if (!IsFinite(segment.X0) || !IsFinite(segment.Y0) ||
+                        !IsFinite(segment.X1) || !IsFinite(segment.Y1))
+                        continue;
+
+                    ctx.BeginFigure(new Point(segment.X0, segment.Y0), false, false);
+                    ctx.LineTo(new Point(segment.X1, segment.Y1), true, false);
+                }
+            }
+
+            if (geometry.CanFreeze)
+                geometry.Freeze();
+
+            return geometry;
+        }
+
+        private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+
         private static Geometry BuildWedge(Point center, double r0, double r1, double angleStart, double angleEnd)
         {
             var geometry = new StreamGeometry();
@@ -1621,8 +1888,16 @@ namespace TitanEngine
         }
 
         /// <summary>
-        /// Rule 7 glow brush: absolute mapping, Center == GradientOrigin, RadiusX == RadiusY and
-        /// DISCRETE alpha steps. A shallow alpha ramp bands into visible rings on 8-bit alpha.
+        /// Rule 7 glow brush: absolute mapping, Center == GradientOrigin and RadiusX == RadiusY, with
+        /// FIVE discrete alpha stops rather than a continuous ramp.
+        /// <para>
+        /// The discrete stops are a dithering measure, NOT an anti-banding measure - do not read this
+        /// as "fewer stops prevent banding". A continuous ramp across a large radius quantises into
+        /// visible concentric rings on 8-bit alpha; each stop's plateau gives the gradientiser a flat
+        /// run to land on. Fewer, wider-separated stops make the remaining transitions MORE visible,
+        /// not less, which is why the alpha differences between neighbours are deliberately
+        /// proportional (0.85 / 0.42 / 0.18 / 0.06) rather than a small uniform step.
+        /// </para>
         /// </summary>
         private static RadialGradientBrush CreateRadialGlowBrush(Color color, double alpha, Point center, double radius)
         {
@@ -1691,7 +1966,7 @@ namespace TitanEngine
         /// Radius of the circle the radial styles inscribe in the plot box: <c>min(w, h) / 2</c> less a
         /// 2 % inset so the stroke and its glow never touch the plot edge. Shared by RadialRing,
         /// DualRings, RippleRings and SpokeLines, so it is deliberately left alone - a ring that
-        /// still looks small is a bar-LENGTH problem (<see cref="ResolveRadialGain"/>), not a radius
+        /// still looks small is a bar-LENGTH problem (<see cref="ResolveRadialLevels"/>), not a radius
         /// problem.
         /// </summary>
         private static double MaxRadius(Rect plot) => Math.Max(0.0, Math.Min(plot.Width, plot.Height) * 0.5 * 0.98);
@@ -1918,6 +2193,33 @@ namespace TitanEngine
             public double Height => Math.Abs(TipY - BaseY);
         }
 
+        /// <summary>
+        /// A genuine polar ray: an arbitrary line segment between two absolute points.
+        /// <para>
+        /// This exists because the radial styles used to be built by packing polar coordinates into
+        /// <see cref="ColumnSpec"/>, which is <c>(centerX, baseY, tipY, width)</c> and whose geometry
+        /// builder emits only VERTICAL segments. Passing <c>(from.X, from.Y, to.X, to.Y)</c> therefore
+        /// produced a vertical line at x = from.X running from from.Y down to to.X, with to.Y consumed
+        /// as the stroke width. Every ray became a downward smear clipped by the canvas edge, and a
+        /// flat-capped style whose rays were mostly horizontal drew nothing at all.
+        /// </para>
+        /// </summary>
+        private readonly struct RaySpec
+        {
+            public RaySpec(double x0, double y0, double x1, double y1)
+            {
+                X0 = x0;
+                Y0 = y0;
+                X1 = x1;
+                Y1 = y1;
+            }
+
+            public double X0 { get; }
+            public double Y0 { get; }
+            public double X1 { get; }
+            public double Y1 { get; }
+        }
+
         private sealed class ResolvedPalette
         {
             public string Id { get; init; } = string.Empty;
@@ -1972,13 +2274,11 @@ namespace TitanEngine
                 int height)
             {
                 Settings = settings;
-                Palette = palette;
                 Resolved = ResolvePalette(palette);
                 Frames = frames;
                 State = state;
                 Width = Math.Max(1, width);
                 Height = Math.Max(1, height);
-                Canvas = new Rect(0, 0, Width, Height);
                 // The soundbar draws on the whole overlay canvas, so the canvas IS the content rect.
                 // Used only by the resolution-scaled legibility floors (see DrawSpokeLines).
                 Layout = OverlayLayoutHelper.Create(Width, Height, Width, Height);
@@ -1999,13 +2299,11 @@ namespace TitanEngine
             }
 
             public SoundBarSettings Settings { get; }
-            public ColorPreset Palette { get; }
             public ResolvedPalette Resolved { get; }
             public AudioFrameData[] Frames { get; }
             public SoundBarRenderState? State { get; }
             public int Width { get; }
             public int Height { get; }
-            public Rect Canvas { get; }
             public Rect Plot { get; }
 
             /// <summary>
@@ -2019,9 +2317,14 @@ namespace TitanEngine
             /// <summary>Seamless loop progress in the range 0..1. All rotation is derived from this.</summary>
             public double Time { get; }
             public byte Alpha { get; }
+            /// <summary>The Opacity slider as 0..1. Passed to DrawGlowPasses SEPARATELY from
+            /// <see cref="GlowIntensity"/> because the glow-off early-out cannot recover it from a
+            /// zeroed intensity.</summary>
             public double AlphaFactor { get; }
             public float Sensitivity { get; }
             public float Smoothing { get; }
+            /// <summary>Glow slider x palette strength x Opacity. Already includes the Opacity fold,
+            /// so callers must NOT apply <see cref="AlphaFactor"/> to it a second time.</summary>
             public double GlowIntensity { get; }
             public int BarCount { get; }
 
@@ -2033,7 +2336,8 @@ namespace TitanEngine
                 => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
             /// <summary>
-            /// Applies <c>Sensitivity</c> and the pink-noise tilt to one RAW band value, for the styles
+            /// Applies <c>Sensitivity</c> and the pink-noise tilt (currently a no-op - see
+            /// <see cref="PinkTiltDbPerOctave"/>) to one RAW band value, for the styles
             /// that read <see cref="AudioFrameData.Bands"/> directly instead of through
             /// <see cref="SampleBand"/> (PeakStars). Keeping both paths on the same maths is what stops
             /// the stars drifting away from the bars they annotate.

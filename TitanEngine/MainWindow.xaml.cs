@@ -2370,7 +2370,28 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             _ => SoundBarAudioSource.Auto
                         };
 
-                        double soundBarLoopSeconds = Math.Clamp(job.SoundBarLoopSeconds, 1.0, 20.0);
+                        // NOTE ON TEMP ROOTS - the soundbar uses TWO, on purpose.
+                        //
+                        // GetTitanTempDir() is %TEMP%\TitanEngineTemp, and every path registered in
+                        // tempTemplateArtifacts is destroyed by the render's finally block. That makes
+                        // it the right home for WORK: the decoded PCM below is work - one file, read
+                        // once, thrown away - so it lives there and is registered for deletion.
+                        //
+                        // The PNG sequence cache and the picker preview cache are NOT work; they are
+                        // caches whose whole value is surviving the render that produced them. They
+                        // live under %TEMP%\TitanEngine\soundbar_cache and %TEMP%\TitanEngine\
+                        // soundbar_preview, which nothing sweeps, and they are bounded by their own
+                        // eviction (one entry per style) and pruning (48 PNGs) respectively rather
+                        // than by an external sweeper. Putting a cache under GetTitanTempDir() would
+                        // mean either not registering it for deletion (so the temp dir silently grows)
+                        // or registering it (so the cache dies with the render that made it, which is
+                        // the bug that gave it a 0 % hit rate).
+                        //
+                        // The render path drives the sequence generator at a FIXED 30 fps and
+                        // SoundBarVisualizerPreset.ResolveFrameCount hard-caps the loop at 180
+                        // frames, so 180/30 = 6.0 s is the real ceiling. The old 1.0-20.0 clamp
+                        // advertised 14 s that no input could ever produce. See BAS_LOCALHOST_API_GUIDE.
+                        double soundBarLoopSeconds = Math.Clamp(job.SoundBarLoopSeconds, SoundBarMinLoopSeconds, SoundBarMaxLoopSeconds);
                         string soundBarPcmDir = Path.Combine(GetTitanTempDir(), "soundbar_pcm");
 
                         soundBarAnalysis = await AudioSpectrumAnalyzer.AnalyzeAsync(
@@ -2391,6 +2412,29 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         }
                         else
                         {
+                            // AudioSpectrumAnalyzer decodes the source audio to a GUID-named .raw under
+                            // soundbarPcmDir and returns it as AudioFilePath. Every FAILURE path inside
+                            // that analyzer deletes it; the SUCCESS path does not, and nothing downstream
+                            // ever reads it (GenerateOverlayAsync works off analysis.Frames, which are
+                            // already in memory). So one ~0.4-0.9 MB file survived every successful
+                            // render. Register it with the render's temp-artifact list so the finally
+                            // block removes it like everything else - fixed from here so the analyzer
+                            // itself stays untouched.
+                            if (!string.IsNullOrWhiteSpace(soundBarAnalysis.AudioFilePath))
+                            {
+                                tempTemplateArtifacts.Add(soundBarAnalysis.AudioFilePath);
+                                onLog($"[SOUNDBAR] Decoded PCM registered for cleanup: {soundBarAnalysis.AudioFilePath}");
+                            }
+
+                            // Every clamp below is the DOCUMENTED contract range, and each one is the
+                            // range the renderer actually consumes. Anything wider advertised values
+                            // that clamp to something identical, which is worse than not offering them:
+                            //   Sensitivity -> SoundBarStyleRenderer clamps 0.0-3.0
+                            //   Smoothing   -> SoundBarStyleRenderer clamps 0.0-1.0 and derives the
+                            //                  one-pole coefficient k = 1 - 0.85 * smoothing, so every
+                            //                  value above 1.0 collapsed onto the identical k = 0.15
+                            //   RingCount   -> dual-rings clamps 2-6, ripple-rings 1-8, everything else
+                            //                  ignores it; 8 is the widest real clamp
                             var sbSettings = new SoundBarSettings
                             {
                                 Style = SoundBarVisualizerPreset.FindStyle(job.SoundBarStyle)?.Id ?? SoundBarStyleId.NeonBars,
@@ -2399,11 +2443,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 YPercent = Math.Clamp(job.SoundBarYPercent, 0.0, 1.0),
                                 WidthPercent = Math.Clamp(job.SoundBarWidthPercent, 0.02, 1.0),
                                 HeightPercent = Math.Clamp(job.SoundBarHeightPercent, 0.02, 1.0),
-                                Opacity = Math.Clamp(job.SoundBarOpacity, 0.05, 1.0),
-                                Sensitivity = Math.Clamp(job.SoundBarSensitivity, 0.1, 4.0),
-                                Smoothing = Math.Clamp(job.SoundBarSmoothing, 0.05, 5.0),
-                                BarCount = Math.Clamp(job.SoundBarBarCount, 8, 256),
-                                RingCount = Math.Clamp(job.SoundBarRingCount, 1, 12),
+                                Opacity = Math.Clamp(job.SoundBarOpacity, SoundBarMinOpacity, SoundBarMaxOpacity),
+                                Sensitivity = Math.Clamp(job.SoundBarSensitivity, SoundBarMinSensitivity, SoundBarMaxSensitivity),
+                                Smoothing = Math.Clamp(job.SoundBarSmoothing, SoundBarMinSmoothing, SoundBarMaxSmoothing),
+                                BarCount = Math.Clamp(job.SoundBarBarCount, SoundBarMinBarCount, SoundBarMaxBarCount),
+                                RingCount = Math.Clamp(job.SoundBarRingCount, SoundBarMinRingCount, SoundBarMaxRingCount),
                                 Roundness = Math.Clamp(job.SoundBarRoundness, 0.0, 1.0),
                                 GlowIntensity = Math.Clamp(job.SoundBarGlowIntensity, 0.0, 3.0),
                                 LoopSeconds = soundBarLoopSeconds,
@@ -3076,8 +3120,34 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         generatedOverlayInputBaseIndex++;
                         soundBarLayerActive = true;
 
-                        tempTemplateArtifacts.AddRange(soundBarOverlay.TempArtifacts);
-                        onLog($"[SOUNDBAR] Reserved input #{soundBarInputIndex} <- {Path.GetFileName(soundBarOverlay.OverlayPattern)} ({soundBarOverlay.FrameCount} frames @ {soundBarOverlay.FrameRate:F2}fps)");
+                        // The PNG sequence is a CACHE, not a per-render artifact.
+                        //
+                        // SoundBarVisualizerPreset lists the freshly generated cache root in
+                        // SoundBarGeneratedOverlay.TempArtifacts, and that list used to go straight
+                        // into tempTemplateArtifacts. The render's finally block runs TryDeleteFileSafe
+                        // over every entry, which is a recursive Directory.Delete - so each render
+                        // deleted the very sequence it had just written. TryLoadCache could then only
+                        // ever succeed against a directory a previous render had already removed, i.e.
+                        // never: RendererVersion, the SHA-256 material hashing and the manifest existed
+                        // to serve a cache with a 0 % hit rate.
+                        //
+                        // So the cache root is deliberately NOT registered for deletion here, exactly
+                        // like the cache-hit path already does. That makes the cache work, and makes
+                        // eviction - not deletion - responsible for keeping it bounded.
+                        string soundBarCacheRoot = ResolveFullPathSafe(soundBarOverlay.TempRoot);
+                        foreach (string soundBarArtifact in soundBarOverlay.TempArtifacts)
+                        {
+                            if (string.IsNullOrWhiteSpace(soundBarArtifact))
+                                continue;
+
+                            if (ResolveFullPathSafe(soundBarArtifact).Equals(soundBarCacheRoot, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            tempTemplateArtifacts.Add(soundBarArtifact);
+                        }
+
+                        int evictedSoundBarCaches = EvictSoundBarCacheSiblings(soundBarOverlay.TempRoot);
+                        onLog($"[SOUNDBAR] Reserved input #{soundBarInputIndex} <- {Path.GetFileName(soundBarOverlay.OverlayPattern)} ({soundBarOverlay.FrameCount} frames @ {soundBarOverlay.FrameRate:F2}fps), cache kept at {soundBarCacheRoot}{(evictedSoundBarCaches > 0 ? $", evicted {evictedSoundBarCaches} stale sibling(s)" : string.Empty)}");
                     }
                     catch (Exception ex)
                     {
@@ -3099,17 +3169,27 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                     try
                     {
+                        // The render sequence is capped at MaxRenderEdge (1280 px), and `overlay` does
+                        // NOT scale its second input. Without an explicit scale the sequence would be
+                        // composited 1:1 at (0,0): 44 % of the frame on a 1920x1080 output, 11 % on 4K,
+                        // anchored top-left instead of at the requested X/Y. The canvas passed here is
+                        // the OUTPUT size, not the <=1280 render size - passing soundBarOverlay.Width/Height
+                        // is the bug. Matches the scale chain the raster-overlay siblings already use
+                        // (RainOverlayPreset, DreamyDotOverlay2Preset).
+                        var soundBarCanvas = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
                         string graph = SoundBarVisualizerPreset.BuildSingleClipGraph(
                             baseInputLabel,
                             baseVideoFilters,
                             $"[{soundBarInputIndex}:v]",
                             soundBarOverlay.FrameCount,
                             soundBarOverlay.FrameRate,
+                            soundBarCanvas.CanvasWidth,
+                            soundBarCanvas.CanvasHeight,
                             estimatedOutputDuration,
                             outputLabel,
                             onLog);
 
-                        onLog($"[SOUNDBAR] Layer composited from input #{soundBarInputIndex} -> [{outputLabel}]");
+                        onLog($"[SOUNDBAR] Layer composited from input #{soundBarInputIndex} -> [{outputLabel}] at canvas {soundBarCanvas.CanvasWidth}x{soundBarCanvas.CanvasHeight}");
                         return graph;
                     }
                     catch (Exception ex)
@@ -11218,6 +11298,205 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return tempDir;
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // SOUNDBAR CONTRACT RANGES
+        //
+        // Single source of truth for every clamp applied to a soundbar tunable.
+        // They are deliberately EQUAL to the range the renderer consumes
+        // (SoundBarStyleRenderer) and to the range documented in BAS_LOCALHOST_API_GUIDE.
+        //
+        // The previous numbers were the XAML slider bounds, pasted into the API docs:
+        //   Sensitivity 0.1-4.0 vs renderer 0.0-3.0 -> 3.0-4.0 did nothing
+        //   Smoothing   0.05-5.0 vs renderer 0.0-1.0 -> everything above 1.0 collapsed
+        //                                    onto the identical k = 1 - 0.85 * 1.0 = 0.15
+        //   RingCount   1-12 vs renderer dual-rings 2-6 / ripple-rings 1-8
+        //   LoopSeconds 1.0-20.0 vs the 180-frame ceiling at a fixed 30 fps = 6.0 s
+        // An advertised range wider than the range that does anything is worse than a
+        // narrow one: the caller pays for a knob that cannot move. If the renderer's clamp
+        // ever changes, change the matching constant in the same commit.
+        // ═══════════════════════════════════════════════════════════════════
+
+        /// <summary>API range for soundBarOpacity. Inside the renderer's 0.0-1.0 alpha clamp.</summary>
+        public const double SoundBarMinOpacity = 0.05;
+        public const double SoundBarMaxOpacity = 1.0;
+
+        /// <summary>API range for soundBarSensitivity. Matches SoundBarStyleRenderer's 0.0-3.0.</summary>
+        public const double SoundBarMinSensitivity = 0.0;
+        public const double SoundBarMaxSensitivity = 3.0;
+
+        /// <summary>
+        /// API range for soundBarSmoothing. 0.0 = raw bands (no one-pole filter),
+        /// 1.0 = the calmest response the renderer produces (k = 0.15). 1.0 is the ceiling
+        /// because the renderer clamps there, so anything higher was always inert.
+        /// </summary>
+        public const double SoundBarMinSmoothing = 0.0;
+        public const double SoundBarMaxSmoothing = 1.0;
+
+        /// <summary>API range for soundBarBarCount. Matches SoundBarStyleRenderer's 8-256.</summary>
+        public const int SoundBarMinBarCount = 8;
+        public const int SoundBarMaxBarCount = 256;
+
+        /// <summary>
+        /// API range for soundBarRingCount. 8 is the widest per-style clamp in the renderer
+        /// (ripple-rings); dual-rings clamps to 2-6 and every other style ignores the field.
+        /// </summary>
+        public const int SoundBarMinRingCount = 1;
+        public const int SoundBarMaxRingCount = 8;
+
+        /// <summary>
+        /// API range for soundBarLoopSeconds. 6.0 s is 180 frames at the render path's fixed
+        /// 30 fps, which is the hard ceiling in SoundBarVisualizerPreset.ResolveFrameCount.
+        /// </summary>
+        public const double SoundBarMinLoopSeconds = 1.0;
+        public const double SoundBarMaxLoopSeconds = 6.0;
+
+        /// <summary>How many preview PNGs the picker cache directory is allowed to keep.</summary>
+        private const int SoundBarPreviewCacheLimit = 48;
+
+        /// <summary>
+        /// Absolute-path form of <paramref name="path"/>, or the empty string when the input is
+        /// blank. Used to compare two temp-artifact paths without throwing on the blank or
+        /// malformed strings that occasionally reach the cleanup list.
+        /// </summary>
+        private static string ResolveFullPathSafe(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        /// <summary>
+        /// Evicts every sibling directory of a live soundbar cache entry, so the cache tree holds at
+        /// most ONE sequence per style.
+        ///
+        /// SoundBarVisualizerPreset lays the cache out as
+        ///   %TEMP%\TitanEngine\soundbar_cache\&lt;styleId&gt;\&lt;cacheKey&gt;\
+        ///       soundbar_%04d.png, preview\preview_NN.png, manifest.json
+        /// so the siblings of a live entry are exactly "some other key for this style", where a key is
+        /// 24 hex characters of SHA-256 over every pixel-affecting input. Removing them keeps the disk
+        /// cost bounded at one entry per style (12 styles) however many parameter combinations a user
+        /// cycles through - which is the whole reason the sequence may stay on disk at all.
+        ///
+        /// Runs on the cache-hit and the cache-miss path alike. On a hit there is normally nothing to
+        /// remove; on a miss every sibling is by definition a stale key for the same style.
+        ///
+        /// Concurrency: the API render path is serialised by _localApiRenderLock and the UI drives
+        /// one queued job at a time, so a sibling cannot be in use here. Even if it were, the soundbar
+        /// layer degrades to "skipped" instead of failing the job - the same failure mode the old
+        /// unconditional delete had.
+        /// </summary>
+        /// <returns>How many sibling directories were actually removed.</returns>
+        private static int EvictSoundBarCacheSiblings(string? tempRoot)
+        {
+            string live = ResolveFullPathSafe(tempRoot);
+            if (live.Length == 0)
+                return 0;
+
+            string? styleParent;
+            string keepDirectoryName;
+            try
+            {
+                styleParent = Path.GetDirectoryName(live);
+                keepDirectoryName = Path.GetFileName(live);
+            }
+            catch
+            {
+                return 0;
+            }
+
+            if (string.IsNullOrWhiteSpace(styleParent) ||
+                string.IsNullOrWhiteSpace(keepDirectoryName) ||
+                !Directory.Exists(styleParent))
+            {
+                return 0;
+            }
+
+            int removed = 0;
+            try
+            {
+                foreach (string sibling in Directory.GetDirectories(styleParent))
+                {
+                    if (string.Equals(Path.GetFileName(sibling), keepDirectoryName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    TryDeleteFileSafe(sibling);
+                    if (!Directory.Exists(sibling))
+                        removed++;
+                }
+            }
+            catch
+            {
+                // Eviction is best-effort. A cache slightly larger than its cap beats a render that
+                // fails because a directory could not be listed.
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Caps the picker preview directory at <see cref="SoundBarPreviewCacheLimit"/> PNGs, newest
+        /// first. The filename is a hash of every tunable, so dragging Opacity across 90 slider
+        /// positions writes 90 distinct files and none of them is ever revisited - the directory grows
+        /// without bound unless something prunes it. Called after every preview request, so it stays
+        /// bounded whether the request was a cache hit or a fresh render.
+        /// </summary>
+        /// <param name="directory">Preview cache directory to prune.</param>
+        /// <param name="keepPath">The file about to be loaded; it is never removed.</param>
+        /// <returns>How many stale preview PNGs were removed.</returns>
+        internal static int PruneSoundBarPreviewCache(string? directory, string? keepPath)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                return 0;
+
+            string keep = ResolveFullPathSafe(keepPath);
+            int removed = 0;
+
+            try
+            {
+                var candidates = new List<FileInfo>();
+                foreach (string file in Directory.GetFiles(directory, "*.png"))
+                {
+                    if (keep.Length > 0 && ResolveFullPathSafe(file).Equals(keep, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    try
+                    {
+                        candidates.Add(new FileInfo(file));
+                    }
+                    catch { }
+                }
+
+                if (candidates.Count <= SoundBarPreviewCacheLimit)
+                    return 0;
+
+                candidates.Sort((a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+
+                for (int i = SoundBarPreviewCacheLimit; i < candidates.Count; i++)
+                {
+                    try
+                    {
+                        candidates[i].Delete();
+                        removed++;
+                    }
+                    catch { }
+                }
+            }
+            catch
+            {
+                // Best effort: a preview that cannot prune must still render.
+            }
+
+            return removed;
+        }
+
         private static List<AudioEditSegment> ResolveAudioEditSegments(RenderJob job, double? maxDurationSeconds = null)
         {
             var segments = new List<AudioEditSegment>();
@@ -11600,6 +11879,28 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
     public partial class MainWindow : Window
     {
+        // The soundbar clamp ranges live on EngineCore, which owns the render pipeline and the API
+        // job builder. This class needs the same numbers for the UI controls and the preview path, so
+        // it mirrors them by reference rather than repeating the literals - a single edit upstream
+        // cannot drift away from the UI.
+        private const double SoundBarMinOpacity = EngineCore.SoundBarMinOpacity;
+        private const double SoundBarMaxOpacity = EngineCore.SoundBarMaxOpacity;
+        private const double SoundBarMinSensitivity = EngineCore.SoundBarMinSensitivity;
+        private const double SoundBarMaxSensitivity = EngineCore.SoundBarMaxSensitivity;
+        private const double SoundBarMinSmoothing = EngineCore.SoundBarMinSmoothing;
+        private const double SoundBarMaxSmoothing = EngineCore.SoundBarMaxSmoothing;
+        private const int SoundBarMinBarCount = EngineCore.SoundBarMinBarCount;
+        private const int SoundBarMaxBarCount = EngineCore.SoundBarMaxBarCount;
+        private const double SoundBarMinLoopSeconds = EngineCore.SoundBarMinLoopSeconds;
+        private const double SoundBarMaxLoopSeconds = EngineCore.SoundBarMaxLoopSeconds;
+        private const int SoundBarMinRingCount = EngineCore.SoundBarMinRingCount;
+        private const int SoundBarMaxRingCount = EngineCore.SoundBarMaxRingCount;
+
+        // The preview cache lives on EngineCore next to the generator that writes it; this class owns
+        // the picker, which is the only caller that can decide what is worth keeping.
+        private static int PruneSoundBarPreviewCache(string? directory, string? keepPath)
+            => EngineCore.PruneSoundBarPreviewCache(directory, keepPath);
+
         private const string SupportedMediaDialogFilter =
             "Media (Video/Image)|*.mp4;*.mov;*.avi;*.mkv;*.webm;*.m4v;*.wmv;*.mpg;*.mpeg;*.ts;*.m2ts;*.mts;*.3gp;*.flv;*.f4v;*.vob;*.ogv;*.gif;*.png;*.jpg;*.jpeg;*.jpe;*.jfif;*.bmp;*.webp;*.tif;*.tiff|" +
             "Video|*.mp4;*.mov;*.avi;*.mkv;*.webm;*.m4v;*.wmv;*.mpg;*.mpeg;*.ts;*.m2ts;*.mts;*.3gp;*.flv;*.f4v;*.vob;*.ogv|" +
@@ -13582,10 +13883,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     YPercent = ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0,
                     WidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0),
                     HeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0),
-                    Opacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, 0.05, 1.0),
-                    Sensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, 0.1, 4.0),
-                    Smoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, 0.05, 5.0),
-                    BarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, 8.0, 256.0)),
+                    Opacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, SoundBarMinOpacity, SoundBarMaxOpacity),
+                    Sensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, SoundBarMinSensitivity, SoundBarMaxSensitivity),
+                    Smoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, SoundBarMinSmoothing, SoundBarMaxSmoothing),
+                    BarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, SoundBarMinBarCount, SoundBarMaxBarCount)),
                     RingCount = 2,
                     Roundness = 1.0,
                     GlowIntensity = 1.0,
@@ -13610,6 +13911,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(previewPath) || !File.Exists(previewPath))
                     return;
+
+                // Cap the preview directory BEFORE loading the bytes, so previewPath is never a
+                // pruning candidate. The filename hashes every tunable, which is exactly why the
+                // directory needs a cap: 90 Opacity positions means 90 PNGs, and none is ever
+                // revisited. Runs on cache hits too, so the cap holds however the picker is used.
+                int prunedSoundBarPreviews = PruneSoundBarPreviewCache(previewDir, previewPath);
+                if (prunedSoundBarPreviews > 0)
+                    LogSystem($"[SOUNDBAR] Pruned {prunedSoundBarPreviews} stale preview PNG(s) from {previewDir}");
 
                 byte[] raw = await File.ReadAllBytesAsync(previewPath, token);
                 using var ms = new MemoryStream(raw);
@@ -13656,10 +13965,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             job.SoundBarYPercent = Math.Clamp(ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0, 0.0, 1.0);
             job.SoundBarWidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0);
             job.SoundBarHeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0);
-            job.SoundBarOpacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, 0.05, 1.0);
-            job.SoundBarSensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, 0.1, 4.0);
-            job.SoundBarSmoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, 0.05, 5.0);
-            job.SoundBarBarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, 8.0, 256.0));
+            job.SoundBarOpacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, SoundBarMinOpacity, SoundBarMaxOpacity);
+            job.SoundBarSensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, SoundBarMinSensitivity, SoundBarMaxSensitivity);
+            job.SoundBarSmoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, SoundBarMinSmoothing, SoundBarMaxSmoothing);
+            job.SoundBarBarCount = (int)Math.Round(Math.Clamp(sldSoundBarBarCount?.Value ?? 64.0, SoundBarMinBarCount, SoundBarMaxBarCount));
             job.SoundBarRoundness = 1.0;
             job.SoundBarGlowIntensity = 1.0;
             job.SoundBarRingCount = 2;
@@ -14650,6 +14959,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         {
             CancelCropPreviewFrameLoading();
             CancelWatermarkPreviewFrameLoading();
+            // The soundbar picker render runs on a background STA thread reading a PNG from the
+            // temp tree; leaving its CTS undrained means it can still be mid-write as the process
+            // tears down. Cancel + dispose it exactly like the two frame loaders above.
+            CancelSoundBarPreview();
             StopLocalApiServer();
             _localApiRenderLock.Dispose();
         }
@@ -16139,14 +16452,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     job.SoundBarYPercent = NormalizeSoundBarFraction(request.SoundBarYPercent, 0.82);
                     job.SoundBarWidthPercent = NormalizeSoundBarFraction(request.SoundBarWidthPercent, 0.62, 0.02);
                     job.SoundBarHeightPercent = NormalizeSoundBarFraction(request.SoundBarHeightPercent, 0.26, 0.02);
-                    job.SoundBarOpacity = Math.Clamp(request.SoundBarOpacity ?? 1.0, 0.05, 1.0);
-                    job.SoundBarSensitivity = Math.Clamp(request.SoundBarSensitivity ?? 1.0, 0.1, 4.0);
-                    job.SoundBarSmoothing = Math.Clamp(request.SoundBarSmoothing ?? 1.0, 0.05, 5.0);
-                    job.SoundBarBarCount = (int)Math.Round((double)Math.Clamp(request.SoundBarBarCount ?? 64, 8, 256), MidpointRounding.AwayFromZero);
-                    job.SoundBarRingCount = (int)Math.Round((double)Math.Clamp(request.SoundBarRingCount ?? 2, 1, 12), MidpointRounding.AwayFromZero);
+                    job.SoundBarOpacity = Math.Clamp(request.SoundBarOpacity ?? 1.0, SoundBarMinOpacity, SoundBarMaxOpacity);
+                    job.SoundBarSensitivity = Math.Clamp(request.SoundBarSensitivity ?? 1.0, SoundBarMinSensitivity, SoundBarMaxSensitivity);
+                    job.SoundBarSmoothing = Math.Clamp(request.SoundBarSmoothing ?? 1.0, SoundBarMinSmoothing, SoundBarMaxSmoothing);
+                    job.SoundBarBarCount = (int)Math.Round((double)Math.Clamp(request.SoundBarBarCount ?? 64, SoundBarMinBarCount, SoundBarMaxBarCount), MidpointRounding.AwayFromZero);
+                    job.SoundBarRingCount = (int)Math.Round((double)Math.Clamp(request.SoundBarRingCount ?? 2, SoundBarMinRingCount, SoundBarMaxRingCount), MidpointRounding.AwayFromZero);
                     job.SoundBarRoundness = Math.Clamp(request.SoundBarRoundness ?? 1.0, 0.0, 1.0);
                     job.SoundBarGlowIntensity = Math.Clamp(request.SoundBarGlowIntensity ?? 1.0, 0.0, 3.0);
-                    job.SoundBarLoopSeconds = Math.Clamp(request.SoundBarLoopSeconds ?? 5.0, 1.0, 20.0);
+                    job.SoundBarLoopSeconds = Math.Clamp(request.SoundBarLoopSeconds ?? 5.0, SoundBarMinLoopSeconds, SoundBarMaxLoopSeconds);
                 }
 
                 if (job.MergeVideos && job.MergeInputPaths.Count > 1)
