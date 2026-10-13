@@ -269,6 +269,10 @@ namespace TitanEngine
         private const double AudioRingLatticeSpiralDegrees = 17.0;
         /// <summary>How far the ring's bloom may spread, as a fraction of the outer radius.</summary>
         private const double AudioRingHaloFraction = 0.105;
+
+        /// <summary>RippleRings: inner hub radius and stroke weight, both relative to the outer radius.</summary>
+        private const double RippleInnerRadiusFraction = 0.14;
+        private const double RippleThicknessFraction = 0.042;
         /// <summary>Degrees the whole dot lattice drifts over one loop. A whole turn keeps the seam invisible.</summary>
         private const double AudioRingParticleSpinDegrees = 360.0;
 
@@ -891,8 +895,11 @@ namespace TitanEngine
                 return;
 
             Point center = plotCenter(plot);
-            double inner = outer * 0.08;
-            double thickness = Math.Max(1.0, outer * 0.022);
+            double inner = outer * RippleInnerRadiusFraction;
+            // The default 0.022 stroke was ~1.4 px at 1080 - far too thin to read as a neon ring
+            // once the glow is spread over it. RippleRings draws up to MaxRipples concentric rings,
+            // so they need real weight to stay legible against the video behind them.
+            double thickness = Math.Max(1.5, outer * RippleThicknessFraction);
             int lifetime = Math.Max(6, ctx.FrameCount / 2);
             int maxLive = Math.Clamp(ctx.Settings.RingCount, 1, MaxRipples);
 

@@ -1,4 +1,4 @@
-TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
+﻿TITAN ENGINE - BAS LOCALHOST API GUIDE (MERGE UPDATE)
 
 !!! READ THIS FIRST - WHICH OF THE TWO COPIES IS AUTHORITATIVE !!!
 There are two copies of this guide in the repo and they are NOT the same file:
@@ -384,17 +384,17 @@ Field:
   bandwidth, bitcrush bit depth, chorus/phaser strength, etc.
 
 Canonical values:
-- Không (Giữ nguyên) / empty        -> no FX (default)
-- Echo (Vang nhiều tầng)            -> aecho 3 taps
-- Church (Nhà thờ - aecho)          -> chained long aecho
-- Robot/Glitch (Kim loại)           -> short metallic aecho + EQ
-- Điện thoại (Bandpass)             -> highpass+lowpass band-limit
-- Chipmunk (Tăng tone)              -> pitch up via asetrate+atempo
-- Deep Voice (Giảm tone)            -> pitch down
-- Chorus/Phát xung (Chorus)         -> chorus
-- Phaser (Âm kim loại)              -> aphaser
-- Bitcrush (Giọng rè kỹ thuật số)   -> acrusher
-- Whisper (Thì thầm)                -> afftfilt randomized phase
+- KhÃ´ng (Giá»¯ nguyÃªn) / empty        -> no FX (default)
+- Echo (Vang nhiá»u táº§ng)            -> aecho 3 taps
+- Church (NhÃ  thá» - aecho)          -> chained long aecho
+- Robot/Glitch (Kim loáº¡i)           -> short metallic aecho + EQ
+- Äiá»‡n thoáº¡i (Bandpass)             -> highpass+lowpass band-limit
+- Chipmunk (TÄƒng tone)              -> pitch up via asetrate+atempo
+- Deep Voice (Giáº£m tone)            -> pitch down
+- Chorus/PhÃ¡t xung (Chorus)         -> chorus
+- Phaser (Ã‚m kim loáº¡i)              -> aphaser
+- Bitcrush (Giá»ng rÃ¨ ká»¹ thuáº­t sá»‘)   -> acrusher
+- Whisper (ThÃ¬ tháº§m)                -> afftfilt randomized phase
 
 Aliases are matched case-insensitively on keywords:
 echo, church, robot, glitch, telephone, bandpass, chipmunk, deep,
@@ -405,7 +405,7 @@ POST http://localhost:5555/api/queue/add
 {
   "inputFile": "C:\\Users\\lemin\\Desktop\\voice.mp4",
   "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\fx.mp4",
-  "audio1Effect": "Church (Nhà thờ - aecho)"
+  "audio1Effect": "Church (NhÃ  thá» - aecho)"
 }
 
 Example:
@@ -476,7 +476,7 @@ Alias examples accepted by API:
 Canonical names:
 - None
 - Flip Horizontal (Anti-Copyright)
-- Rò phim (Leak 1 / Light Leak)
+- RÃ² phim (Leak 1 / Light Leak)
 - Light Leak Burn
 - Cinematic Glow
 - Halo Glow
@@ -486,7 +486,7 @@ Canonical names:
 - Crop Video (Custom Frame)
 
 Alias examples accepted by API:
-- leak 1 / light leak / film leak / rò phim / ro phim -> Rò phim (Leak 1 / Light Leak)
+- leak 1 / light leak / film leak / rÃ² phim / ro phim -> RÃ² phim (Leak 1 / Light Leak)
 - light leak burn / lightleakburn / film burn / burn transition / light burn -> Light Leak Burn
 - cinematic glow / glow -> Cinematic Glow
 - halo / halo glow -> Halo Glow
@@ -763,6 +763,9 @@ Canonical soundBarStyle values:
 - wave-ribbon       (Waveform Ribbon)
 - center-column     (Center Sound Column)
 - peak-stars        (Peak Star Field)
+- audio-ring        (Audio Ring - the NCS look: one thick neon circle whose
+                      radius ripples with the waveform, filled with a lattice of
+                      dots on concentric circles that reads as a moire vortex)
 
 Notes:
 - Every field is optional. A bare "enableSoundBar": true already renders correctly.
@@ -923,9 +926,10 @@ GET http://localhost:5555/api/soundbar/presets
   ]
 }
 
-All 12 canonical soundBarStyle values, in the order soundBarStyles returns them:
+All 13 canonical soundBarStyle values, in the order soundBarStyles returns them:
 - neon-bars, mirror-spectrum, pill-bars, dense-columns, dot-matrix, radial-ring,
-  dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars
+  dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars,
+  audio-ring
 
 Notes:
 - Host mode must be ON, otherwise the endpoint returns 503 like every other route.

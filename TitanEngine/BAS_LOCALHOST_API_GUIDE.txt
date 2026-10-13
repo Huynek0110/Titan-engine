@@ -927,8 +927,16 @@ Canonical soundBarStyle values:
 - wave-ribbon       (Waveform Ribbon)
 - center-column     (Center Sound Column)
 - peak-stars        (Peak Star Field)
+- audio-ring        (Audio Ring - the NCS look: one thick neon circle whose
+                      radius ripples with the waveform, filled with a lattice of
+                      dots on concentric circles that reads as a moire vortex)
 
 Notes:
+- The six aspect-symmetric styles - radial-ring, dual-rings, ripple-rings,
+  spoke-lines, center-column, peak-stars and audio-ring - ignore soundBarWidthPercent
+  relative to soundBarHeightPercent: their figure is a centred circle or column, so the
+  plot rect is squared from whichever of the two is smaller. Changing only the width of a
+  circle style has no effect by design; change the height.
 - Every field is optional. A bare "enableSoundBar": true already renders correctly.
 - Out-of-range values are clamped, not rejected. An unknown style id falls back to
   "neon-bars"; an unknown audio source falls back to "auto".
@@ -1087,9 +1095,10 @@ GET http://localhost:5555/api/soundbar/presets
   ]
 }
 
-All 12 canonical soundBarStyle values, in the order soundBarStyles returns them:
+All 13 canonical soundBarStyle values, in the order soundBarStyles returns them:
 - neon-bars, mirror-spectrum, pill-bars, dense-columns, dot-matrix, radial-ring,
-  dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars
+  dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars,
+audio-ring
 
 Notes:
 - Host mode must be ON, otherwise the endpoint returns 503 like every other route.
