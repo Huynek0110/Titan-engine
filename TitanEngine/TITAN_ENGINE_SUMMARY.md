@@ -214,7 +214,9 @@ Kèm: `FxIntensity` (0-100), `FxStartPercent`/`FxEndPercent` (timeline), `Enable
 ### 6.7 Text Overlay
 - Text, vị trí, align, font size, màu, style (mặc định `Aesthetic Lyric (Georgia Italic)`)
 - `EnableTextGlow` + màu glow
-- `EnableAudioSpectrum` (hiệu ứng theo nhạc), `AddQuotes`, `DisableTextScroll`
+- `EnableAudioSpectrum` — **alias cũ của `enableSoundBar`** (xem mục Soundbar). Trước đây field này được
+  parse vào DTO rồi bị bỏ không, nên client gửi `true` nhận render không có gì; nay đã nối lại, và
+  `enableSoundBar` thắng nếu cả hai cùng có. Cùng nhóm: `AddQuotes`, `DisableTextScroll`
 - Fonts đi kèm: `greatvibes.ttf`, `utm_thuphap.ttf`
 
 ### 6.8 Caption Sync (AI Whisper)

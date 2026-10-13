@@ -839,7 +839,7 @@ Enable with:
 - enableSoundBar: true to render the soundbar layer (default false)
 
 Style / look:
-- soundBarStyle: one of the 12 canonical ids (see GET /api/soundbar/presets)
+- soundBarStyle: one of the 13 canonical ids (see GET /api/soundbar/presets)
 - soundBarPalette: palette id, default "ncs-cyan"
 - soundBarOpacity: 0.05 - 1.0 (default 1.0)
 - soundBarSensitivity: 0.0 - 3.0 (default 1.0). Higher = taller, more reactive bars.
@@ -932,11 +932,20 @@ Canonical soundBarStyle values:
                       dots on concentric circles that reads as a moire vortex)
 
 Notes:
-- The six aspect-symmetric styles - radial-ring, dual-rings, ripple-rings,
-  spoke-lines, center-column, peak-stars and audio-ring - ignore soundBarWidthPercent
-  relative to soundBarHeightPercent: their figure is a centred circle or column, so the
-  plot rect is squared from whichever of the two is smaller. Changing only the width of a
-  circle style has no effect by design; change the height.
+- Six styles draw a centred, aspect-symmetric figure - radial-ring, dual-rings,
+  ripple-rings, spoke-lines, center-column and audio-ring. Their plot rect is
+  squared IN PIXELS, so the figure is bounded by the smaller of width and height
+  as actual measurements. On a landscape canvas that is always the height, so
+  changing soundBarWidthPercent alone will not resize a circular style: use
+  soundBarHeightPercent, or the app's KICH THUOC slider, which scales both.
+  (peak-stars is NOT one of these - its star field genuinely spans the full
+  width, so its width control is live.)
+- Position semantics: soundBarXPercent is the plot's horizontal CENTRE and
+  soundBarYPercent is its BOTTOM edge. Bars grow upward from Y. The rect is
+  then clamped fully inside the frame, so an anchor near an edge is nudged
+  inward by up to half the plot's width rather than being cropped.
+- The legacy "enableAudioSpectrum" field is accepted as an alias for
+  "enableSoundBar"; if both are present, enableSoundBar wins.
 - Every field is optional. A bare "enableSoundBar": true already renders correctly.
 - Out-of-range values are clamped, not rejected. An unknown style id falls back to
   "neon-bars"; an unknown audio source falls back to "auto".
@@ -1016,7 +1025,7 @@ Path:   /api/soundbar/presets
 Response fields:
 - success: true
 - message: "Soundbar visualizer styles and palettes"
-- soundBarStyles:   array of style entries (12 today), in menu order
+- soundBarStyles:   array of style entries (13 today), in menu order
 - soundBarPalettes: array of palette entries
 
 The two lists are SEPARATE arrays, not one flat list. Older builds returned a single
@@ -1046,7 +1055,7 @@ Palette entry:
 - accent:       highlight / peak colour
 - glowStrength: glow multiplier for this palette
 
-Example response (abridged - 2 of 12 styles, 1 of N palettes shown):
+Example response (abridged - 2 of 13 styles, 1 of N palettes shown):
 GET http://localhost:5555/api/soundbar/presets
 
 {

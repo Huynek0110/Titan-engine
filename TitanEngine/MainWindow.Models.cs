@@ -382,7 +382,12 @@ namespace TitanEngine {
         public double? TextOverlayEffectDuration { get; set; }
 
         // ===== SOUNDBAR (audio visualizer) =====
-        // Legacy EnableAudioSpectrum above is intentionally left untouched.
+        // EnableAudioSpectrum (above) is the ORIGINAL public name for this feature. It stayed on the
+        // DTO for backwards compatibility, but nothing read it, so a client posting
+        // {"enableAudioSpectrum": true} got silence - and TITAN_ENGINE_SUMMARY.md still lists it
+        // as a working option. The request mapper now treats it as an alias: EnableSoundBar wins
+        // when both are present, otherwise EnableAudioSpectrum enables the soundbar. Do not add
+        // another aliased-but-unread field here.
         public bool? EnableSoundBar { get; set; }
         public string? SoundBarStyle { get; set; }
         public string? SoundBarPalette { get; set; }

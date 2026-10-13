@@ -13803,14 +13803,31 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 cmbSoundBarAudioSource.SelectedIndex = 0;
             }
 
+            // SoundBarSizeMax is derived from the authored footprint and the two caps, so it cannot be
+            // written as a XAML literal without becoming a second source of truth. The XAML value is
+            // the same number for readers; this pins the exact value.
+            if (sldSoundBarSize != null && sldSoundBarSize.Maximum != SoundBarSizeMax)
+                sldSoundBarSize.Maximum = SoundBarSizeMax;
+
             if (cmbSoundBarSizePreset != null && cmbSoundBarSizePreset.Items.Count == 0)
             {
                 cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Rất nhỏ (50%)", Tag = "50" });
                 cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Nhỏ (75%)", Tag = "75" });
                 cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Vừa (100%)", Tag = "100" });
-                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Lớn (150%)", Tag = "150" });
-                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Rất lớn (200%)", Tag = "200" });
-                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Tối đa (250%)", Tag = "250" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Lớn (125%)", Tag = "125" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Rất lớn (150%)", Tag = "150" });
+                // The last entry is the largest scale that still fits the authored footprint. A round
+                // 200 % / 250 % here would be unreachable: the width box clamps at 159.68 %, so those
+                // would silently render a 1.90 : 1 and a 1.52 : 1 figure under a label promising 62:26.
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem
+                {
+                    Content = $"Tối đa ({Math.Round(SoundBarSizeMax, 0):0}%)",
+                    Tag = SoundBarSizeMax.ToString("0.##", CultureInfo.InvariantCulture)
+                });
+                // Resting entry for any scale that is not one of the presets. SyncSoundBarSizePresetCombo
+                // falls back to it, so the combo tracks the slider instead of going stale forever.
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Tuỳ chỉnh", Tag = SoundBarSizeCustomTag });
+                // Index 2 is "Vừa (100%)" - the authored footprint and the XAML slider's start value.
                 cmbSoundBarSizePreset.SelectedIndex = 2;
             }
 
@@ -13825,6 +13842,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Trên - Phải", Tag = "top-right" });
                 cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Tuỳ chỉnh (X/Y %)", Tag = "custom" });
                 cmbSoundBarPosition.SelectedIndex = 0;
+                // The X / Y boxes are authored in the XAML (X = 50, Y = 82) and those exact values are
+                // RenderJob's defaults and the documented API defaults. CmbSoundBarPosition_Changed is
+                // IsLoaded-guarded, so it cannot run from the constructor - which is the point: leaving
+                // index 0 ("Dưới - Giữa") selected here would leave the combo claiming Y = 95.5 while
+                // the box says 82. Point it at "Tuỳ chỉnh" so the label and the boxes agree until the
+                // user picks a preset, which then writes both boxes.
+                SelectSoundBarCustomPosition();
             }
         }
 
@@ -13834,17 +13858,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// </summary>
         private const double SoundBarAnchorMarginFraction = 0.045;
 
-        /// <summary>
-        /// Writes a preset position into the X / Y boxes.
-        /// <para>
-        /// This is a UI convenience ONLY - there is deliberately no new API field. The renderer's
-        /// anchor semantics are fixed in <c>ResolvePlotRect</c>: X is the HORIZONTAL CENTRE of the plot
-        /// rect and Y is its BOTTOM edge (the bars grow upward from it). A preset is therefore not a
-        /// free-standing value, it is a computed X/Y pair, and inventing a parallel
-        /// <c>soundBarPosition</c> field would create a second source of truth that can disagree with
-        /// X/Y - exactly the "documented but never read" bug class this feature already had twice.
-        /// </para>
-        /// </summary>
+        /// <summary>Tag of the "Tuỳ chỉnh (X/Y %)" entry in the position combo.</summary>
+        private const string SoundBarCustomPositionTag = "custom";
+
+        /// <summary>Tag of the "Tuỳ chỉnh" resting entry in the size-preset combo.</summary>
+        private const string SoundBarSizeCustomTag = "custom";
+
         // Width : height ratio the soundbar is authored at. The size slider scales both dimensions by the
         // same factor so the figure keeps its proportions instead of being squashed into a square
         // every time the user touches a size control.
@@ -13852,23 +13871,68 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private const double SoundBarBaseHeightPercent = 26.0;
         private const double SoundBarBaseAspect = SoundBarBaseWidthPercent / SoundBarBaseHeightPercent;
 
+        /// <summary>
+        /// Hard ceiling on the width box, applied BEFORE the height box, so the authored 62 : 26
+        /// aspect survives for as long as possible. Just inside the renderer's own 0.02 - 1.0 clamp.
+        /// </summary>
+        private const double SoundBarWidthPercentCap = 99.0;
+
+        /// <summary>Hard ceiling on the height box. Just inside the renderer's own 0.02 - 1.0 clamp.</summary>
+        private const double SoundBarHeightPercentCap = 96.0;
+
         private const double SoundBarSizeMin = 20.0;
-        private const double SoundBarSizeMax = 250.0;
-        private const double SoundBarSizeDefault = 100.0;
+
+        /// <summary>
+        /// Largest scale the slider may reach: the point where <c>baseWidth * scale</c> hits
+        /// <see cref="SoundBarWidthPercentCap"/>.
+        /// <para>
+        /// The WIDTH box clamps first, so it - not the height - is the binding constraint, at
+        /// <c>100 * 99 / 62 = 159.68 %</c> (the height would only bind at <c>100 * 96 / 26 = 369 %</c>).
+        /// The old slider ran to 250, so 45 % of its travel changed no horizontal pixel while the
+        /// aspect silently degraded to 1.90 : 1 and then 1.52 : 1. Stopping the slider here removes
+        /// that dead travel instead of merely logging it. Floored to 2 dp so the derived width lands
+        /// a hair UNDER the cap rather than tripping it.
+        /// </para>
+        /// </summary>
+        private static readonly double SoundBarSizeMax = Math.Floor(
+            Math.Min(
+                SoundBarWidthPercentCap / SoundBarBaseWidthPercent * 100.0,
+                SoundBarHeightPercentCap / SoundBarBaseHeightPercent * 100.0) * 100.0) / 100.0;   // 159.67
+
+        /// <summary>
+        /// Half-width, as a fraction of the frame width, at which a left anchor and a right anchor
+        /// would cross over. Above it the plot is too wide for the 4.5 % inset to exist on both
+        /// sides, so both presets collapse to centre rather than one of them claiming the far side.
+        /// </summary>
+        private const double SoundBarHalfWidthCeiling = 0.5 - SoundBarAnchorMarginFraction;
+
+        /// <summary>Two preset tags within this many percent counts as the same size.</summary>
+        private const double SoundBarSizePresetMatchTolerance = 0.5;
+
+        /// <summary>
+        /// Canvas aspect (width / height) the position presets are computed against, captured from
+        /// the output size of the last queued job. 16:9 until then - which is also the preview
+        /// canvas (480 x 270), so the default is the one aspect that is never a guess.
+        /// </summary>
+        private double _soundBarCanvasAspect = 16.0 / 9.0;
+
+        /// <summary>Clamp range for <see cref="_soundBarCanvasAspect"/>; a 1-px probe must never reach it.</summary>
+        private const double SoundBarCanvasAspectMin = 0.2;
+        private const double SoundBarCanvasAspectMax = 5.0;
 
         private bool _soundBarApplyingSize;
 
         /// <summary>
-        /// Master size control. 100 % reproduces the authored 62 % x 26 % footprint; 200 % doubles
-        /// both. Only the height is authored from the slider - the width follows from the fixed
-        /// aspect - which keeps the bar styles from collapsing into a narrow square.
+        /// Master size control. 100 % reproduces the authored 62 % x 26 % footprint;
+        /// <see cref="SoundBarSizeMax"/> (159.67 %) is the largest scale that still fits inside it
+        /// without the width clamp distorting the aspect.
         /// </summary>
         private void SldSoundBarSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (!IsLoaded || _soundBarApplyingSize)
                 return;
 
-            ApplySoundBarSizePercent(e.NewValue, syncPresetCombo: true);
+            ApplySoundBarSizePercent(e.NewValue);
         }
 
         private void CmbSoundBarSizePreset_Changed(object sender, SelectionChangedEventArgs e)
@@ -13879,35 +13943,51 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if ((cmbSoundBarSizePreset?.SelectedItem as ComboBoxItem)?.Tag?.ToString() is string tag &&
                 double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out double percent))
             {
-                ApplySoundBarSizePercent(percent, syncPresetCombo: false);
+                ApplySoundBarSizePercent(percent);
             }
         }
 
-        private void ApplySoundBarSizePercent(double percent, bool syncPresetCombo)
+        private void ApplySoundBarSizePercent(double percent)
         {
             if (txtSoundBarWidthPercent == null || txtSoundBarHeightPercent == null)
                 return;
 
-            double scale = Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax) / 100.0;
-            double height = Math.Clamp(SoundBarBaseHeightPercent * scale, 2.0, 96.0);
-            double width = Math.Clamp(height * SoundBarBaseAspect, 2.0, 99.0);
+            double clamped = Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax);
+            if (Math.Abs(clamped - percent) > 0.005)
+            {
+                LogSystem($"[SOUNDBAR] Size {percent:0.##}% clamped to {clamped:0.##}% - past that scale the "
+                          + $"{SoundBarBaseWidthPercent:0}x{SoundBarBaseHeightPercent:0} footprint needs more than "
+                          + $"{SoundBarWidthPercentCap:0}% of the frame width and would come out squashed.");
+            }
+
+            double scale = clamped / 100.0;
+            double height = Math.Clamp(SoundBarBaseHeightPercent * scale, 2.0, SoundBarHeightPercentCap);
+            double width = Math.Clamp(height * SoundBarBaseAspect, 2.0, SoundBarWidthPercentCap);
 
             _soundBarApplyingSize = true;
             try
             {
                 txtSoundBarHeightPercent.Text = height.ToString("0.##", CultureInfo.InvariantCulture);
                 txtSoundBarWidthPercent.Text = width.ToString("0.##", CultureInfo.InvariantCulture);
-                if (sldSoundBarSize != null && !syncPresetCombo)
-                    sldSoundBarSize.Value = Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax);
+                if (sldSoundBarSize != null)
+                    sldSoundBarSize.Value = clamped;
                 if (txtSoundBarSizeValue != null)
-                    txtSoundBarSizeValue.Text = $"{Math.Round(percent, 0):0}%";
+                    txtSoundBarSizeValue.Text = $"{Math.Round(clamped, 0):0}%";
             }
             finally
             {
                 _soundBarApplyingSize = false;
             }
 
-            // Widening or narrowing changes the anchors the position presets computed from.
+            SyncSoundBarSizePresetCombo(clamped);
+
+            // Widening or narrowing invalidates the anchors the position presets computed from: the
+            // half-width a left / right anchor compensates for is a function of the plot width. So the
+            // STILL-SELECTED preset is re-applied against the new footprint first - otherwise a figure
+            // parked in "Trên - Phải" keeps its old X/Y, drifts off the corner the label promises,
+            // and the label is then flipped to "Tuỳ chỉnh" over the wrong anchors. Only after that
+            // does the label drop to custom, so the preset visibly held its corner at the new size.
+            ApplySoundBarPositionPreset();
             SelectSoundBarCustomPosition();
             ScheduleSoundBarPreview();
         }
@@ -13915,14 +13995,29 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// <summary>
         /// Recomputes the size slider from a hand-edited width/height so the two controls never
         /// disagree. The height is the reference because it is what limits circular styles.
+        /// <para>
+        /// The boxes are deliberately NOT rewritten here - this runs on every keystroke, so clamping
+        /// the text out from under the caret would fight the edit. A height the slider cannot express
+        /// therefore keeps the user's number and is logged instead; the slider shows the nearest
+        /// expressible scale. Only the upper clamp is logged: the lower one also fires on ordinary
+        /// half-typed values like "5", and spamming the log would train the user to ignore it.
+        /// </para>
         /// </summary>
         private void SyncSoundBarSizeFromBoxes()
         {
             if (_soundBarApplyingSize || sldSoundBarSize == null)
                 return;
 
-            double height = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent), 2.0, 96.0);
-            double percent = Math.Clamp((height / SoundBarBaseHeightPercent) * 100.0, SoundBarSizeMin, SoundBarSizeMax);
+            double height = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent), 2.0, SoundBarHeightPercentCap);
+            double rawPercent = (height / SoundBarBaseHeightPercent) * 100.0;
+            double percent = Math.Clamp(rawPercent, SoundBarSizeMin, SoundBarSizeMax);
+
+            if (rawPercent > SoundBarSizeMax + 0.005)
+            {
+                LogSystem($"[SOUNDBAR] Height {height:0.##}% needs {rawPercent:0}%, above the {SoundBarSizeMax:0.##}% the slider "
+                          + $"can hold at the {SoundBarBaseWidthPercent:0}x{SoundBarBaseHeightPercent:0} footprint. "
+                          + $"Slider shows {percent:0.##}%; use it instead of the height box to avoid breaking the aspect.");
+            }
 
             _soundBarApplyingSize = true;
             try
@@ -13935,6 +14030,90 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             {
                 _soundBarApplyingSize = false;
             }
+
+            SyncSoundBarSizePresetCombo(percent);
+        }
+
+        /// <summary>
+        /// Points the size-preset combo at the entry matching <paramref name="percent"/>, or at the
+        /// "Tuỳ chỉnh" entry when no preset matches - which is every value the slider can sit on
+        /// between two presets.
+        /// <para>
+        /// Without this the combo is written exactly once, at startup, and then goes stale forever.
+        /// WPF raises SelectionChanged only when SelectedIndex actually changes, so re-clicking the
+        /// stale entry does nothing at all and the boxes never update again.
+        /// </para>
+        /// </summary>
+        private void SyncSoundBarSizePresetCombo(double percent)
+        {
+            if (_soundBarApplyingSize || cmbSoundBarSizePreset == null || cmbSoundBarSizePreset.Items.Count == 0)
+                return;
+
+            int target = FindSoundBarSizePresetIndex(percent);
+            if (target < 0 || target == cmbSoundBarSizePreset.SelectedIndex)
+                return;
+
+            _soundBarApplyingSize = true;
+            try
+            {
+                cmbSoundBarSizePreset.SelectedIndex = target;
+            }
+            finally
+            {
+                _soundBarApplyingSize = false;
+            }
+        }
+
+        /// <summary>
+        /// Index of the preset whose Tag equals <paramref name="percent"/> to within
+        /// <see cref="SoundBarSizePresetMatchTolerance"/>, or of the "Tuỳ chỉnh" entry when none
+        /// matches. -1 only if the combo lost both, which PopulateSoundBarComboBoxes never allows.
+        /// </summary>
+        private int FindSoundBarSizePresetIndex(double percent)
+        {
+            if (cmbSoundBarSizePreset == null)
+                return -1;
+
+            int customIndex = -1;
+
+            for (int i = 0; i < cmbSoundBarSizePreset.Items.Count; i++)
+            {
+                if (cmbSoundBarSizePreset.Items[i] is not ComboBoxItem item)
+                    continue;
+
+                string tag = item.Tag?.ToString() ?? string.Empty;
+                if (string.Equals(tag, SoundBarSizeCustomTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    customIndex = i;
+                    continue;
+                }
+
+                if (double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out double tagPercent) &&
+                    Math.Abs(tagPercent - percent) < SoundBarSizePresetMatchTolerance)
+                {
+                    return i;
+                }
+            }
+
+            return customIndex;
+        }
+
+        /// <summary>
+        /// Combo entry point only. The anchor arithmetic lives in
+        /// <see cref="ApplySoundBarPositionPreset"/> because a SIZE change has to re-run it, and a
+        /// SelectionChanged handler cannot be re-invoked once its own guard flag is set.
+        /// <para>
+        /// The IsLoaded guard matters: without it PopulateSoundBarComboBoxes - which runs from the
+        /// constructor, before the window is loaded - writes the anchors of whatever entry it happens
+        /// to select, overwriting the authored X / Y defaults with values the user never chose.
+        /// </para>
+        /// </summary>
+        private void CmbSoundBarPosition_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded)
+                return;
+
+            ApplySoundBarPositionPreset();
         }
 
         /// <summary>
@@ -13947,24 +14126,42 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// <c>soundBarPosition</c> field would create a second source of truth that can disagree with
         /// X/Y - exactly the "documented but never read" bug class this feature already had twice.
         /// </para>
+        /// <para>
+        /// Half-width compensation, straight from <c>ResolvePlotRect</c>: the plot is
+        /// <c>widthPercent x heightPercent</c> of the canvas, its left edge is
+        /// <c>anchorX - plotW / 2</c> and its top edge is <c>anchorY - plotH</c>. So a left / right
+        /// anchor compensates for HALF the plot width and a top anchor for the WHOLE plot height.
+        /// </para>
+        /// <para>
+        /// For the six styles in <c>SoundBarStyleRenderer.UsesSquarePlot</c> the renderer squares the
+        /// plot IN PIXELS first - <c>side = min(widthPercent * W, heightPercent * H)</c> - so the
+        /// half-width a preset must compensate for, as a fraction of the frame width, is
+        /// <c>min(widthPercent, heightPercent / aspect) / 2</c> with <c>aspect = W / H</c>. Using the
+        /// unsquared <c>widthPercent / 2</c> puts every left / right preset
+        /// <c>(widthPercent - min(widthPercent, heightPercent / aspect)) / 2</c> inward - 23.7 points
+        /// of frame width at the shipped 62 % / 26 % default on a 16:9 canvas.
+        /// </para>
         /// </summary>
-        private void CmbSoundBarPosition_Changed(object sender, SelectionChangedEventArgs e)
+        private void ApplySoundBarPositionPreset()
         {
             if (_soundBarApplyingPosition || cmbSoundBarPosition?.SelectedItem is not ComboBoxItem item)
                 return;
 
-            string tag = item.Tag?.ToString() ?? "custom";
-            if (string.Equals(tag, "custom", StringComparison.OrdinalIgnoreCase))
+            string tag = item.Tag?.ToString() ?? SoundBarCustomPositionTag;
+            if (string.Equals(tag, SoundBarCustomPositionTag, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            double widthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0);
-            double heightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0);
+            double widthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, SoundBarBaseWidthPercent) / 100.0, 0.02, 1.0);
+            double heightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent) / 100.0, 0.02, 1.0);
 
-            // XPercent is the plot rect's centre, so a left/right anchor has to compensate for half
-            // the plot width; YPercent is the plot's bottom edge, so a top anchor has to add the whole
-            // plot height. Both are clamped so a large plot can never be pushed off-canvas.
-            double halfWidth = (widthPercent * 0.5);
+            SoundBarStyleId styleId = SoundBarVisualizerPreset.FindStyle(GetSelectedSoundBarStyleId())?.Id
+                ?? SoundBarStyleId.NeonBars;
+            double plotWidth = SoundBarStyleRenderer.UsesSquarePlot(styleId)
+                ? Math.Min(widthPercent, heightPercent / _soundBarCanvasAspect)
+                : widthPercent;
+
             double margin = SoundBarAnchorMarginFraction;
+            double halfWidth = Math.Min(plotWidth * 0.5, SoundBarHalfWidthCeiling);
             double leftX = Math.Clamp(halfWidth + margin, 0.0, 1.0);
             double rightX = Math.Clamp(1.0 - halfWidth - margin, 0.0, 1.0);
             double bottomY = Math.Clamp(1.0 - margin, 0.0, 1.0);
@@ -14003,14 +14200,37 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// <summary>
         /// Selecting the custom entry without touching X/Y, so the user is not immediately snapped
         /// back to a preset by their own edit.
+        /// <para>
+        /// The index is resolved by scanning for <see cref="SoundBarCustomPositionTag"/> rather than
+        /// hard-coded: a fixed index silently selects a PRESET if the list is ever reordered, and the
+        /// <c>_soundBarApplyingPosition</c> flag set around the assignment then suppresses the handler
+        /// that would have written the anchors - leaving a label promising a position the frame is not
+        /// in, with nothing logged.
+        /// </para>
         /// </summary>
         private void SelectSoundBarCustomPosition()
         {
             if (_soundBarApplyingPosition || cmbSoundBarPosition == null)
                 return;
 
-            const int customIndex = 7;
-            if (cmbSoundBarPosition.Items.Count <= customIndex || cmbSoundBarPosition.SelectedIndex == customIndex)
+            int customIndex = -1;
+            for (int i = 0; i < cmbSoundBarPosition.Items.Count; i++)
+            {
+                if (cmbSoundBarPosition.Items[i] is ComboBoxItem item &&
+                    string.Equals(item.Tag?.ToString(), SoundBarCustomPositionTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    customIndex = i;
+                    break;
+                }
+            }
+
+            if (customIndex < 0)
+            {
+                LogSystem("[SOUNDBAR-WARN] Position combo has no 'custom' entry; X/Y edits cannot be labelled.");
+                return;
+            }
+
+            if (cmbSoundBarPosition.SelectedIndex == customIndex)
                 return;
 
             _soundBarApplyingPosition = true;
@@ -14068,9 +14288,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private void TxtSoundBarPercent_TextChanged(object sender, TextChangedEventArgs e)
         {
             // Editing X or Y by hand means the preset no longer describes what is on screen - flip the
-            // combo to "Custom" so it never silently disagrees with the boxes.
-            if (!_soundBarApplyingPosition && ReferenceEquals(sender, txtSoundBarXPercent))
+            // combo to "Custom" so it never silently disagrees with the boxes. BOTH boxes count: the
+            // combo tooltip promises "sửa tay ô X/Y", and Y is half of the anchor pair. The
+            // _soundBarApplyingPosition guard is load-bearing - ApplySoundBarPositionPreset writes
+            // these very boxes under that flag, and re-entering here would overwrite the preset with
+            // its own output.
+            if (!_soundBarApplyingPosition &&
+                (ReferenceEquals(sender, txtSoundBarXPercent) || ReferenceEquals(sender, txtSoundBarYPercent)))
+            {
                 SelectSoundBarCustomPosition();
+            }
 
             // Width / height drive the master size readout.
             if (!_soundBarApplyingSize &&
@@ -14220,6 +14447,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (job == null)
                 return;
 
+            CaptureSoundBarCanvasAspect(job);
             job.EnableSoundBar = chkEnableSoundBar?.IsChecked ?? false;
             job.SoundBarStyle = (cmbSoundBarStyle?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "neon-bars";
             job.SoundBarPalette = (cmbSoundBarPalette?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ncs-cyan";
@@ -14236,6 +14464,31 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             job.SoundBarGlowIntensity = 1.0;
             job.SoundBarRingCount = 2;
             job.SoundBarLoopSeconds = 5.0;
+        }
+
+        /// <summary>
+        /// Remembers the output canvas aspect (width / height) so the position presets can compensate
+        /// for HALF the plot width - a quantity that is only expressible as a fraction of the frame
+        /// width once the aspect is known.
+        /// <para>
+        /// Called from <see cref="ApplySoundBarSettingsToJob"/> because that is the one place where
+        /// the UI's soundbar controls AND the job's final TargetWidth / TargetHeight are both in hand
+        /// (both job builders fill the object initializer before calling it, and the resolution box
+        /// resolves "Original" to the source dimensions). The localhost-API job builder deliberately
+        /// does NOT call this: its anchors come from the request, not from these presets, so letting it
+        /// overwrite the aspect would move every preset the user picks next.
+        /// </para>
+        /// </summary>
+        private void CaptureSoundBarCanvasAspect(RenderJob job)
+        {
+            if (job == null || job.TargetWidth <= 0 || job.TargetHeight <= 0)
+                return;
+
+            double aspect = job.TargetWidth / (double)job.TargetHeight;
+            if (double.IsNaN(aspect) || double.IsInfinity(aspect))
+                return;
+
+            _soundBarCanvasAspect = Math.Clamp(aspect, SoundBarCanvasAspectMin, SoundBarCanvasAspectMax);
         }
 
         /// <summary>
@@ -16701,7 +16954,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 // SOUNDBAR (audio visualizer) mapping. Every value is clamped here so the
                 // render pipeline never sees an out-of-range style request.
                 job.EnableSoundBar = request.EnableSoundBar
-                    ?? GetFeatureBool(request, "enableSoundBar", "soundBar", "soundbar") ?? false;
+                    ?? GetFeatureBool(request, "enableSoundBar", "soundBar", "soundbar")
+                    // EnableAudioSpectrum is the ORIGINAL public name for this feature and is
+                    // still advertised in TITAN_ENGINE_SUMMARY.md, but it was parsed onto the DTO
+                    // and then read nowhere - so a client posting {"enableAudioSpectrum": true}
+                    // got a silently audio-less render. Treat it as a last-resort alias, after
+                    // the explicit field and after the feature bag, so nothing already honoured
+                    // changes meaning.
+                    ?? request.EnableAudioSpectrum
+                    ?? GetFeatureBool(request, "enableAudioSpectrum", "audioSpectrum")
+                    ?? false;
                 if (job.EnableSoundBar)
                 {
                     job.SoundBarStyle = SoundBarVisualizerPreset.NormalizeStyleId(

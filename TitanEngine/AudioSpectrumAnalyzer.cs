@@ -1083,6 +1083,18 @@ namespace TitanEngine
                 previousRms = rms;
                 previousPeak = smoothedPeak;
 
+                // The onset detector must run on BOTH passes, even though only the second pass's
+                // results are kept. Its state (_previousMagnitudes, the running flux mean and the
+                // refractory timer) is recursive, exactly like the RMS envelope above, so
+                // skipping it on the warm-up pass left frame 0 facing a detector that had never
+                // seen a single bin - which silently defeated the loop-seam fix for every
+                // onset-driven style (ripple-rings, peak-stars, dot-matrix). Gate the STORE, not
+                // the processing.
+                bool fired = onsetDetector.Process(magnitudes, fluxBinLimit, rawRms);
+
+                if (!keepResults)
+                    continue;
+
                 frames[frame] = new AudioFrameData
                 {
                     // bands is reused every frame, so each result owns its own copy.
@@ -1099,7 +1111,7 @@ namespace TitanEngine
                     // rawRms, not the smoothed envelope: an envelope follower lags its target by
                     // design, so gating on it would judge the leading edge of a transient by the
                     // quiet that preceded it and swallow exactly the hits that matter.
-                    Onset = keepResults && onsetDetector.Process(magnitudes, fluxBinLimit, rawRms)
+                    Onset = fired
                 };
             }
             }

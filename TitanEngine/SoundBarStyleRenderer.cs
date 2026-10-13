@@ -262,13 +262,37 @@ namespace TitanEngine
         private const double AudioRingBaseFraction = 0.74;
         private const double AudioRingAmplitudeFraction = 0.26;
         private const double AudioRingThicknessFraction = 0.092;
-        private const double AudioRingParticleRadiusFactor = 0.42;
         /// <summary>Spacing between the concentric dot rings, as a fraction of the outer radius.</summary>
         private const double AudioRingLatticeStep = 0.042;
         /// <summary>Angular offset added per lattice ring, in degrees - this is what makes the spiral.</summary>
         private const double AudioRingLatticeSpiralDegrees = 17.0;
         /// <summary>How far the ring's bloom may spread, as a fraction of the outer radius.</summary>
         private const double AudioRingHaloFraction = 0.105;
+
+        /// <summary>
+        /// How many alpha buckets the AudioRing dot lattice is quantised into.
+        /// <para>
+        /// The lattice is ~297 dots at the default job, and drawing them one at a time cost an
+        /// EllipseGeometry plus two brushes plus two pens PER DOT: 1 485 WPF objects and 594
+        /// DrawGeometry calls per frame, 474 KiB of recording, 3.1 ms - more than every other style
+        /// in this file combined. A dot's radius and its alpha are both monotonic in its band
+        /// energy, so energy is quantised into this many buckets and every dot in a bucket
+        /// accumulates as one more figure in that bucket's single StreamGeometry. The frame then
+        /// draws at most <c>2 x AudioRingDotBuckets</c> times, with the pens cached across frames.
+        /// </para>
+        /// <para>
+        /// The count is a quantisation-vs-object-count trade, and the measurement settles it. Whole
+        /// loop, worst frame, ncs-cyan at 1080x1080: 16 buckets -> 33 DrawGeometry, 24 -> 47,
+        /// 32 -> 53, 48 -> 69. 24 is the largest count that still honours the "&lt;= 24 geometries,
+        /// &lt;= 48 draw calls" budget in the WORST frame, not just the median one. Against the
+        /// unquantised reference the mean per-channel error is 3.14 (16), 2.86 (24), 2.81 (32) and
+        /// 2.79 (48) out of 255 - i.e. 24 is within 3 % of a 48-step staircase while costing
+        /// 47 draw calls instead of 69. Allocation barely moves across the whole range
+        /// (236 KB at 16, 249 KB at 24, 262 KB at 48) because the 297 ellipse figures dominate
+        /// and the count does not change how many of them there are.
+        /// </para>
+        /// </summary>
+        private const int AudioRingDotBuckets = 24;
 
         /// <summary>RippleRings: inner hub radius and stroke weight, both relative to the outer radius.</summary>
         private const double RippleInnerRadiusFraction = 0.14;
@@ -641,7 +665,12 @@ namespace TitanEngine
             double amplitude = (outer - baseRadius) * AudioRingAmplitudeFraction;
 
             AudioFrameData? frame = ctx.Current;
-            int columns = frame?.WaveMin?.Length ?? 0;
+            // Both waveform arrays are read at the same index in the loop below, so the bucket
+            // count has to be bounded by the SHORTER of the two. Reading WaveMin.Length while
+            // indexing WaveMax threw IndexOutOfRangeException on any frame where the two
+            // disagreed - and the preset generator catches that exception, which turned a
+            // one-frame defect into a lost render.
+            int columns = Math.Min(frame?.WaveMin?.Length ?? 0, frame?.WaveMax?.Length ?? 0);
 
             // --- the ring itself -------------------------------------------------
             var ring = new StreamGeometry();
@@ -685,7 +714,8 @@ namespace TitanEngine
             double ringThickness = Math.Max(1.5, outer * AudioRingThicknessFraction);
             DrawGlowPasses(
                 dc, ring, ringThickness, ctx.Resolved, ctx.GlowIntensity,
-                ctx.AlphaFactor, PenLineCap.Round, Math.Max(RadialHaloExtent(outer), ringThickness * 1.15));
+                ctx.AlphaFactor, PenLineCap.Round,
+                Math.Max(RadialHaloExtent(outer), outer * AudioRingHaloFraction));
 
             // --- the dot lattice inside the ring --------------------------------
             // The NCS reference is not a scatter of particles: it is a LATTICE of dots on
@@ -693,6 +723,10 @@ namespace TitanEngine
             // between neighbouring circles is what reads as the moire / vortex that gives the
             // reference its spherical depth. So the lattice is built as arcs here, not as a
             // golden-angle point cloud - a point cloud cannot produce that interference pattern.
+            //
+            // The dots are drawn in BATCHES, not one at a time: see AudioRingDotBuckets. A dot's
+            // radius and its alpha are both monotonic in its band energy, so the energy is snapped
+            // to a bucket and every dot in that bucket is appended to that bucket's one geometry.
             float[]? bands = frame?.Bands;
             if (bands == null || bands.Length == 0)
                 return;
@@ -705,51 +739,188 @@ namespace TitanEngine
             double dotSpacing = Math.Max(3.0, ringThickness * 0.92);
             double spin = ctx.Time * AudioRingParticleSpinDegrees;
 
-            for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
+            // Perpendicular spacing between adjacent circles sets how dense the interference is.
+            // It is a property of the WHOLE lattice, not of one circle: it used to be recomputed
+            // once per circle, and `densityBoost` - the only thing that reads it - once per DOT.
+            double circleGap = latticeSpan / Math.Max(1, ringCount - 1);
+            double densityBoost = Math.Clamp(circleGap / Math.Max(1.0, dotSpacing), 0.25, 1.0);
+
+            // Everything the dot loop still needs that does NOT vary per dot, hoisted: what is left
+            // of the old expressions is `dotUnit * (0.55 + 0.45 * energy)` and
+            // `alphaBase * (0.58 + 0.42 * energy)`, both now evaluated once per BUCKET.
+            double dotUnit = dotSpacing * 0.30 * (0.7 + (0.3 * densityBoost));
+            double alphaBase = ctx.AlphaFactor * ctx.GlowIntensity;
+            double sensitivity = ctx.Sensitivity;
+
+            AudioRingBatches batches = RentBatches();
+            batches.Prepare(dotUnit, alphaBase);
+
+            try
             {
-                double t = ringCount == 1 ? 0.0 : latticeRing / (double)(ringCount - 1);
-                double radius = latticeInner + (latticeSpan * t);
-
-                // Perpendicular spacing between adjacent circles sets how dense the interference is.
-                double circleGap = latticeSpan / Math.Max(1, ringCount - 1);
-                int dotsOnRing = Math.Max(8, (int)Math.Round(2.0 * Math.PI * radius / dotSpacing));
-
-                // Each circle is rotated a little further than the previous one: the spiral.
-                double ringOffset = latticeRing * AudioRingLatticeSpiralDegrees + spin;
-
-                for (int d = 0; d < dotsOnRing; d++)
+                for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
                 {
-                    double a = ringOffset + (360.0 * d / dotsOnRing);
+                    double t = ringCount == 1 ? 0.0 : latticeRing / (double)(ringCount - 1);
+                    double radius = latticeInner + (latticeSpan * t);
 
-                    // Energy for this dot comes from the waveform angle it sits at, so the lattice
-                    // brightens and dims in step with the ring's own wobble.
-                    int bandIndex = Math.Clamp(
-                        (int)(((a % 360.0) / 360.0) * bands.Length), 0, bands.Length - 1);
-                    double energy = Math.Clamp(bands[bandIndex] * ctx.Sensitivity, 0.0, 1.0);
+                    int dotsOnRing = Math.Max(8, (int)Math.Round(2.0 * Math.PI * radius / dotSpacing));
 
-                    // Dots tighten toward the hub where the circles crowd together, matching the
-                    // reference's denser inner spiral.
-                    double densityBoost = Math.Clamp(circleGap / Math.Max(1.0, dotSpacing), 0.25, 1.0);
-                    double dotRadius = Math.Max(0.7, dotSpacing * 0.30 * (0.55 + (0.45 * energy)) * (0.7 + (0.3 * densityBoost)));
+                    // Each circle is rotated a little further than the previous one: the spiral.
+                    double ringOffset = latticeRing * AudioRingLatticeSpiralDegrees + spin;
 
-                    var dot = new EllipseGeometry(
-                        PointOnCircle(center, radius, a),
+                    for (int d = 0; d < dotsOnRing; d++)
+                    {
+                        double a = ringOffset + (360.0 * d / dotsOnRing);
+
+                        // Energy for this dot comes from the waveform angle it sits at, so the lattice
+                        // brightens and dims in step with the ring's own wobble.
+                        int bandIndex = Math.Clamp(
+                            (int)(((a % 360.0) / 360.0) * bands.Length), 0, bands.Length - 1);
+                        double energy = Math.Clamp(bands[bandIndex] * sensitivity, 0.0, 1.0);
+
+                        // Dots tighten toward the hub where the circles crowd together, matching the
+                        // reference's denser inner spiral. Both the radius and the alpha the dot
+                        // paints with are now read off the bucket, so the whole bucket shares one
+                        // geometry, one brush pair and one pen pair.
+                        int bucket = (int)Math.Round(energy * (AudioRingDotBuckets - 1));
+                        if (bucket < 0)
+                            bucket = 0;
+                        else if (bucket > AudioRingDotBuckets - 1)
+                            bucket = AudioRingDotBuckets - 1;
+
+                        // The reference keeps the whole lattice readable and lets brightness ride on top,
+                        // rather than letting quiet bands black the dots out and turning the moire
+                        // into chains. Checked on the BUCKET alpha so that every dot in a bucket is
+                        // treated identically - that is the whole point of bucketing - and so that
+                        // Opacity = 0 rejects all of them before any geometry is opened.
+                        if (batches.Alphas[bucket] <= 0.004)
+                            continue;
+
+                        double dotRadius = batches.Radii[bucket];
+                        AddEllipseFigure(
+                            batches.Open(bucket),
+                            PointOnCircle(center, radius, a),
+                            dotRadius,
+                            dotRadius);
+                    }
+                }
+
+                // One halo pass then one core pass per bucket, in the same order every single dot
+                // used to get: the translucent halo outline first, the bright core over it.
+                for (int b = 0; b < AudioRingDotBuckets; b++)
+                {
+                    if (!batches.Used[b])
+                        continue;
+
+                    Geometry geometry = batches.Seal(b);
+                    if (geometry.CanFreeze)
+                        geometry.Freeze();
+
+                    double dotRadius = batches.Radii[b];
+                    double alpha = batches.Alphas[b];
+
+                    Pen[] pens = ctx.Resolved.GetDotPens(
                         dotRadius,
-                        dotRadius);
-                    if (dot.CanFreeze) dot.Freeze();
+                        WithAlpha(ctx.Resolved.Glow, 0.20 * alpha),
+                        WithAlpha(ctx.Resolved.Core, 0.95 * alpha));
 
-                    // The reference keeps the whole lattice readable and lets brightness ride on top, rather
-                    // than letting quiet bands black the dots out and turning the moire into chains.
-                    double alpha = ctx.AlphaFactor * (0.58 + (0.42 * energy)) * ctx.GlowIntensity;
-                    if (alpha <= 0.004) continue;
+                    dc.DrawGeometry(null, pens[0], geometry);
+                    dc.DrawGeometry(null, pens[1], geometry);
+                }
+            }
+            finally
+            {
+                batches.Release();
+            }
+        }
 
-                    var haloPen = CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.20 * alpha)), dotRadius * 2.8, PenLineCap.Round);
-                var corePen = CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Core, 0.95 * alpha)), dotRadius * 2.0, PenLineCap.Round);
-                dc.DrawGeometry(null, haloPen, dot);
-                dc.DrawGeometry(null, corePen, dot);
+        [ThreadStatic]
+        private static AudioRingBatches? _audioRingBatches;
+
+        /// <summary>
+        /// Per-frame scratch for the bucketed AudioRing lattice: one lazily-opened
+        /// <see cref="StreamGeometry"/> per alpha bucket, reused across frames on the same thread.
+        /// <para>
+        /// Thread-static rather than static because two overlay renders can be in flight at once;
+        /// not a lock because a bucket's geometry is only ever touched by the thread that built it.
+        /// The arrays are allocated once per thread, never per frame.
+        /// </para>
+        /// </summary>
+        private sealed class AudioRingBatches
+        {
+            private StreamGeometry?[] _geometries = Array.Empty<StreamGeometry?>();
+            private StreamGeometryContext?[] _contexts = Array.Empty<StreamGeometryContext?>();
+            private bool[] _used = Array.Empty<bool>();
+            private int _count;
+
+            /// <summary>Dot radius per bucket. Dots tighten toward the hub where the circles crowd.</summary>
+            public double[] Radii { get; } = new double[AudioRingDotBuckets];
+
+            /// <summary>Alpha per bucket. Carries the Opacity slider, so 0 rejects the whole lattice.</summary>
+            public double[] Alphas { get; } = new double[AudioRingDotBuckets];
+
+            /// <summary>Which buckets got at least one dot this frame.</summary>
+            public bool[] Used => _used;
+
+            /// <summary>Recomputes the per-bucket radius and alpha tables for this frame's canvas.</summary>
+            public void Prepare(double dotUnit, double alphaBase)
+            {
+                if (_count != AudioRingDotBuckets)
+                {
+                    Release();
+                    _geometries = new StreamGeometry?[AudioRingDotBuckets];
+                    _contexts = new StreamGeometryContext?[AudioRingDotBuckets];
+                    _used = new bool[AudioRingDotBuckets];
+                    _count = AudioRingDotBuckets;
+                }
+
+                for (int b = 0; b < AudioRingDotBuckets; b++)
+                {
+                    // Bucket centres span the closed energy range [0, 1] so the extremes - a dead
+                    // quiet band and a full-scale one - are still drawn at their exact old values.
+                    double energy = b / (double)(AudioRingDotBuckets - 1);
+                    Radii[b] = Math.Max(0.7, dotUnit * (0.55 + (0.45 * energy)));
+                    Alphas[b] = alphaBase * (0.58 + (0.42 * energy));
+                    _used[b] = false;
+                }
+            }
+
+            /// <summary>Returns the bucket's open context, creating its geometry on first touch.</summary>
+            public StreamGeometryContext Open(int bucket)
+            {
+                if (_contexts[bucket] == null)
+                {
+                    var geometry = new StreamGeometry();
+                    _geometries[bucket] = geometry;
+                    _contexts[bucket] = geometry.Open();
+                    _used[bucket] = true;
+                }
+
+                return _contexts[bucket]!;
+            }
+
+            /// <summary>Closes the bucket's context so the geometry can be frozen and drawn.</summary>
+            public Geometry Seal(int bucket)
+            {
+                _contexts[bucket]?.Close();
+                _contexts[bucket] = null;
+                return _geometries[bucket]!;
+            }
+
+            /// <summary>Closes anything left open and drops every geometry so the next frame starts clean.</summary>
+            public void Release()
+            {
+                for (int b = 0; b < _count; b++)
+                {
+                    _contexts[b]?.Close();
+                    _contexts[b] = null;
+                    _geometries[b] = null;
+                    _used[b] = false;
                 }
             }
         }
+
+        private static AudioRingBatches RentBatches()
+            => _audioRingBatches ??= new AudioRingBatches();
 
         private static void DrawRadialRing(DrawingContext dc, FrameContext ctx)
         {
@@ -2149,21 +2320,30 @@ namespace TitanEngine
             double widthPercent = Math.Clamp(settings.WidthPercent, 0.02, 1.0);
             double heightPercent = Math.Clamp(settings.HeightPercent, 0.02, 1.0);
 
-            // Styles whose figure is a circle (or a single centred column / point cloud) size
-            // themselves from min(plot.Width, plot.Height). With the default 62 % x 26 % that is
-            // always the HEIGHT, so dragging the "Rộng" control did nothing at all - measured
-            // identical 175 px bounding boxes at W = 30 %, 62 % and 90 % for radial-ring,
-            // spoke-lines and ripple-rings. Forcing the plot square makes both controls drive the
-            // same number, so either slider resizes the figure.
-            if (UsesSquarePlot(settings.Style))
-            {
-                double side = Math.Min(widthPercent, heightPercent);
-                widthPercent = side;
-                heightPercent = side;
-            }
-
             double plotW = widthPercent * w;
             double plotH = heightPercent * h;
+
+            // Styles whose figure is a circle (or a single centred column) draw inside
+            // min(plot.Width, plot.Height), so the plot is squared first - but IN PIXELS, not in
+            // percentages.
+            //
+            // The percentage version was measurably wrong in two directions. Equalising the two
+            // PERCENTAGES leaves the rect at 499 x 281 on a 16:9 canvas, so min(w,h) - and hence
+            // the radius - was bit-for-bit identical to not squaring at all: the fix bought
+            // nothing while adding a new failure. And on a portrait canvas, where WIDTH is the
+            // smaller edge, it actively shrank the figure: 1080 x 1920 lost 44 % of its radius
+            // (244.5 -> 137.6 px), on the orientation this product is mostly used in.
+            //
+            // Squaring in pixels has neither defect. min(plotW, plotH) is the same quantity the
+            // circle styles already used, so the radius is unchanged; what it buys is that the
+            // square is genuinely square, so the anchor clamp can place the figure's CENTRE at
+            // the requested X instead of shoving it inward by half the plot's width.
+            if (UsesSquarePlot(settings.Style))
+            {
+                double side = Math.Min(plotW, plotH);
+                plotW = side;
+                plotH = side;
+            }
 
             double anchorX = Math.Clamp(settings.XPercent, 0.0, 1.0) * w;
             double anchorY = Math.Clamp(settings.YPercent, 0.0, 1.0) * h;
@@ -2176,15 +2356,25 @@ namespace TitanEngine
 
         /// <summary>
         /// Styles that draw a centred, aspect-symmetric figure and therefore ignore the plot's
-        /// aspect ratio. The plot rect is squared for these so the width control is never inert.
+        /// aspect ratio: every one of them sizes itself from min(plot.Width, plot.Height). The
+        /// plot rect is squared for these so the anchor clamp can actually reach the edges.
+        ///
+        /// NOTE for whoever adds a style here: membership is a claim about the GEOMETRY, and it
+        /// is enforced by measurement. PeakStars was wrongly listed - its star field really does
+        /// span plot.Width (measured ink width / plot width = 1.04 at four scales), so squaring
+        /// collapsed it from 1190 px to 499 px on the default job. If a new style draws anything
+        /// that spans the width, it does not belong on this list.
+        ///
+        /// Consequence to document rather than fight: for these styles the WIDTH control cannot
+        /// resize the figure - the circle is limited by the smaller edge, which on a landscape
+        /// canvas is always the height. That is why the "KICH THUOC" slider scales BOTH.
         /// </summary>
-        private static bool UsesSquarePlot(SoundBarStyleId style)
+        internal static bool UsesSquarePlot(SoundBarStyleId style)
             => style is SoundBarStyleId.RadialRing
                 or SoundBarStyleId.DualRings
                 or SoundBarStyleId.RippleRings
                 or SoundBarStyleId.SpokeLines
                 or SoundBarStyleId.CenterColumn
-                or SoundBarStyleId.PeakStars
                 or SoundBarStyleId.AudioRing;
 
         private static AudioFrameData? FrameAt(AudioFrameData[] frames, int index)
@@ -2453,8 +2643,48 @@ namespace TitanEngine
                 }
             }
 
+            /// <summary>
+            /// AudioRing's two outline pens per (dot radius, halo alpha byte, core alpha byte).
+            /// <para>
+            /// Same hoisting play as <see cref="GetAngularBrush"/>, one level up: the lattice used to
+            /// build a fresh <see cref="SolidColorBrush"/> pair and a fresh <see cref="Pen"/> pair for
+            /// every dot of every frame. The dot radius and both alpha bytes are part of the key
+            /// because all three move with the canvas, the Opacity and Glow sliders and the
+            /// sensitivity - keying on the bucket index alone would hand back a pen of the wrong
+            /// width or the wrong alpha the moment any of them changed.
+            /// </para>
+            /// </summary>
+            public Pen[] GetDotPens(double dotRadius, Color haloColor, Color coreColor)
+            {
+                byte halo = haloColor.A;
+                byte core = coreColor.A;
+
+                lock (DotPenCache)
+                {
+                    if (DotPenCache.TryGetValue((dotRadius, halo, core), out Pen[]? cached))
+                        return cached;
+
+                    Pen[] built =
+                    {
+                        CreatePen(CreateBrush(haloColor), dotRadius * 2.8, PenLineCap.Round),
+                        CreatePen(CreateBrush(coreColor), dotRadius * 2.0, PenLineCap.Round)
+                    };
+
+                    // A palette is rendered at a handful of canvas sizes; the cap only exists so a
+                    // pathological resize sweep cannot grow this without bound.
+                    if (DotPenCache.Count > 512)
+                        DotPenCache.Clear();
+
+                    DotPenCache[(dotRadius, halo, core)] = built;
+                    return built;
+                }
+            }
+
             private readonly Dictionary<(int Index, int Alpha), SolidColorBrush> AlphaAngularCache =
                 new Dictionary<(int Index, int Alpha), SolidColorBrush>(16);
+
+            private readonly Dictionary<(double Radius, byte Halo, byte Core), Pen[]> DotPenCache =
+                new Dictionary<(double Radius, byte Halo, byte Core), Pen[]>(64);
         }
 
         private sealed class FrameContext
