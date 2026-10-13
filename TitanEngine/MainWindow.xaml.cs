@@ -12066,6 +12066,37 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return ext is ".png" or ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".bmp" or ".webp" or ".tif" or ".tiff" or ".gif";
         }
 
+        /// <summary>
+        /// Every audio container FFmpeg can demux, accepted as an external audio source.
+        /// <para>
+        /// This list used to exist as three separate literals that drifted apart: the single-select
+        /// browse dialog listed mp3/wav/aac, drag-and-drop accepted only those three, and the
+        /// secondary-audio dialog listed a different set again including flac. A FLAC file was
+        /// therefore reachable through one dialog and rejected by another. FFmpeg decodes all of
+        /// these natively, so the only thing gating them was this filter.
+        /// </para>
+        /// </summary>
+        private static readonly string[] AudioSourceExtensions =
+        {
+            ".mp3", ".wav", ".aac", ".m4a", ".m4b", ".flac", ".ogg", ".oga", ".opus",
+            ".wma", ".aiff", ".aif", ".aifc", ".alac", ".ape", ".wv", ".mka", ".m4r",
+            ".ac3", ".eac3", ".dts", ".amr", ".aaw", ".tta", ".tak", ".mpc", ".ra",
+            ".rm", ".gsm", ".voc", ".spx", ".caf", ".au", ".snd", ".mid", ".midi"
+        };
+
+        /// <summary>
+        /// Pattern-list form of <see cref="AudioSourceExtensions"/> for an OpenFileDialog filter.
+        /// Built from the array so the two can never disagree again.
+        /// </summary>
+        private static string AudioSourceFilterPattern => "*" + string.Join(";*", AudioSourceExtensions);
+
+        private static bool IsAudioSourcePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return AudioSourceExtensions.Contains(ext, StringComparer.Ordinal);
+        }
+
         private static bool ShouldUsePortraitHdDefaultForImages(IReadOnlyCollection<string>? inputPaths)
         {
             return inputPaths != null &&
@@ -12262,7 +12293,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private void BtnBrowseAudio_Click(object sender, RoutedEventArgs e)
         {
-            var dlg = new OpenFileDialog { Filter = "Audio|*.mp3;*.wav;*.aac|All|*.*", Multiselect = true };
+            var dlg = new OpenFileDialog { Filter = $"Audio|{AudioSourceFilterPattern}|All|*.*", Multiselect = true };
             if (dlg.ShowDialog() == true)
             {
                 _listAudioPaths = new List<string>(dlg.FileNames);
@@ -12283,7 +12314,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Audio|*.mp3;*.wav;*.aac;*.m4a;*.flac;*.ogg|All|*.*",
+                Filter = $"Audio|{AudioSourceFilterPattern}|All|*.*",
                 Multiselect = false
             };
 
@@ -12603,9 +12634,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             foreach (string f in files)
             {
-                string ext = System.IO.Path.GetExtension(f).ToLower();
                 if (IsVideoSourcePath(f) || IsImageSourcePath(f)) vids.Add(f);
-                else if (new[] { ".mp3", ".wav", ".aac" }.Contains(ext)) auds.Add(f);
+                else if (IsAudioSourcePath(f)) auds.Add(f);
             }
 
             if (vids.Count > 0)
@@ -13695,7 +13725,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 ["spoke-lines"] = "Radial Spoke Lines",
                 ["wave-ribbon"] = "Waveform Ribbon",
                 ["center-column"] = "Center Sound Column",
-                ["peak-stars"] = "Peak Star Field"
+                ["peak-stars"] = "Peak Star Field",
+                ["audio-ring"] = "Audio Ring (NCS)"
             };
 
         private void PopulateSoundBarComboBoxes()
@@ -13771,7 +13802,229 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Chỉ audio trong video", Tag = "video" });
                 cmbSoundBarAudioSource.SelectedIndex = 0;
             }
+
+            if (cmbSoundBarSizePreset != null && cmbSoundBarSizePreset.Items.Count == 0)
+            {
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Rất nhỏ (50%)", Tag = "50" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Nhỏ (75%)", Tag = "75" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Vừa (100%)", Tag = "100" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Lớn (150%)", Tag = "150" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Rất lớn (200%)", Tag = "200" });
+                cmbSoundBarSizePreset.Items.Add(new ComboBoxItem { Content = "Tối đa (250%)", Tag = "250" });
+                cmbSoundBarSizePreset.SelectedIndex = 2;
+            }
+
+            if (cmbSoundBarPosition != null && cmbSoundBarPosition.Items.Count == 0)
+            {
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Dưới - Giữa", Tag = "bottom-center" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Dưới - Trái", Tag = "bottom-left" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Dưới - Phải", Tag = "bottom-right" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Giữa khung", Tag = "center" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Trên - Giữa", Tag = "top-center" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Trên - Trái", Tag = "top-left" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Trên - Phải", Tag = "top-right" });
+                cmbSoundBarPosition.Items.Add(new ComboBoxItem { Content = "Tuỳ chỉnh (X/Y %)", Tag = "custom" });
+                cmbSoundBarPosition.SelectedIndex = 0;
+            }
         }
+
+        /// <summary>
+        /// Fraction of the canvas left as a margin when snapping to a preset position. Matches the
+        /// feel of the existing text / brand-logo anchors, which inset rather than hugging the edge.
+        /// </summary>
+        private const double SoundBarAnchorMarginFraction = 0.045;
+
+        /// <summary>
+        /// Writes a preset position into the X / Y boxes.
+        /// <para>
+        /// This is a UI convenience ONLY - there is deliberately no new API field. The renderer's
+        /// anchor semantics are fixed in <c>ResolvePlotRect</c>: X is the HORIZONTAL CENTRE of the plot
+        /// rect and Y is its BOTTOM edge (the bars grow upward from it). A preset is therefore not a
+        /// free-standing value, it is a computed X/Y pair, and inventing a parallel
+        /// <c>soundBarPosition</c> field would create a second source of truth that can disagree with
+        /// X/Y - exactly the "documented but never read" bug class this feature already had twice.
+        /// </para>
+        /// </summary>
+        // Width : height ratio the soundbar is authored at. The size slider scales both dimensions by the
+        // same factor so the figure keeps its proportions instead of being squashed into a square
+        // every time the user touches a size control.
+        private const double SoundBarBaseWidthPercent = 62.0;
+        private const double SoundBarBaseHeightPercent = 26.0;
+        private const double SoundBarBaseAspect = SoundBarBaseWidthPercent / SoundBarBaseHeightPercent;
+
+        private const double SoundBarSizeMin = 20.0;
+        private const double SoundBarSizeMax = 250.0;
+        private const double SoundBarSizeDefault = 100.0;
+
+        private bool _soundBarApplyingSize;
+
+        /// <summary>
+        /// Master size control. 100 % reproduces the authored 62 % x 26 % footprint; 200 % doubles
+        /// both. Only the height is authored from the slider - the width follows from the fixed
+        /// aspect - which keeps the bar styles from collapsing into a narrow square.
+        /// </summary>
+        private void SldSoundBarSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!IsLoaded || _soundBarApplyingSize)
+                return;
+
+            ApplySoundBarSizePercent(e.NewValue, syncPresetCombo: true);
+        }
+
+        private void CmbSoundBarSizePreset_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded || _soundBarApplyingSize)
+                return;
+
+            if ((cmbSoundBarSizePreset?.SelectedItem as ComboBoxItem)?.Tag?.ToString() is string tag &&
+                double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out double percent))
+            {
+                ApplySoundBarSizePercent(percent, syncPresetCombo: false);
+            }
+        }
+
+        private void ApplySoundBarSizePercent(double percent, bool syncPresetCombo)
+        {
+            if (txtSoundBarWidthPercent == null || txtSoundBarHeightPercent == null)
+                return;
+
+            double scale = Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax) / 100.0;
+            double height = Math.Clamp(SoundBarBaseHeightPercent * scale, 2.0, 96.0);
+            double width = Math.Clamp(height * SoundBarBaseAspect, 2.0, 99.0);
+
+            _soundBarApplyingSize = true;
+            try
+            {
+                txtSoundBarHeightPercent.Text = height.ToString("0.##", CultureInfo.InvariantCulture);
+                txtSoundBarWidthPercent.Text = width.ToString("0.##", CultureInfo.InvariantCulture);
+                if (sldSoundBarSize != null && !syncPresetCombo)
+                    sldSoundBarSize.Value = Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax);
+                if (txtSoundBarSizeValue != null)
+                    txtSoundBarSizeValue.Text = $"{Math.Round(percent, 0):0}%";
+            }
+            finally
+            {
+                _soundBarApplyingSize = false;
+            }
+
+            // Widening or narrowing changes the anchors the position presets computed from.
+            SelectSoundBarCustomPosition();
+            ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// Recomputes the size slider from a hand-edited width/height so the two controls never
+        /// disagree. The height is the reference because it is what limits circular styles.
+        /// </summary>
+        private void SyncSoundBarSizeFromBoxes()
+        {
+            if (_soundBarApplyingSize || sldSoundBarSize == null)
+                return;
+
+            double height = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent), 2.0, 96.0);
+            double percent = Math.Clamp((height / SoundBarBaseHeightPercent) * 100.0, SoundBarSizeMin, SoundBarSizeMax);
+
+            _soundBarApplyingSize = true;
+            try
+            {
+                sldSoundBarSize.Value = percent;
+                if (txtSoundBarSizeValue != null)
+                    txtSoundBarSizeValue.Text = $"{Math.Round(percent, 0):0}%";
+            }
+            finally
+            {
+                _soundBarApplyingSize = false;
+            }
+        }
+
+        /// <summary>
+        /// Writes a preset position into the X / Y boxes.
+        /// <para>
+        /// This is a UI convenience ONLY - there is deliberately no new API field. The renderer's
+        /// anchor semantics are fixed in <c>ResolvePlotRect</c>: X is the HORIZONTAL CENTRE of the plot
+        /// rect and Y is its BOTTOM edge (the bars grow upward from it). A preset is therefore not a
+        /// free-standing value, it is a computed X/Y pair, and inventing a parallel
+        /// <c>soundBarPosition</c> field would create a second source of truth that can disagree with
+        /// X/Y - exactly the "documented but never read" bug class this feature already had twice.
+        /// </para>
+        /// </summary>
+        private void CmbSoundBarPosition_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_soundBarApplyingPosition || cmbSoundBarPosition?.SelectedItem is not ComboBoxItem item)
+                return;
+
+            string tag = item.Tag?.ToString() ?? "custom";
+            if (string.Equals(tag, "custom", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            double widthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0);
+            double heightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0);
+
+            // XPercent is the plot rect's centre, so a left/right anchor has to compensate for half
+            // the plot width; YPercent is the plot's bottom edge, so a top anchor has to add the whole
+            // plot height. Both are clamped so a large plot can never be pushed off-canvas.
+            double halfWidth = (widthPercent * 0.5);
+            double margin = SoundBarAnchorMarginFraction;
+            double leftX = Math.Clamp(halfWidth + margin, 0.0, 1.0);
+            double rightX = Math.Clamp(1.0 - halfWidth - margin, 0.0, 1.0);
+            double bottomY = Math.Clamp(1.0 - margin, 0.0, 1.0);
+            double topY = Math.Clamp(heightPercent + margin, 0.0, 1.0);
+            double centerY = Math.Clamp(0.5 + (heightPercent * 0.5), 0.0, 1.0);
+
+            double x = 0.5;
+            double y = bottomY;
+
+            switch (tag)
+            {
+                case "bottom-left": x = leftX; y = bottomY; break;
+                case "bottom-right": x = rightX; y = bottomY; break;
+                case "center": x = 0.5; y = centerY; break;
+                case "top-center": x = 0.5; y = topY; break;
+                case "top-left": x = leftX; y = topY; break;
+                case "top-right": x = rightX; y = topY; break;
+            }
+
+            _soundBarApplyingPosition = true;
+            try
+            {
+                if (txtSoundBarXPercent != null)
+                    txtSoundBarXPercent.Text = (x * 100.0).ToString("0.##", CultureInfo.InvariantCulture);
+                if (txtSoundBarYPercent != null)
+                    txtSoundBarYPercent.Text = (y * 100.0).ToString("0.##", CultureInfo.InvariantCulture);
+            }
+            finally
+            {
+                _soundBarApplyingPosition = false;
+            }
+
+            ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// Selecting the custom entry without touching X/Y, so the user is not immediately snapped
+        /// back to a preset by their own edit.
+        /// </summary>
+        private void SelectSoundBarCustomPosition()
+        {
+            if (_soundBarApplyingPosition || cmbSoundBarPosition == null)
+                return;
+
+            const int customIndex = 7;
+            if (cmbSoundBarPosition.Items.Count <= customIndex || cmbSoundBarPosition.SelectedIndex == customIndex)
+                return;
+
+            _soundBarApplyingPosition = true;
+            try
+            {
+                cmbSoundBarPosition.SelectedIndex = customIndex;
+            }
+            finally
+            {
+                _soundBarApplyingPosition = false;
+            }
+        }
+
+        private bool _soundBarApplyingPosition;
 
         private string GetSelectedSoundBarStyleId()
         {
@@ -13814,6 +14067,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// </summary>
         private void TxtSoundBarPercent_TextChanged(object sender, TextChangedEventArgs e)
         {
+            // Editing X or Y by hand means the preset no longer describes what is on screen - flip the
+            // combo to "Custom" so it never silently disagrees with the boxes.
+            if (!_soundBarApplyingPosition && ReferenceEquals(sender, txtSoundBarXPercent))
+                SelectSoundBarCustomPosition();
+
+            // Width / height drive the master size readout.
+            if (!_soundBarApplyingSize &&
+                (ReferenceEquals(sender, txtSoundBarWidthPercent) || ReferenceEquals(sender, txtSoundBarHeightPercent)))
+                SyncSoundBarSizeFromBoxes();
+
             ScheduleSoundBarPreview();
         }
 

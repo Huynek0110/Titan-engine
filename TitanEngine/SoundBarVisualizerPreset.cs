@@ -88,7 +88,7 @@ namespace TitanEngine
         /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r7";
+        private const string RendererVersion = "soundbar-r12";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
@@ -585,6 +585,8 @@ namespace TitanEngine
                     "One tall thin bar driven by RMS with a decaying peak-hold tick.", false, false, false, true, 1),
                 MakeStyle(SoundBarStyleId.PeakStars, "peak-stars", "Peak Stars",
                     "Glowing stars pinned to local band maxima, fading over time.", true, false, false, false, 64),
+                MakeStyle(SoundBarStyleId.AudioRing, "audio-ring", "Audio Ring (NCS)",
+                    "Vòng neon dày mép sóng run theo waveform, có hạt sáng lơ lửng bên trong - đúng kiểu vòng tròn NCS.", true, true, false, false, 64),
             };
         }
 

@@ -597,6 +597,25 @@
                                         <TextBlock Text="{Binding ElementName=sldSoundBarBarCount, Path=Value, StringFormat={}{0:0}}" Foreground="#00FFCC" FontWeight="Bold" HorizontalAlignment="Right"/>
                                     </Grid>
                                     <Slider x:Name="sldSoundBarBarCount" Minimum="8" Maximum="256" Value="64" TickFrequency="8" IsSnapToTickEnabled="True" Margin="0,0,0,8" ValueChanged="SldSoundBar_ValueChanged"/>
+
+                                    <TextBlock Text="KÍCH THƯỚC SOUNDBAR" Foreground="#00FFCC" FontSize="12" FontWeight="Bold" Margin="0,4,0,4"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <TextBlock Text="Cỡ" Foreground="#DDD" FontSize="11"/>
+                                        <TextBlock x:Name="txtSoundBarSizeValue" Text="100%" Foreground="#00FFCC" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <Slider x:Name="sldSoundBarSize" Minimum="20" Maximum="250" Value="100" TickFrequency="10" IsSnapToTickEnabled="False" Margin="0,0,0,4" ValueChanged="SldSoundBarSize_ValueChanged" ToolTip="Kéo để phóng to / thu nhỏ toàn bộ soundbar. Giữ nguyên tỉ lệ rộng:cao."/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="cmbSoundBarSizePreset" Grid.Column="0" Height="26" SelectionChanged="CmbSoundBarSizePreset_Changed"/>
+                                        <TextBlock Grid.Column="2" Text="%" Foreground="#888" FontSize="11" VerticalAlignment="Center"/>
+                                    </Grid>
+
+                                    <TextBlock Text="Vị trí" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbSoundBarPosition" Height="28" SelectionChanged="CmbSoundBarPosition_Changed" Margin="0,0,0,8" ToolTip="Chọn vị trí dựng sẵn. Vị trí được ghi vào X/Y (%) bên dưới - sửa tay ô X/Y sẽ tự chuyển sang 'Tuỳ chỉnh'."/>
                                     <TextBlock Text="Vị trí X (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
                                     <TextBox x:Name="txtSoundBarXPercent" Text="50" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ X (0 - 100%)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
                                     <TextBlock Text="Vị trí Y (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>

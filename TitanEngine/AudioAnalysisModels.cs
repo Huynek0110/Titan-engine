@@ -20,7 +20,14 @@ namespace TitanEngine
         SpokeLines = 8,
         WaveRibbon = 9,
         CenterColumn = 10,
-        PeakStars = 11
+        PeakStars = 11,
+        /// <summary>
+        /// The NCS signature look: one thick neon ring whose radius ripples with the waveform,
+        /// with glowing particles drifting inside it. Unlike <see cref="RadialRing"/> - which draws
+        /// bars radiating from a hub, the After Effects "polar spectrum" look - this is a single
+        /// stroked circle, matching the ring that NCS has used on its uploads since 2013.
+        /// </summary>
+        AudioRing = 12
     }
 
     /// <summary>Which audio stream feeds the visualizer.</summary>

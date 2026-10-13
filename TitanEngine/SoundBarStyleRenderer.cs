@@ -258,6 +258,20 @@ namespace TitanEngine
         /// </summary>
         private const double MinRadialReach = 0.5;
 
+        // AudioRing (the NCS look) proportions, all relative to the inscribed outer radius.
+        private const double AudioRingBaseFraction = 0.74;
+        private const double AudioRingAmplitudeFraction = 0.26;
+        private const double AudioRingThicknessFraction = 0.092;
+        private const double AudioRingParticleRadiusFactor = 0.42;
+        /// <summary>Spacing between the concentric dot rings, as a fraction of the outer radius.</summary>
+        private const double AudioRingLatticeStep = 0.042;
+        /// <summary>Angular offset added per lattice ring, in degrees - this is what makes the spiral.</summary>
+        private const double AudioRingLatticeSpiralDegrees = 17.0;
+        /// <summary>How far the ring's bloom may spread, as a fraction of the outer radius.</summary>
+        private const double AudioRingHaloFraction = 0.105;
+        /// <summary>Degrees the whole dot lattice drifts over one loop. A whole turn keeps the seam invisible.</summary>
+        private const double AudioRingParticleSpinDegrees = 360.0;
+
         /// <summary>
         /// Shortest column the four linear bar styles will paint, as a fraction of the length a
         /// full-scale band would reach.
@@ -395,6 +409,9 @@ namespace TitanEngine
                         break;
                     case SoundBarStyleId.PeakStars:
                         DrawPeakStars(dc, ctx);
+                        break;
+                    case SoundBarStyleId.AudioRing:
+                        DrawAudioRing(dc, ctx);
                         break;
                     case SoundBarStyleId.NeonBars:
                     default:
@@ -587,6 +604,148 @@ namespace TitanEngine
         // ------------------------------------------------------------------
         // 6. RadialRing
         // ------------------------------------------------------------------
+
+        // ------------------------------------------------------------------
+// 13. AudioRing - the NCS look
+// ------------------------------------------------------------------
+
+        /// <summary>
+        /// Draws the ring NCS actually uses: one thick neon circle whose radius ripples with the
+        /// waveform, plus glowing particles drifting inside it.
+        /// <para>
+        /// This is deliberately NOT <see cref="RadialRing"/>. That style draws bars radiating from
+        /// a hub - the After Effects "polar spectrum" look - whereas the NCS visualiser is a single
+        /// stroked ring, so the two read nothing alike. The reference is a thick yellow neon circle
+        /// on a dark field with a scatter of small glowing dots inside it.
+        /// <para>
+        /// The ring radius is driven by the time-domain waveform (not the FFT), sampled around the
+        /// circumference: that is what makes the outline wobble instead of showing discrete spokes.
+        /// The stroke then gets the standard three additive passes so it blooms. The inner particles
+        /// are positioned from a stable per-index pseudo-random angle and radius, modulated by band
+        /// energy, so they shimmer without ever popping between frames.
+        /// </para>
+        /// </summary>
+        private static void DrawAudioRing(DrawingContext dc, FrameContext ctx)
+        {
+            Rect plot = ctx.Plot;
+            double outer = MaxRadius(plot);
+            if (outer < 6.0)
+                return;
+
+            Point center = plotCenter(plot);
+            double baseRadius = outer * AudioRingBaseFraction;
+            double amplitude = (outer - baseRadius) * AudioRingAmplitudeFraction;
+
+            AudioFrameData? frame = ctx.Current;
+            int columns = frame?.WaveMin?.Length ?? 0;
+
+            // --- the ring itself -------------------------------------------------
+            var ring = new StreamGeometry();
+            using (StreamGeometryContext g = ring.Open())
+            {
+                const int RingSteps = 240;
+                g.BeginFigure(PointOnCircle(center, baseRadius, 0), true, true);
+                for (int s = 1; s <= RingSteps; s++)
+                {
+                    double angle = 360.0 * s / RingSteps;
+                    double value = 0.0;
+
+                    if (columns > 0)
+                    {
+                        // Walk the waveform around the circumference; average the min/max in each
+                        // bucket so a quiet passage still gives a closed, non-degenerate ring.
+                        double start = (s - 1) / (double)RingSteps * columns;
+                        double end = s / (double)RingSteps * columns;
+                        int i0 = (int)Math.Floor(start);
+                        int i1 = Math.Max(i0 + 1, (int)Math.Ceiling(end));
+                        double lo = 0.0, hi = 0.0;
+                        int n = 0;
+                        for (int i = i0; i < i1 && i < columns; i++)
+                        {
+                            lo += frame!.WaveMin[i];
+                            hi += frame!.WaveMax[i];
+                            n++;
+                        }
+                        if (n > 0)
+                            value = Math.Abs(((hi - lo) * 0.5f)) * ctx.Sensitivity;
+                    }
+
+                    double radius = Math.Clamp(
+                        baseRadius + (Math.Clamp(value, 0.0, 1.0) * amplitude),
+                        1.0, outer);
+                    g.LineTo(PointOnCircle(center, radius, angle), true, false);
+                }
+            }
+            if (ring.CanFreeze) ring.Freeze();
+
+            double ringThickness = Math.Max(1.5, outer * AudioRingThicknessFraction);
+            DrawGlowPasses(
+                dc, ring, ringThickness, ctx.Resolved, ctx.GlowIntensity,
+                ctx.AlphaFactor, PenLineCap.Round, Math.Max(RadialHaloExtent(outer), ringThickness * 1.15));
+
+            // --- the dot lattice inside the ring --------------------------------
+            // The NCS reference is not a scatter of particles: it is a LATTICE of dots on
+            // concentric circles, each circle rotated a little further than the last. The overlap
+            // between neighbouring circles is what reads as the moire / vortex that gives the
+            // reference its spherical depth. So the lattice is built as arcs here, not as a
+            // golden-angle point cloud - a point cloud cannot produce that interference pattern.
+            float[]? bands = frame?.Bands;
+            if (bands == null || bands.Length == 0)
+                return;
+
+            double latticeInner = baseRadius * 0.10;
+            double latticeSpan = (baseRadius * 0.80) - latticeInner;
+            int ringCount = Math.Clamp((int)(latticeSpan / Math.Max(1.0, outer * AudioRingLatticeStep)), 3, 12);
+
+            // Target angular spacing between neighbouring dots, so outer circles get more of them.
+            double dotSpacing = Math.Max(3.0, ringThickness * 0.92);
+            double spin = ctx.Time * AudioRingParticleSpinDegrees;
+
+            for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
+            {
+                double t = ringCount == 1 ? 0.0 : latticeRing / (double)(ringCount - 1);
+                double radius = latticeInner + (latticeSpan * t);
+
+                // Perpendicular spacing between adjacent circles sets how dense the interference is.
+                double circleGap = latticeSpan / Math.Max(1, ringCount - 1);
+                int dotsOnRing = Math.Max(8, (int)Math.Round(2.0 * Math.PI * radius / dotSpacing));
+
+                // Each circle is rotated a little further than the previous one: the spiral.
+                double ringOffset = latticeRing * AudioRingLatticeSpiralDegrees + spin;
+
+                for (int d = 0; d < dotsOnRing; d++)
+                {
+                    double a = ringOffset + (360.0 * d / dotsOnRing);
+
+                    // Energy for this dot comes from the waveform angle it sits at, so the lattice
+                    // brightens and dims in step with the ring's own wobble.
+                    int bandIndex = Math.Clamp(
+                        (int)(((a % 360.0) / 360.0) * bands.Length), 0, bands.Length - 1);
+                    double energy = Math.Clamp(bands[bandIndex] * ctx.Sensitivity, 0.0, 1.0);
+
+                    // Dots tighten toward the hub where the circles crowd together, matching the
+                    // reference's denser inner spiral.
+                    double densityBoost = Math.Clamp(circleGap / Math.Max(1.0, dotSpacing), 0.25, 1.0);
+                    double dotRadius = Math.Max(0.7, dotSpacing * 0.30 * (0.55 + (0.45 * energy)) * (0.7 + (0.3 * densityBoost)));
+
+                    var dot = new EllipseGeometry(
+                        PointOnCircle(center, radius, a),
+                        dotRadius,
+                        dotRadius);
+                    if (dot.CanFreeze) dot.Freeze();
+
+                    // The reference keeps the whole lattice readable and lets brightness ride on top, rather
+                    // than letting quiet bands black the dots out and turning the moire into chains.
+                    double alpha = ctx.AlphaFactor * (0.58 + (0.42 * energy)) * ctx.GlowIntensity;
+                    if (alpha <= 0.004) continue;
+
+                    var haloPen = CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.20 * alpha)), dotRadius * 2.8, PenLineCap.Round);
+                var corePen = CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Core, 0.95 * alpha)), dotRadius * 2.0, PenLineCap.Round);
+                dc.DrawGeometry(null, haloPen, dot);
+                dc.DrawGeometry(null, corePen, dot);
+                }
+            }
+        }
 
         private static void DrawRadialRing(DrawingContext dc, FrameContext ctx)
         {
@@ -1980,8 +2139,24 @@ namespace TitanEngine
             double w = Math.Max(2.0, width);
             double h = Math.Max(2.0, height);
 
-            double plotW = Math.Clamp(settings.WidthPercent, 0.02, 1.0) * w;
-            double plotH = Math.Clamp(settings.HeightPercent, 0.02, 1.0) * h;
+            double widthPercent = Math.Clamp(settings.WidthPercent, 0.02, 1.0);
+            double heightPercent = Math.Clamp(settings.HeightPercent, 0.02, 1.0);
+
+            // Styles whose figure is a circle (or a single centred column / point cloud) size
+            // themselves from min(plot.Width, plot.Height). With the default 62 % x 26 % that is
+            // always the HEIGHT, so dragging the "Rộng" control did nothing at all - measured
+            // identical 175 px bounding boxes at W = 30 %, 62 % and 90 % for radial-ring,
+            // spoke-lines and ripple-rings. Forcing the plot square makes both controls drive the
+            // same number, so either slider resizes the figure.
+            if (UsesSquarePlot(settings.Style))
+            {
+                double side = Math.Min(widthPercent, heightPercent);
+                widthPercent = side;
+                heightPercent = side;
+            }
+
+            double plotW = widthPercent * w;
+            double plotH = heightPercent * h;
 
             double anchorX = Math.Clamp(settings.XPercent, 0.0, 1.0) * w;
             double anchorY = Math.Clamp(settings.YPercent, 0.0, 1.0) * h;
@@ -1991,6 +2166,19 @@ namespace TitanEngine
 
             return new Rect(left, top, plotW, plotH);
         }
+
+        /// <summary>
+        /// Styles that draw a centred, aspect-symmetric figure and therefore ignore the plot's
+        /// aspect ratio. The plot rect is squared for these so the width control is never inert.
+        /// </summary>
+        private static bool UsesSquarePlot(SoundBarStyleId style)
+            => style is SoundBarStyleId.RadialRing
+                or SoundBarStyleId.DualRings
+                or SoundBarStyleId.RippleRings
+                or SoundBarStyleId.SpokeLines
+                or SoundBarStyleId.CenterColumn
+                or SoundBarStyleId.PeakStars
+                or SoundBarStyleId.AudioRing;
 
         private static AudioFrameData? FrameAt(AudioFrameData[] frames, int index)
         {

@@ -864,6 +864,26 @@ namespace TitanEngine
             float previousRms = 0f;
             float previousPeak = 0f;
 
+            // The attack/release envelope and the onset detector are recursive, so their state at
+            // frame 0 depends on what came BEFORE it. Starting from silence makes frame 0 read as a
+            // near-empty spectrum, and because the PNG sequence is handed to FFmpeg with
+            // `loop=loop=-1`, frame N-1 is followed by frame 0 - so the figure visibly collapses to
+            // an empty line and re-ramps every single loop, roughly once every LoopSeconds.
+            //
+            // The audio window wraps around, so the content that genuinely precedes frame 0 is the
+            // TAIL of this same loop. Running the analysis twice and keeping only the second pass's
+            // output therefore seeds the envelope with the real predecessor state: frame 0 continues
+            // frame N-1 instead of restarting from zero. The renderer already relies on this - its
+            // FrameAt(-1) wraps to the last frame - so before this the two halves disagreed.
+            //
+            // Cost is one extra pass over the frames (~20 ms for a 5 s loop at 30 fps); correctness
+            // at the loop seam is worth it.
+            const int EnvelopeWarmupPasses = 2;
+
+            for (int pass = 0; pass < EnvelopeWarmupPasses; pass++)
+            {
+                bool keepResults = pass == EnvelopeWarmupPasses - 1;
+
             for (int frame = 0; frame < frameCount; frame++)
             {
                 if (token.IsCancellationRequested)
@@ -1079,8 +1099,9 @@ namespace TitanEngine
                     // rawRms, not the smoothed envelope: an envelope follower lags its target by
                     // design, so gating on it would judge the leading edge of a transient by the
                     // quiet that preceded it and swallow exactly the hits that matter.
-                    Onset = onsetDetector.Process(magnitudes, fluxBinLimit, rawRms)
+                    Onset = keepResults && onsetDetector.Process(magnitudes, fluxBinLimit, rawRms)
                 };
+            }
             }
 
             return frames;
