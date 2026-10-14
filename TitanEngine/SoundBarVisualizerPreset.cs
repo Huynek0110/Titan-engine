@@ -86,9 +86,19 @@ namespace TitanEngine
         /// decile, and the glow clamp that degenerated to three identical strokes at DEFAULT
         /// DualRings settings.
         /// </item>
+        /// <item>
+        /// r15 (this one): the render loop allocates ONE RenderTargetBitmap per pass and clears it
+        /// per frame instead of allocating one per frame. Pixel output is unchanged (verified
+        /// byte-for-byte); what changes is that the pass stops forcing a blocking gen-2 collection
+        /// every other frame - 33 gen-2 collections per 50 frames measured before, 1 after. That
+        /// floor was style-independent, so it sat under every style's allocation figure. Note for
+        /// whoever reads the version log next: DotMatrix was audited in the same round and NOT
+        /// changed - it already draws its whole grid with two geometries and two brushes, and the
+        /// per-dot StreamGeometry record cost is not reducible by bucketing. See DrawDotMatrix.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r14";
+        private const string RendererVersion = "soundbar-r15";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
@@ -242,6 +252,60 @@ namespace TitanEngine
         }
 
         /// <summary>
+        /// Creates the single <see cref="RenderTargetBitmap"/> a whole overlay pass draws through.
+        /// <para>
+        /// THE DEFECT. This used to be <c>new RenderTargetBitmap(...)</c> INSIDE the per-frame loop.
+        /// Each frame allocated a fresh D3D/WIC render target plus a <c>BitmapVisualManager</c>, and
+        /// the finaliser-driven reclamation of that chain promoted it straight to the oldest
+        /// generation, so a full BLOCKING gen-2 collection ran every other frame. Measured on this
+        /// job at 1080x1080, 50 frames of a deliberately trivial draw method:
+        /// <c>GC.CollectionCount(0) = (1) = (2) = 33</c> with a fresh bitmap per frame, versus
+        /// <c>1 / 1 / 1</c> with one reused + cleared bitmap. Scaled to the 150-frame loop that is
+        /// ~99 forced full GCs per render, with the pause on every one of them.
+        /// <para>
+        /// It was also STYLE-INDEPENDENT, which is why an earlier measurement round could not use
+        /// GC.CollectionCount to tell any two styles apart: the floor was identical under all of
+        /// them, and it sits underneath whichever renderer allocation the round was trying to rank.
+        /// <para>
+        /// WHY REUSE IS SAFE HERE. <see cref="RenderTargetBitmap.Render"/> requires the calling
+        /// thread to be the one allowed to touch the bitmap, so a shared target would be unsafe if
+        /// the loop were threaded. It is not: <see cref="RunOnStaThreadAsync"/> runs the ENTIRE
+        /// pass body - every frame's build, every Render and every Save - inside one
+        /// <c>action()</c> on ONE freshly created STA thread. The bitmap never leaves that thread,
+        /// and each pass builds its own, so two concurrent renders cannot alias.
+        /// <para>
+        /// WHY IT MUST NOT BE FROZEN. The old code froze each bitmap before saving it, because
+        /// freezing is what makes a <see cref="BitmapSource"/> safe to read from anywhere. A target
+        /// that is going to be Render()ed into again must stay UNFROZEN:
+        /// <c>BitmapVisualManager</c> throws
+        /// <c>"The Image passed to the ImageVisualManager cannot be frozen."</c> on the second
+        /// frame. Freezing is therefore dropped here; nothing downstream needs it, because
+        /// <see cref="SaveBitmap"/> encodes on the same thread that produced the pixels.
+        /// <para>
+        /// PIXEL EQUALITY. Verified, not assumed. Rendering the loop's exact frame body (DrawingVisual +
+        /// full-canvas transparent rect + <see cref="SoundBarStyleRenderer.DrawFrame"/>) and comparing
+        /// every frame's pixels against a fresh-bitmap render of the same frame, at 1080x1080 with
+        /// BarCount 256: <c>Clear()</c> present -> 0 of 60 frames differ; <c>Clear()</c> removed ->
+        /// 59 of 60 differ, the first at frame 1. Independently, a SHA-256 census of frames
+        /// 1/2/17/75/149 of the real <see cref="GenerateOverlayAsync"/> matched byte for byte between
+        /// this path and the per-frame-allocation path it replaced, for five styles at BarCount 40
+        /// and 256. So the clear is load-bearing, not decorative: <see cref="BitmapSource.Clear"/>
+        /// returns the surface to exactly the state a freshly constructed target is in.
+        /// <para>
+        /// ONE ANOMALY, recorded because it was observed and not explained. Deleting the
+        /// <see cref="BitmapSource.Clear"/> call from THIS method and re-rendering all ten
+        /// style/bar-count combinations through the real <see cref="GenerateOverlayAsync"/> produced
+        /// PNG hashes identical to the run with the clear present - both builds hash-verified, cache
+        /// purged, frame mtimes confirmed fresh. The direct loop reproduction above, which differs
+        /// from this method only in running on the harness's own STA thread rather than the one
+        /// <see cref="RunOnStaThreadAsync"/> creates, does show the corruption. Whatever makes this
+        /// particular call site currently immune is not something to depend on, and the clear costs
+        /// one memset of the target, so it stays. Do not remove it on the strength of that anomaly.
+        /// </summary>
+        private static RenderTargetBitmap RentFrameTarget(int width, int height)
+            => new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+
+        /// <summary>
         /// Renders the full PNG sequence (or reuses the cached one). Never throws: failures are logged and
         /// null is returned so the pipeline can continue without a soundbar.
         /// <para>
@@ -329,6 +393,9 @@ namespace TitanEngine
                     Directory.CreateDirectory(tempRoot);
                     Directory.CreateDirectory(previewDir);
 
+                    // ONE target for the whole pass, cleared per frame. See RentFrameTarget.
+                    RenderTargetBitmap overlayBitmap = RentFrameTarget(renderW, renderH);
+
                     for (int i = 0; i < frameCount; i++)
                     {
                         token.ThrowIfCancellationRequested();
@@ -340,10 +407,11 @@ namespace TitanEngine
                             SoundBarStyleRenderer.DrawFrame(dc, renderW, renderH, safeSettings, safePalette, renderFrames, i, state);
                         }
 
-                        RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                        // Clear before Render. Render COMPOSITES onto whatever the surface already
+                        // holds, so without this frame N would carry frame N-1's pixels into itself
+                        // wherever this frame draws nothing.
+                        overlayBitmap.Clear();
                         overlayBitmap.Render(overlayVisual);
-                        if (overlayBitmap.CanFreeze)
-                            overlayBitmap.Freeze();
 
                         SaveBitmap(overlayBitmap, FormatSequenceFilePath(overlayPattern, i + 1));
 

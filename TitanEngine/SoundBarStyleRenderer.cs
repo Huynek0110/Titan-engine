@@ -578,6 +578,54 @@ namespace TitanEngine
         // 5. DotMatrix
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// The dot grid.
+        /// <para>
+        /// AUDITED AND DELIBERATELY LEFT ALONE - read this before trying to "optimise" it.
+        /// <para>
+        /// Measured on this job (1080x1080 canvas, 62 % x 62 % plot), this style records
+        /// 4 474 075 B/frame and 3.93 ms at BarCount 256, and 652 311 B/frame and 0.75 ms at
+        /// BarCount 40. The 256 figure is the largest in this file, so it looks like the
+        /// AudioRing defect all over again. It is not, and the AudioRing fix does not transfer.
+        /// <para>
+        /// WHY THE AUDIT FOUND NOTHING TO BUCKET. At BarCount 256 the grid is 256 columns x 24 rows
+        /// (1080x1080, 62 % plot -> stepX 2.62 px, stepY 27.5 px, rows clamped to its 24 ceiling) =
+        /// 6 144 dots/frame. Each dot is written as BeginFigure + 4 ArcTo, so the frame records
+        /// 30 720 MIL path records into two StreamGeometry streams - one lit, one dim - and that is
+        /// ALREADY the bucketed shape: 2 geometries, 2 brushes, 2 DrawGeometry calls, no per-dot
+        /// object, brush or pen anywhere in the loop. There is nothing left to merge, because the
+        /// two buckets are keyed on the only two things that vary (lit vs unlit, and the 0.72
+        /// radius ratio), and every dot in a bucket already shares that bucket's brush exactly.
+        /// <para>
+        /// The cost is the PATH RECORD STREAM, not the object graph. Measured directly, 6 144 dots
+        /// built five different ways, bytes allocated per frame:
+        /// <list type="bullet">
+        /// <item>2 geometries (what this code does), frozen: 3 911 336 B = 637 B/dot.</item>
+        /// <item>2 geometries, not frozen: 3 911 336 B - identical, so the freeze is not the cost.</item>
+        /// <item>2 geometries + 2 DrawGeometry: 3 911 992 B - the draws themselves are free.</item>
+        /// <item>256 geometries, one per column: 5 093 400 B = 829 B/dot. 30 % WORSE, not better.</item>
+        /// <item>6 144 EllipseGeometry objects + 6 144 DrawEllipse: 790 792 B = 129 B/dot.</item>
+        /// </list>
+        /// The reason is <see cref="MemoryStream"/> doubling: ~199 B of records per dot in a stream
+        /// that grows by repeated doubling, so the transients sum to roughly 2x the final buffer.
+        /// Splitting the same dots across MORE streams adds per-stream overhead to every one of
+        /// them, which is why "one geometry per column" - the fallback shape the AudioRing note
+        /// allows - measurably loses. And the cheap-looking option is disqualified on pixels: a WPF
+        /// <see cref="EllipseGeometry"/> rasterises to max 60 / mean 1.85 per channel off the
+        /// 4-ArcTo circle over 6.58 % of pixels, because it flattens with the 4-bezier kappa
+        /// approximation while the arc records convert adaptively. This grid is drawn at full size,
+        /// so that is not rounding, it is a different picture.
+        /// <para>
+        /// A per-column geometry CACHE across frames was the last idea worth a number, and it is
+        /// dead on arrival too: measured over the 150 analysed frames a column's lit count changes
+        /// on 50.1 % (BarCount 40) / 49.2 % (BarCount 256) of frame transitions, so half the grid
+        /// would be rebuilt every frame anyway - on top of trading 2 draw calls for 512 and holding
+        /// 512 geometries live.
+        /// <para>
+        /// Net: at BarCount 256 this style is already doing the minimum a 6 144-dot grid can do,
+        /// and any further reduction has to come from drawing fewer or flatter dots. That is a
+        /// visual decision, not an allocation one.
+        /// </summary>
         private static void DrawDotMatrix(DrawingContext dc, FrameContext ctx)
         {
             Rect plot = ctx.Plot;

@@ -603,7 +603,7 @@
                                         <TextBlock Text="Cỡ" Foreground="#DDD" FontSize="11"/>
                                         <TextBlock x:Name="txtSoundBarSizeValue" Text="100%" Foreground="#00FFCC" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right"/>
                                     </Grid>
-                                    <Slider x:Name="sldSoundBarSize" Minimum="20" Maximum="159.67" Value="100" TickFrequency="10" IsSnapToTickEnabled="False" Margin="0,0,0,4" ValueChanged="SldSoundBarSize_ValueChanged" ToolTip="Kéo để phóng to / thu nhỏ toàn bộ soundbar. Giữ nguyên tỉ lệ rộng:cao 62:26. Tối đa 160% - trên đó dải sẽ vượt 99% bề ngang khung và bị bóp méo."/>
+                                    <Slider x:Name="sldSoundBarSize" Minimum="20" Maximum="146.77" Value="100" TickFrequency="10" IsSnapToTickEnabled="False" Margin="0,0,0,4" ValueChanged="SldSoundBarSize_ValueChanged" ToolTip="Kéo để phóng to / thu nhỏ toàn bộ soundbar. Giữ nguyên tỉ lệ rộng:cao 62:26. Tối đa 146.77% - trên đó dải rộng hơn mức khung còn chừa được 4.5% mỗi bên, nên các vị trí dựng sẵn (trên/dưới - trái/phải) sẽ dồn về giữa và dải sát mép khung."/>
                                     <Grid Margin="0,0,0,8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -615,15 +615,15 @@
                                     </Grid>
 
                                     <TextBlock Text="Vị trí" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbSoundBarPosition" Height="28" SelectionChanged="CmbSoundBarPosition_Changed" Margin="0,0,0,8" ToolTip="Chọn vị trí dựng sẵn. Vị trí được ghi vào X/Y (%) bên dưới - sửa tay ô X/Y sẽ tự chuyển sang 'Tuỳ chỉnh'."/>
+                                    <ComboBox x:Name="cmbSoundBarPosition" Height="28" SelectionChanged="CmbSoundBarPosition_Changed" Margin="0,0,0,8"/>
                                     <TextBlock Text="Vị trí X (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
                                     <TextBox x:Name="txtSoundBarXPercent" Text="50" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ X (0 - 100%) - CHÍNH GIỮA ngang của dải, không phải mép trái. Sửa tay ô này sẽ chuyển ô Vị trí sang 'Tuỳ chỉnh'." Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
                                     <TextBlock Text="Vị trí Y (%)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="txtSoundBarYPercent" Text="82" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ Y (0 - 100%) - ĐÁY của dải, thanh mọc lên từ đây. Sửa tay ô này cũng sẽ chuyển ô Vị trí sang 'Tuỳ chỉnh'." Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBox x:Name="txtSoundBarYPercent" Text="82" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Tọa độ Y (0 - 100%) - cạnh DƯỚI của dải; thanh mọc lên từ đây. Với 6 kiểu vẽ hình vuông (Radial Ring, Dual Rings, Ripple Rings, Spoke Lines, Center Column, Audio Ring) bộ dựng hình bóp dải thành hình vuông trước, nên Y là cạnh dưới của hình vuông đã bóp - cùng một con số, nhưng mép trên nằm cao hơn ô Cao. Sửa tay ô này cũng sẽ chuyển ô Vị trí sang 'Tuỳ chỉnh'." Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
                                     <TextBlock Text="Rộng (% cạnh ngang)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="txtSoundBarWidthPercent" Text="62" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Bề rộng dải sóng (% chiều ngang khung hình)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBox x:Name="txtSoundBarWidthPercent" Text="62" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Bề rộng dải sóng (% chiều ngang khung hình). Ô Cao là ô chính: thang Cỡ và các cỡ dựng sẵn đều tính từ nó, rồi bề rộng đi theo tỉ lệ 62:26. Nếu nhập một giá trị mà thanh Cỡ không diễn tả được, hai ô sẽ được ghi lại theo thanh Cỡ sau khoảng lặng 0.7s." Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
                                     <TextBlock Text="Cao (% cạnh dọc)" Foreground="#888" FontSize="11" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="txtSoundBarHeightPercent" Text="26" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Chiều cao dải sóng (% chiều dọc khung hình)" Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
+                                    <TextBox x:Name="txtSoundBarHeightPercent" Text="26" Height="28" Padding="4,2,4,2" FontSize="12" FontWeight="Bold" Background="#181825" Foreground="#00FFCC" BorderBrush="#313244" BorderThickness="1" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip="Chiều cao dải sóng (% chiều dọc khung hình). Ô này là ô chính của cả nhóm KÍCH THƯỚC: thang Cỡ và các cỡ dựng sẵn đều tính từ nó. Nếu nhập một giá trị mà thanh Cỡ không diễn tả được (ví dụ gõ '5' khi đang viết '50'), hai ô sẽ được ghi lại theo thanh Cỡ sau khoảng lặng 0.7s và có ghi log - để không còn ô nói 5 trong khi thanh Cỡ nói 20 và khung hình dựng ra một dải 62 x 5." Margin="0,0,0,8" TextChanged="TxtSoundBarPercent_TextChanged"/>
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>
@@ -988,9 +988,9 @@
                                                 <ColumnDefinition Width="20"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBox x:Name="txtResW" Grid.Column="0" Text="1080" ToolTip="Width"/>
+                                            <TextBox x:Name="txtResW" Grid.Column="0" Text="1080" ToolTip="Width" TextChanged="TxtOutputResolution_TextChanged"/>
                                             <TextBlock Text="x" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#888"/>
-                                            <TextBox x:Name="txtResH" Grid.Column="2" Text="1920" ToolTip="Height"/>
+                                            <TextBox x:Name="txtResH" Grid.Column="2" Text="1920" ToolTip="Height" TextChanged="TxtOutputResolution_TextChanged"/>
                                         </Grid>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
