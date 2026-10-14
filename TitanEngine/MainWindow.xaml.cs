@@ -13913,20 +13913,42 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// "just inside the renderer's own 0.02 - 1.0 clamp" was simply false:
         /// <c>SoundBarStyleRenderer.ResolvePlotRect</c> clamps to 0.02 - 1.0, and so does the
         /// pipeline at <c>MainWindow.xaml.cs:2444</c>. Nothing anywhere knows the number 99. It is a
-        /// UI choice - a figure needing more than 99 % of the frame width has no room for
+        /// UI choice - a figure needing more than 91 % of the frame width has no room for
         /// <see cref="SoundBarAnchorMarginFraction"/> on either side - and the drift when it bites
-        /// is SILENT and ASYMMETRIC: the width is clipped to 99 % while the height keeps the value
+        /// is SILENT and ASYMMETRIC: the width is clipped while the height keeps the value
         /// the user typed, so the figure comes out the wrong shape under a label promising 62 : 26.
         /// </para>
+        /// <para>
+        /// It used to be a literal 99, which is what let the defect back in through the TYPED box.
+        /// The slider could not reach 91 (its ceiling is <see cref="SoundBarMaxScaleFraction"/>, the
+        /// same limit in scale units), but a hand-typed width bypassed the slider entirely, and
+        /// <c>halfWidth</c> pinned at <see cref="SoundBarHalfWidthCeiling"/> collapsed leftX and
+        /// rightX to the same 50 %: measured, 92 % gave a 4.00 % inset, 95 % gave 2.50 % and 99 %
+        /// gave 0.50 %. Both ceilings are now derived from the same expression, so the number the
+        /// slider stops at and the number the box is clamped to cannot drift apart again.
+        /// </para>
         /// </summary>
-        private const double SoundBarWidthPercentCap = 99.0;
+        private static readonly double SoundBarWidthPercentCap =
+            2.0 * SoundBarHalfWidthCeiling * 100.0;   // 91.0
 
         /// <summary>
         /// UI POLICY ceiling on the height box - again not a renderer bound, see
-        /// <see cref="SoundBarWidthPercentCap"/>. 96 % is the mirror of 99 : it keeps a fraction of
-        /// the frame unoccupied in the direction the bottom-anchored bars grow from.
+        /// <see cref="SoundBarWidthPercentCap"/>, and enforced on BOTH paths: the slider path
+        /// inside <see cref="ComputeSoundBarSizeFootprint"/>, the typed path inside
+        /// <see cref="SyncSoundBarSizeFromBoxes"/> and
+        /// <see cref="CommitSoundBarSizeBoxEdit"/>.
+        /// <para>
+        /// 95.5, not 96, and the last 0.5 is not arbitrary. A top / bottom anchor lands the plot
+        /// edge at <c>heightPercent + SoundBarAnchorMarginFraction</c>, so a ceiling of 96 put that
+        /// sum at 1.005; the clamp to 1.0 then pulled the edge back and rendered a 4.00 % inset
+        /// under a preset that promises 4.50 % - measured 210 times across the anchor matrix. The
+        /// cap has to satisfy <c>cap + margin &lt;= 1</c>, which is 95.5 exactly.
+        /// </para>
         /// </summary>
-        private const double SoundBarHeightPercentCap = 96.0;
+        private const double SoundBarHeightPercentCap = 95.5;
+
+        /// <summary>Floor of the width / height boxes, in percent. Matches the renderer's own 0.02.</summary>
+        private const double SoundBarSizeBoxMinPercent = 2.0;
 
         private const double SoundBarSizeMin = 20.0;
 
@@ -13946,16 +13968,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// </para>
         /// <para>
         /// Why the two caps are NOT the ceiling, stated once so nobody "corrects" this back: at
-        /// 146.77 % the figure is 91.00 % of the frame width, inside the 99 % cap, and 38.16 % of the
-        /// height, far inside the 96 % cap. Both caps still exist - they bound what a hand-typed box
-        /// may say - but no slider position can reach either of them, so they cannot be what the
-        /// slider is derived from. The old derivation read <c>min(99 / 62, 96 / 26) = 159.67 %</c>,
+        /// 146.77 % the figure is 91.00 % of the frame width, exactly ON the width cap rather than
+        /// inside it, and 38.16 % of the height, far inside the height cap. The width cap is now
+        /// <c>2 * SoundBarHalfWidthCeiling * 100</c> - the very limit this is derived from, in the
+        /// slider's other unit - so "the slider stops at the width cap" is true by construction
+        /// rather than by coincidence. The old derivation read <c>min(99 / 62, 96 / 26) = 159.67 %</c>,
         /// which put two of the five shipped presets above the feasibility limit and silently
         /// reintroduced the very defect the commit fixed.
         /// </para>
         /// </summary>
         private static readonly double SoundBarMaxScaleFraction =
-            2.0 * (0.5 - SoundBarAnchorMarginFraction) / SoundBarBaseWidthPercent * 100.0;   // 1.46774
+            2.0 * SoundBarHalfWidthCeiling / SoundBarBaseWidthPercent * 100.0;   // 1.46774
 
         /// <summary>
         /// <see cref="SoundBarMaxScaleFraction"/> in the slider's percent units, floored to 2 dp so
@@ -14020,6 +14043,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// Half-width, as a fraction of the frame width, at which a left anchor and a right anchor
         /// would cross over. Above it the plot is too wide for the 4.5 % inset to exist on both
         /// sides, so both presets collapse to centre rather than one of them claiming the far side.
+        /// <para>
+        /// This ONE expression is the source of truth for three numbers that used to disagree:
+        /// the slider ceiling (<see cref="SoundBarMaxScaleFraction"/>), the typed width box ceiling
+        /// (<see cref="SoundBarWidthPercentCap"/>) and the <c>halfWidth</c> clamp inside
+        /// <see cref="ComputeSoundBarPresetAnchor"/>. They are the same limit in three different
+        /// units; deriving all three from here is what stops them drifting apart again.
+        /// </para>
         /// </summary>
         private const double SoundBarHalfWidthCeiling = 0.5 - SoundBarAnchorMarginFraction;
 
@@ -14034,12 +14064,21 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// changes, because presets are picked in the UI long before anything is queued - capturing
         /// only at queue time meant a portrait job's presets were computed against 16:9, and for the
         /// square styles on portrait that is the difference between a 4.50 % inset and a 0.00 % one.
-        /// 16:9 is kept as the value UNTIL the resolution is genuinely known (e.g. "Original" with no
+        /// 16:9 is used as the value UNTIL the resolution is genuinely known (e.g. "Original" with no
         /// probeable source), and <see cref="_soundBarCanvasAspectIsKnown"/> records which of the two
-        /// you are looking at so the UI can say so rather than presenting a guess as an answer.
+        /// you are looking at so the UI can say so rather than presenting a guess as an answer. On
+        /// the unknown path the field is RESET to that stand-in rather than retained, because the
+        /// tooltip and the log both claim 16:9 - a retained value would make both of them false.
         /// </para>
         /// </summary>
-        private double _soundBarCanvasAspect = 16.0 / 9.0;
+        private double _soundBarCanvasAspect = SoundBarCanvasAspectFallback;
+
+        /// <summary>
+        /// The documented stand-in used until the output size is resolvable. Named rather than
+        /// inlined at the three sites that reset to it, because a tooltip that says "tạm dùng 16:9"
+        /// is only true while this is the number actually in the field.
+        /// </summary>
+        private const double SoundBarCanvasAspectFallback = 16.0 / 9.0;
 
         /// <summary>Clamp range for <see cref="_soundBarCanvasAspect"/>; a 1-px probe must never reach it.</summary>
         private const double SoundBarCanvasAspectMin = 0.2;
@@ -14060,6 +14099,20 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         /// <summary>Guards <see cref="ProbeSoundBarSourceResolutionAsync"/> against overlapping probes.</summary>
         private bool _soundBarSourceProbeInFlight;
+
+        /// <summary>
+        /// Bumped by every entry to <see cref="ProbeSoundBarSourceResolutionAsync"/>. A probe only
+        /// writes its answer if its generation is still this one, so a selection that changes
+        /// mid-probe is never overwritten by the result for the file it replaced.
+        /// </summary>
+        private int _soundBarSourceProbeGeneration;
+
+        /// <summary>
+        /// Set when a selection arrives during a probe, so the latch defers it instead of dropping
+        /// it. Always paired with a <see cref="_soundBarSourceProbeGeneration"/> bump, which is what
+        /// makes the two checks in <see cref="ProbeSoundBarSourceResolutionAsync"/> equivalent.
+        /// </summary>
+        private bool _soundBarSourceProbeRerunRequested;
 
         private bool _soundBarApplyingSize;
 
@@ -14106,6 +14159,32 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             => Math.Clamp(percent, SoundBarSizeMin, SoundBarSizeMax);
 
         /// <summary>
+        /// Clamps a hand-typed WIDTH box value to the range the position presets can honour.
+        /// <para>
+        /// Pure and static for the same reason as <see cref="ClampSoundBarSizePercent"/>: the typed
+        /// box is the one input the slider cannot constrain, so its ceiling has to be verifiable by
+        /// calling it. Every reader of the width box goes through here - the anchor arithmetic, the
+        /// job mapping and the preview - because clamping in only one of the three would leave the
+        /// other two rendering a width the presets were never computed for.
+        /// </para>
+        /// </summary>
+        /// <param name="widthPercent">Width as a percent figure, i.e. the raw box text.</param>
+        internal static double ClampSoundBarTypedWidthPercent(double widthPercent)
+            => Math.Clamp(widthPercent, SoundBarSizeBoxMinPercent, SoundBarWidthPercentCap);
+
+        /// <summary>
+        /// Clamps a hand-typed HEIGHT box value. The height is the master of the size group, and it
+        /// has the same mid-edit hole the width had: the consumer used the raw box value for up to
+        /// 700 ms while the settle tick was pending, so a typed 96 rendered a 4.00 % inset under a
+        /// preset promising 4.50 %. Clamping at the consumer, not only in the box-sync, is what
+        /// makes "the anchors were computed from what is rendered" true at every instant rather than
+        /// only after the edit settles.
+        /// </summary>
+        /// <param name="heightPercent">Height as a percent figure, i.e. the raw box text.</param>
+        internal static double ClampSoundBarTypedHeightPercent(double heightPercent)
+            => Math.Clamp(heightPercent, SoundBarSizeBoxMinPercent, SoundBarHeightPercentCap);
+
+        /// <summary>
         /// The width / height pair a scale resolves to, in percent of the frame. Height is the
         /// reference (it is what limits circular styles) and the width follows the authored aspect, so
         /// a size slider position always yields the promised ratio.
@@ -14142,13 +14221,15 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             // hand edit is now moot. Cancelling here keeps that tick from firing against boxes it no
             // longer knows about - harmless (CommitSoundBarSizeBoxEdit recomputes and declines) but
             // one less thing to reason about.
-            try { _soundBarSizeEditCommitTimer?.Stop(); } catch { }
+            CancelSoundBarSizeEditCommit();
 
             _soundBarApplyingSize = true;
             try
             {
-                txtSoundBarHeightPercent.Text = height.ToString("0.##", CultureInfo.InvariantCulture);
-                txtSoundBarWidthPercent.Text = width.ToString("0.##", CultureInfo.InvariantCulture);
+                // Caret-preserving: this runs from the settle tick, which can land while the user is
+                // still typing in one of these very boxes.
+                SetSoundBarBoxText(txtSoundBarHeightPercent, height.ToString("0.##", CultureInfo.InvariantCulture));
+                SetSoundBarBoxText(txtSoundBarWidthPercent, width.ToString("0.##", CultureInfo.InvariantCulture));
                 if (sldSoundBarSize != null)
                     sldSoundBarSize.Value = clamped;
                 if (txtSoundBarSizeValue != null)
@@ -14202,7 +14283,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (_soundBarApplyingSize || sldSoundBarSize == null)
                 return;
 
-            double height = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent), 2.0, SoundBarHeightPercentCap);
+            double height = ClampSoundBarTypedHeightPercent(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent));
             double rawPercent = (height / SoundBarBaseHeightPercent) * 100.0;
             double percent = ClampSoundBarSizePercent(rawPercent);
 
@@ -14224,8 +14305,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             // preset label stays put, because they still ARE that preset at this size.
             ApplySoundBarPositionPreset();
 
-            // Deferred repair for a size the slider cannot express. Armed here, fired by the debounce.
-            if (Math.Abs(rawPercent - percent) > 0.005)
+            // Deferred repair for anything the size control cannot express. The WIDTH needs its own
+            // trigger: the slider is derived from the height, so an over-wide box never moved it and
+            // nothing armed the tick on the user's behalf - which is how a typed 99 % survived and
+            // collapsed the left / right presets to 0.5 % from the frame edge.
+            double typedWidth = ParsePercent(txtSoundBarWidthPercent?.Text, SoundBarBaseWidthPercent);
+            bool widthUnrepresentable = Math.Abs(typedWidth - ClampSoundBarTypedWidthPercent(typedWidth)) > 0.005;
+            if (widthUnrepresentable || Math.Abs(rawPercent - percent) > 0.005)
                 ArmSoundBarSizeEditCommit();
         }
 
@@ -14233,6 +14319,51 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private static readonly TimeSpan SoundBarSizeEditSettleDelay = TimeSpan.FromMilliseconds(700);
 
         private readonly DispatcherTimer _soundBarSizeEditCommitTimer;
+
+        /// <summary>
+        /// Writes a soundbar box's text without moving the caret.
+        /// <para>
+        /// Assigning <see cref="TextBox.Text"/> parks the caret at index 0 and drops any selection.
+        /// Measured: type "5", pause past the settle delay, and the tick rewrites "5.2" with the
+        /// caret at 0 - so the "0" of a fast "50" lands at the START and produces "05.2"; selecting
+        /// "38" and ticking produces "26". Skipping the write while the box holds the keyboard
+        /// focus is not an alternative either: the caret survives, but the box keeps advertising a
+        /// size nothing is rendering, which is the defect the settle tick exists to remove.
+        /// </para>
+        /// </summary>
+        private static void SetSoundBarBoxText(TextBox? box, string text)
+        {
+            if (box == null || string.Equals(box.Text, text, StringComparison.Ordinal))
+                return;
+
+            int caret = box.CaretIndex;
+            int selectionStart = box.SelectionStart;
+            int selectionLength = box.SelectionLength;
+
+            box.Text = text;
+
+            // The replacement can be shorter than the caret was, so both ends are clamped rather
+            // than trusted - Select throws ArgumentOutOfRangeException on an out-of-window range.
+            int max = box.Text.Length;
+            if (selectionLength > 0)
+            {
+                int start = Math.Clamp(selectionStart, 0, max);
+                box.Select(start, Math.Min(selectionLength, max - start));
+            }
+            else
+            {
+                box.CaretIndex = Math.Clamp(caret, 0, max);
+            }
+        }
+
+        /// <summary>
+        /// Cancels a pending settle-commit. Safe from any context, including before the timer is
+        /// constructed during <c>InitializeComponent</c>.
+        /// </summary>
+        private void CancelSoundBarSizeEditCommit()
+        {
+            try { _soundBarSizeEditCommitTimer?.Stop(); } catch { }
+        }
 
         private void ArmSoundBarSizeEditCommit()
         {
@@ -14268,15 +14399,27 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// express has SETTLED, and says so in the log.
         /// <para>
         /// Deferred, not per-keystroke, on purpose. Rewriting under an active caret is what the old
-        /// comment here called "fighting the edit", and it is worse than that: "5" -> "5.2" after the
-        /// pause before "0" turns a fast-typed "50" into "5.20". Waiting for a quiet period means a
-        /// user still typing is never interrupted, while a user who STOPS at "5" - having just been
-        /// handed a 20 % slider over a box that says 5 - gets the boxes corrected and a log line.
+        /// comment here called "fighting the edit", and it is worse than that: "5" -&gt; "5.2"
+        /// before the "0" of a fast "50" turns the typed value into "05.2". Two things stop that,
+        /// and both are load-bearing: the write waits for a quiet period, AND
+        /// <see cref="SetSoundBarBoxText"/> keeps the caret where the user left it. The first alone
+        /// was not enough - measured, a pause of only 700 ms between the two digits was enough to
+        /// park the caret at 0 and reverse the edit.
         /// </para>
         /// <para>
         /// The mirror is idempotent: after it runs, the boxes imply a scale inside
-        /// [SoundBarSizeMin, SoundBarSizeMax], so the next keystroke arms nothing and this never
-        /// runs twice for one edit.
+        /// [SoundBarSizeMin, SoundBarSizeMax], a width within
+        /// [SoundBarSizeBoxMinPercent, SoundBarWidthPercentCap] and a height within
+        /// [SoundBarSizeBoxMinPercent, SoundBarHeightPercentCap], so the next keystroke arms nothing
+        /// and this never runs twice for one edit.
+        /// </para>
+        /// <para>
+        /// A box the user is STILL TYPING IN is skipped outright, and re-armed by
+        /// <c>LostKeyboardFocus</c> instead. That is stronger than preserving the caret, and it has
+        /// to be: a caret-preserving rewrite of "5" still lands "5.2", so typing "5", pausing past
+        /// the settle delay and then typing "0" yields "50.2" rather than the "50" the user was
+        /// after. Only not touching the box until focus leaves can deliver that, and focus leaving
+        /// is exactly the point at which the number is finished.
         /// </para>
         /// </summary>
         private void CommitSoundBarSizeBoxEdit()
@@ -14287,25 +14430,72 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     txtSoundBarWidthPercent == null || txtSoundBarHeightPercent == null)
                     return;
 
-                double height = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent), 2.0, SoundBarHeightPercentCap);
-                double rawPercent = (height / SoundBarBaseHeightPercent) * 100.0;
-                double percent = ClampSoundBarSizePercent(rawPercent);
-                if (Math.Abs(rawPercent - percent) <= 0.005)
+                // The height is the master of the size group, so it is repaired first; the
+                // rewrite it triggers re-derives BOTH boxes from the scale, which settles the width
+                // too, because the footprint it writes is at most SoundBarWidthPercentCap wide by
+                // construction.
+                if (!txtSoundBarHeightPercent.IsKeyboardFocusWithin)
+                {
+                    double typedHeight = ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent);
+                    double height = ClampSoundBarTypedHeightPercent(typedHeight);
+                    double rawPercent = (height / SoundBarBaseHeightPercent) * 100.0;
+                    double percent = ClampSoundBarSizePercent(rawPercent);
+
+                    if (Math.Abs(rawPercent - percent) > 0.005)
+                    {
+                        // typedHeight, not height: the box still says what the user typed, and reporting
+                        // the already-clamped figure back to them would be a number they never entered.
+                        LogSystem($"[SOUNDBAR] Height box {typedHeight:0.##}% needs {rawPercent:0.##}%, which is outside the "
+                                  + $"{SoundBarSizeMin:0}%-{SoundBarSizeMax:0.##}% the size control covers at the "
+                                  + $"{SoundBarBaseWidthPercent:0}x{SoundBarBaseHeightPercent:0} footprint. The boxes now read "
+                                  + $"{SoundBarBaseHeightPercent * (percent / 100.0):0.##}% x {SoundBarBaseHeightPercent * (percent / 100.0) * SoundBarBaseAspect:0.##}% - "
+                                  + $"keeping {typedHeight:0.##}% would have rendered a figure that breaks that ratio. "
+                                  + $"The previous commit suppressed this line because it also fires mid-word; it fires here only once the edit has settled.");
+
+                        ApplySoundBarSizePercent(percent);
+                        return;
+                    }
+                }
+
+                // The height was expressible (or is mid-edit), so the scale never moved and only the
+                // width can still be out of range. Its ceiling is a different limit from the scale
+                // ceiling - that is the whole reason this branch exists.
+                if (txtSoundBarWidthPercent.IsKeyboardFocusWithin)
                     return;
 
-                LogSystem($"[SOUNDBAR] Height box {height:0.##}% needs {rawPercent:0.##}%, which is outside the "
-                          + $"{SoundBarSizeMin:0}%-{SoundBarSizeMax:0.##}% the size control covers at the "
-                          + $"{SoundBarBaseWidthPercent:0}x{SoundBarBaseHeightPercent:0} footprint. The boxes now read "
-                          + $"{SoundBarBaseHeightPercent * (percent / 100.0):0.##}% x {SoundBarBaseHeightPercent * (percent / 100.0) * SoundBarBaseAspect:0.##}% - "
-                          + $"keeping {height:0.##}% would have rendered a figure that breaks that ratio. "
-                          + $"The previous commit suppressed this line because it also fires mid-word; it fires here only once the edit has settled.");
+                double typedWidth = ParsePercent(txtSoundBarWidthPercent?.Text, SoundBarBaseWidthPercent);
+                double clampedWidth = ClampSoundBarTypedWidthPercent(typedWidth);
+                if (Math.Abs(typedWidth - clampedWidth) <= 0.005)
+                    return;
 
-                ApplySoundBarSizePercent(percent);
+                LogSystem($"[SOUNDBAR] Width box {typedWidth:0.##}% is over the {SoundBarWidthPercentCap:0.##}% ceiling "
+                          + $"the corner presets need in order to leave {SoundBarAnchorMarginFraction * 100:0.##}% of frame on both sides; "
+                          + $"past it a left and a right anchor collapse to the same centre. Clamped to {clampedWidth:0.##}%.");
+
+                SetSoundBarBoxText(txtSoundBarWidthPercent, clampedWidth.ToString("0.##", CultureInfo.InvariantCulture));
             }
             catch (Exception ex)
             {
                 LogSystem($"[SOUNDBAR-WARN] Size edit commit failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Re-arms the settle-commit when a size box loses the keyboard focus.
+        /// <para>
+        /// This is the other half of the focus rule in <see cref="CommitSoundBarSizeBoxEdit"/>: the
+        /// tick declines to rewrite a box the user is still in, so the repair has to be re-queued at
+        /// the moment the edit is over. Without it, a half-typed "5" that the user abandons by
+        /// clicking away would keep its 20 % slider forever.
+        /// </para>
+        /// </summary>
+        private void TxtSoundBarSizeBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (sender is not TextBox box)
+                return;
+
+            if (ReferenceEquals(box, txtSoundBarWidthPercent) || ReferenceEquals(box, txtSoundBarHeightPercent))
+                ArmSoundBarSizeEditCommit();
         }
 
         /// <summary>
@@ -14490,8 +14680,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (string.Equals(tag, SoundBarCustomPositionTag, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            double widthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, SoundBarBaseWidthPercent) / 100.0, 0.02, 1.0);
-            double heightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent) / 100.0, 0.02, 1.0);
+            double widthPercent = ClampSoundBarTypedWidthPercent(ParsePercent(txtSoundBarWidthPercent?.Text, SoundBarBaseWidthPercent)) / 100.0;
+            double heightPercent = ClampSoundBarTypedHeightPercent(ParsePercent(txtSoundBarHeightPercent?.Text, SoundBarBaseHeightPercent)) / 100.0;
 
             SoundBarStyleId styleId = SoundBarVisualizerPreset.FindStyle(GetSelectedSoundBarStyleId())?.Id
                 ?? SoundBarStyleId.NeonBars;
@@ -14507,9 +14697,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             try
             {
                 if (txtSoundBarXPercent != null)
-                    txtSoundBarXPercent.Text = (x * 100.0).ToString("0.##", CultureInfo.InvariantCulture);
+                    SetSoundBarBoxText(txtSoundBarXPercent, (x * 100.0).ToString("0.##", CultureInfo.InvariantCulture));
                 if (txtSoundBarYPercent != null)
-                    txtSoundBarYPercent.Text = (y * 100.0).ToString("0.##", CultureInfo.InvariantCulture);
+                    SetSoundBarBoxText(txtSoundBarYPercent, (y * 100.0).ToString("0.##", CultureInfo.InvariantCulture));
             }
             finally
             {
@@ -14575,6 +14765,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private void ChkEnableSoundBar_Changed(object sender, RoutedEventArgs e)
         {
+            // Turning the panel off ends the size edit: a tick landing afterwards would rewrite the
+            // boxes of a control the user can no longer see or reach, and would re-arm itself once.
+            CancelSoundBarSizeEditCommit();
+
             UpdateSoundBarUiState();
 
             if (chkEnableSoundBar?.IsChecked == true)
@@ -14708,10 +14902,18 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             width = (int)Math.Round(Math.Sqrt(SoundBarPreviewPixelBudget * aspect), MidpointRounding.AwayFromZero);
             height = (int)Math.Round(Math.Sqrt(SoundBarPreviewPixelBudget / aspect), MidpointRounding.AwayFromZero);
 
-            // Even sides only (some encoders dislike odd extents), and a floor so a 5:1 ultrawide
-            // cannot degenerate into a 16 px sliver.
-            width = Math.Clamp(width / 2 * 2, 64, 960);
-            height = Math.Clamp(height / 2 * 2, 64, 960);
+            // Even sides only (some encoders dislike odd extents).
+            //
+            // There is deliberately no further clamp. The one that used to be here, [64, 960], was
+            // unreachable and its comment was wrong on both counts: sweeping the allowed aspect
+            // range [SoundBarCanvasAspectMin, SoundBarCanvasAspectMax] gives sides spanning
+            // 160..804, so neither bound could ever engage, and it described the floor as stopping
+            // "a 5:1 ultrawide degenerating into a 16 px sliver" - the 5:1 side is 160 px, 4x the
+            // floor it was protecting. A side can only drop under 64 px at aspect < 0.032 or
+            // > 31.6, both far outside the clamp above. If either constant is ever widened, the
+            // bound has to come back with it.
+            width = width / 2 * 2;
+            height = height / 2 * 2;
         }
 
         private async Task RegenerateSoundBarPreviewAsync()
@@ -14731,8 +14933,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     PaletteId = (cmbSoundBarPalette?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ncs-cyan",
                     XPercent = ParsePercent(txtSoundBarXPercent?.Text, 50.0) / 100.0,
                     YPercent = ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0,
-                    WidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0),
-                    HeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0),
+                    WidthPercent = ClampSoundBarTypedWidthPercent(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0)) / 100.0,
+                    HeightPercent = ClampSoundBarTypedHeightPercent(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0)) / 100.0,
                     Opacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, SoundBarMinOpacity, SoundBarMaxOpacity),
                     Sensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, SoundBarMinSensitivity, SoundBarMaxSensitivity),
                     Smoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, SoundBarMinSmoothing, SoundBarMaxSmoothing),
@@ -14826,6 +15028,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (job == null)
                 return;
 
+            // A settle-commit still pending would repair the boxes AFTER this job was built from
+            // them, so the render would use the un-repaired figure and only the screen would show
+            // the corrected one. Cancelling is right rather than forcing the repair here: the boxes
+            // as they stand are the post-keystroke state the user last expressed, and queue time is
+            // not a settle point.
+            CancelSoundBarSizeEditCommit();
+
             CaptureSoundBarCanvasAspect(job);
             job.EnableSoundBar = chkEnableSoundBar?.IsChecked ?? false;
             job.SoundBarStyle = (cmbSoundBarStyle?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "neon-bars";
@@ -14833,8 +15042,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             job.SoundBarAudioSource = (cmbSoundBarAudioSource?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
             job.SoundBarXPercent = Math.Clamp(ParsePercent(txtSoundBarXPercent?.Text, 50.0) / 100.0, 0.0, 1.0);
             job.SoundBarYPercent = Math.Clamp(ParsePercent(txtSoundBarYPercent?.Text, 82.0) / 100.0, 0.0, 1.0);
-            job.SoundBarWidthPercent = Math.Clamp(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0) / 100.0, 0.02, 1.0);
-            job.SoundBarHeightPercent = Math.Clamp(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0) / 100.0, 0.02, 1.0);
+            job.SoundBarWidthPercent = ClampSoundBarTypedWidthPercent(ParsePercent(txtSoundBarWidthPercent?.Text, 62.0)) / 100.0;
+            job.SoundBarHeightPercent = ClampSoundBarTypedHeightPercent(ParsePercent(txtSoundBarHeightPercent?.Text, 26.0)) / 100.0;
             job.SoundBarOpacity = Math.Clamp(sldSoundBarOpacity?.Value ?? 1.0, SoundBarMinOpacity, SoundBarMaxOpacity);
             job.SoundBarSensitivity = Math.Clamp(sldSoundBarSensitivity?.Value ?? 1.0, SoundBarMinSensitivity, SoundBarMaxSensitivity);
             job.SoundBarSmoothing = Math.Clamp(sldSoundBarSmoothing?.Value ?? 1.0, SoundBarMinSmoothing, SoundBarMaxSmoothing);
@@ -14872,8 +15081,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (job == null || job.TargetWidth <= 0 || job.TargetHeight <= 0)
                 return;
 
-            if (TrySetSoundBarCanvasAspect(job.TargetWidth, job.TargetHeight, out _, out _))
-                _soundBarCanvasAspectIsKnown = true;
+            double previous = _soundBarCanvasAspect;
+            bool wasKnown = _soundBarCanvasAspectIsKnown;
+
+            // Stores the field. Queue time is the last point where the final TargetWidth /
+            // TargetHeight are both in hand, so if this disagrees with what the UI believed, the
+            // anchors have to be re-derived BEFORE ApplySoundBarSettingsToJob reads X / Y back off
+            // the boxes - otherwise the job renders the stale pair and only the screen recovers.
+            if (!TrySetSoundBarCanvasAspect(job.TargetWidth, job.TargetHeight, out _, out _))
+                return;
+
+            _soundBarCanvasAspectIsKnown = true;
+
+            if (Math.Abs(_soundBarCanvasAspect - previous) < 0.0005 && wasKnown)
+                return;
+
+            if (IsLoaded)
+                ApplySoundBarPositionPreset();
         }
 
         /// <summary>
@@ -14896,12 +15120,29 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             if (!TryGetSoundBarOutputSize(out int outW, out int outH, out string origin))
             {
-                // Nothing resolved yet (e.g. "Original" with no media loaded and no probe). Keep the
-                // 16:9 default - and SAY SO rather than presenting it as a measured answer.
+                // Nothing resolved yet (e.g. "Original" with no media loaded and no probe). Fall back
+                // to the documented 16:9 stand-in - and SAY SO rather than presenting it as a
+                // measured answer. The field is RESET, not retained: the tooltip below and the log
+                // line both promise 16:9, so leaving the last measured aspect in place would make
+                // both of them assert a number the presets are not actually using.
                 _soundBarCanvasAspectIsKnown = false;
+
+                bool moved = Math.Abs(SoundBarCanvasAspectFallback - previous) >= 0.0005;
+                if (moved)
+                {
+                    _soundBarCanvasAspect = SoundBarCanvasAspectFallback;
+                    LogSystem($"[SOUNDBAR] Output resolution no longer resolvable; position presets are back on the 16:9 default.");
+                }
+                else if (wasKnown)
+                {
+                    LogSystem($"[SOUNDBAR] Output resolution no longer resolvable; position presets already used the 16:9 default.");
+                }
+
                 UpdateSoundBarCanvasTooltip();
-                if (wasKnown)
-                    LogSystem("[SOUNDBAR] Output resolution no longer resolvable; position presets are back on the 16:9 default.");
+
+                // The anchors were derived from the old aspect, so they are now stale - re-apply.
+                if (moved && IsLoaded)
+                    ApplySoundBarPositionPreset();
                 return;
             }
 
@@ -14950,11 +15191,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 width = _soundBarSourceWidth;
                 height = _soundBarSourceHeight;
-
-                // Mirror the queue-time portrait-preservation rule so the UI resolves "Original"
-                // to the same canvas the render will actually use.
-                if (height > width)
-                    (width, height) = EngineCore.AutoOrientResolution(width, height);
                 return true;
             }
 
@@ -14981,8 +15217,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         /// <summary>
         /// Applies a candidate canvas to <see cref="_soundBarCanvasAspect"/>.
+        /// <para>
+        /// It STORES the field, and that is why it is an instance method rather than a static one
+        /// with an <c>out</c> parameter. It used to be exactly that: <c>STFIELD
+        /// _soundBarCanvasAspect</c> appeared precisely once in the shipped IL, in the constructor
+        /// initialiser, so every caller read the 16:9 the field was born with and the whole
+        /// "refresh the stale canvas aspect" fix was inert. Measured live, the field stayed 1.7778
+        /// while the output was 1080x1920 (0.5625), and the six squared styles put a left or right
+        /// preset 0.00 % from the frame edge instead of 4.50 %.
+        /// </para>
         /// </summary>
-        private static bool TrySetSoundBarCanvasAspect(int width, int height, out double aspect, out string description)
+        private bool TrySetSoundBarCanvasAspect(int width, int height, out double aspect, out string description)
         {
             aspect = 0;
             description = string.Empty;
@@ -14995,6 +15240,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 return false;
 
             double clamped = Math.Clamp(candidate, SoundBarCanvasAspectMin, SoundBarCanvasAspectMax);
+            _soundBarCanvasAspect = clamped;
             aspect = clamped;
             description = $"{width}x{height}";
             return true;
@@ -15034,65 +15280,48 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         /// at all", is now caught and surfaced instead of silently reading as 16:9.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// Entry point for the probe. Owns the latch, the generation counter and the refresh.
+        /// <para>
+        /// The generation counter exists because the latch used to be a latch and nothing else. A
+        /// second media selection arriving while a probe was in flight was discarded outright, and
+        /// the in-flight probe then wrote the PREVIOUS file's dimensions - which nothing ever
+        /// re-probed, so "Original" stayed wrong for the rest of the session. Now every entry bumps
+        /// <see cref="_soundBarSourceProbeGeneration"/> and asks for a re-run instead of dropping
+        /// the request, and a probe only applies its answer if it is still the newest one. That
+        /// invariant is what makes the discard safe: generation can only change via another entry,
+        /// which always sets the re-run flag, so "my generation is stale" and "a re-run is
+        /// queued" are the same condition.
+        /// </para>
+        /// <para>
+        /// The refresh goes through <see cref="RefreshSoundBarCanvasAspectSafely"/> because this is
+        /// an <c>async void</c>: an exception thrown by the tail call lands on the dispatcher, where
+        /// nothing catches it, and takes the process down with it.
+        /// </para>
+        /// </summary>
         private async void ProbeSoundBarSourceResolutionAsync()
         {
+            // Bumped before the in-flight check, so a request that is about to be deferred still
+            // invalidates the probe it is superseding.
+            int generation = ++_soundBarSourceProbeGeneration;
+
             if (_soundBarSourceProbeInFlight)
-                return;
-
-            string? source = _listVideoPaths?.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p));
-            if (source == null)
             {
-                _soundBarSourceWidth = 0;
-                _soundBarSourceHeight = 0;
-                RefreshSoundBarCanvasAspect();
-                return;
-            }
-
-            if (!File.Exists(source))
-            {
-                // Clear rather than keep whatever the previous media probed to: a stale pair would be
-                // presented as a live answer for a file that is no longer there.
-                _soundBarSourceWidth = 0;
-                _soundBarSourceHeight = 0;
-                LogSystem($"[SOUNDBAR-WARN] Cannot probe '{Path.GetFileName(source)}' - file not found; 'Original' resolution stays unresolved.");
-                RefreshSoundBarCanvasAspect();
+                _soundBarSourceProbeRerunRequested = true;
                 return;
             }
 
             _soundBarSourceProbeInFlight = true;
             try
             {
-                (int Width, int Height) size = await EngineCore.GetVideoResolutionAsync(source);
-
-                // GetVideoResolutionAsync reports (1920, 1080) both for a real 16:9 file and for every
-                // failure it hides. ffprobe availability is the one discriminator available here.
-                bool ffprobeAvailable = EngineCore.IsFfprobeAvailable;
-                if (!ffprobeAvailable && !IsImageSourcePath(source))
-                {
-                    _soundBarSourceWidth = 0;
-                    _soundBarSourceHeight = 0;
-                    LogSystem("[SOUNDBAR-WARN] ffprobe not found; cannot resolve 'Original' output resolution. "
-                              + "Soundbar position presets are using the 16:9 default until a resolution is chosen explicitly.");
-                    RefreshSoundBarCanvasAspect();
-                    return;
-                }
-
-                if (size.Width <= 0 || size.Height <= 0)
-                {
-                    _soundBarSourceWidth = 0;
-                    _soundBarSourceHeight = 0;
-                    RefreshSoundBarCanvasAspect();
-                    return;
-                }
-
-                _soundBarSourceWidth = size.Width;
-                _soundBarSourceHeight = size.Height;
-                LogSystem($"[SOUNDBAR] Source probed at {size.Width}x{size.Height} for 'Original' resolution.");
+                await ProbeSoundBarSourceResolutionCoreAsync(generation);
             }
             catch (Exception ex)
             {
-                _soundBarSourceWidth = 0;
-                _soundBarSourceHeight = 0;
+                // Unreachable from inside the Core (it has no throw of its own), but GetVideoResolutionAsync
+                // is a shared helper whose contract is not ours to widen, and this is an async void:
+                // anything that escapes lands on the dispatcher and ends the process.
+                ClearSoundBarSourceSize(generation);
                 LogSystem($"[SOUNDBAR-WARN] Source probe failed ({ex.Message}); 'Original' resolution unresolved.");
             }
             finally
@@ -15100,7 +15329,107 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 _soundBarSourceProbeInFlight = false;
             }
 
-            RefreshSoundBarCanvasAspect();
+            if (_soundBarSourceProbeRerunRequested)
+            {
+                _soundBarSourceProbeRerunRequested = false;
+                // Re-enter rather than recurse: the stack here is one frame deep and bounded, but
+                // this keeps the probe work off whatever continuation ran the previous one.
+                ProbeSoundBarSourceResolutionAsync();
+                return;
+            }
+
+            RefreshSoundBarCanvasAspectSafely();
+        }
+
+        /// <summary>
+        /// The probe itself. Every write to <see cref="_soundBarSourceWidth"/> is gated on
+        /// <paramref name="generation"/> still being current, so a superseded probe contributes
+        /// nothing rather than leaving a stale pair for the re-run to overwrite.
+        /// </summary>
+        private async Task ProbeSoundBarSourceResolutionCoreAsync(int generation)
+        {
+            string? source = _listVideoPaths?.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p));
+            if (source == null)
+            {
+                ClearSoundBarSourceSize(generation);
+                return;
+            }
+
+            if (!File.Exists(source))
+            {
+                // Clear rather than keep whatever the previous media probed to: a stale pair would be
+                // presented as a live answer for a file that is no longer there.
+                ClearSoundBarSourceSize(generation);
+                if (generation == _soundBarSourceProbeGeneration)
+                    LogSystem($"[SOUNDBAR-WARN] Cannot probe '{Path.GetFileName(source)}' - file not found; 'Original' resolution stays unresolved.");
+                return;
+            }
+
+            (int Width, int Height) size = await EngineCore.GetVideoResolutionAsync(source);
+            if (generation != _soundBarSourceProbeGeneration)
+                return;
+
+            // GetVideoResolutionAsync reports (1920, 1080) both for a real 16:9 file and for every
+            // failure it hides. ffprobe availability is the one discriminator available here.
+            bool ffprobeAvailable = EngineCore.IsFfprobeAvailable;
+            if (!ffprobeAvailable && !IsImageSourcePath(source))
+            {
+                ClearSoundBarSourceSize(generation);
+                LogSystem("[SOUNDBAR-WARN] ffprobe not found; cannot resolve 'Original' output resolution. "
+                          + "Soundbar position presets are using the 16:9 default until a resolution is chosen explicitly.");
+                return;
+            }
+
+            if (size.Width <= 0 || size.Height <= 0)
+            {
+                ClearSoundBarSourceSize(generation);
+                return;
+            }
+
+            // The failure sentinel is indistinguishable from a genuine 1920x1080 source, so the
+            // honest answer is "unknown" rather than whichever of the two it happened to be. This
+            // costs nothing geometrically: the stand-in the unknown path falls back to is itself
+            // 16:9, so every anchor resolves exactly as it would have for a real 1920x1080 file.
+            // The previous code claimed the measurement regardless, so a probe that failed read as
+            // a confirmed 1.778 in the tooltip.
+            if (!IsImageSourcePath(source) && size.Width == 1920 && size.Height == 1080)
+            {
+                ClearSoundBarSourceSize(generation);
+                LogSystem($"[SOUNDBAR] Probe of '{Path.GetFileName(source)}' returned 1920x1080, which is also what a "
+                          + "failed probe returns, so it cannot be told apart from a real 16:9 source. Treating 'Original' "
+                          + "as unresolved; the 16:9 stand-in gives identical position presets either way.");
+                return;
+            }
+
+            _soundBarSourceWidth = size.Width;
+            _soundBarSourceHeight = size.Height;
+            LogSystem($"[SOUNDBAR] Source probed at {size.Width}x{size.Height} for 'Original' resolution.");
+        }
+
+        private void ClearSoundBarSourceSize(int generation)
+        {
+            if (generation != _soundBarSourceProbeGeneration)
+                return;
+
+            _soundBarSourceWidth = 0;
+            _soundBarSourceHeight = 0;
+        }
+
+        /// <summary>
+        /// <see cref="RefreshSoundBarCanvasAspect"/> reached from an <c>async void</c> continuation.
+        /// It reads and writes live controls and appends to the log, and an exception escaping one
+        /// of those onto the dispatcher is unrecoverable, so every tail call goes through here.
+        /// </summary>
+        private void RefreshSoundBarCanvasAspectSafely()
+        {
+            try
+            {
+                RefreshSoundBarCanvasAspect();
+            }
+            catch (Exception ex)
+            {
+                LogSystem($"[SOUNDBAR-WARN] Canvas aspect refresh failed: {ex.Message}");
+            }
         }
 
         /// <summary>
