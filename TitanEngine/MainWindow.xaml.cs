@@ -16272,7 +16272,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 return;
             }
 
-            if (_localApiRenderLock.CurrentCount == 0)
+// This used to PEEK at the render lock and then carry on holding nothing, so a UI batch
+            // and an API job could render at the same time - two ffmpeg processes at default
+            // thread counts on six cores, which is the 97-100 % CPU. ExecuteRenderAsync has no
+            // lock of its own, so this check was the only thing standing between them. Take
+            // the lock for the whole batch instead of asking whether it happens to be free.
+            if (!await _localApiRenderLock.WaitAsync(0))
             {
                 MessageBox.Show("API host is rendering a job. Please wait.", "Host Busy", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -16377,6 +16382,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
             finally
             {
+                // The batch held the shared render lock for its whole run; give it back here so an
+                // API request that arrived while it was working is not rejected forever.
+                if (_localApiRenderLock.CurrentCount == 0)
+                    _localApiRenderLock.Release();
+
                 _isBatchRunning = false;
                 if (btn != null && _originalStartBtnContent != null)
                 {
@@ -19260,7 +19270,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         Done = false,
                         Success = false,
                         Progress = p,
-                        Message = "Processing",
+                        // The percentage was already in `Progress` and updating 139 times over a
+                        // job, but `message` never carried it - and the API guide documents
+                        // `message`, so a client rendering it watched "Processing" forever.
+                        Message = $"Processing {p:F1}%",
                         RequestedOutput = outputPath,
                         InputFile = job.SourcePath,
                         InputFiles = BuildInputFilesForJob(job),

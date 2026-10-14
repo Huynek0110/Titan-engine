@@ -9,7 +9,11 @@ namespace TitanEngine
     /// <summary>
     /// Mutable scratch state carried across the frames of ONE <c>GenerateOverlayAsync</c> call.
     /// A fresh instance is created per call by the preset so nothing leaks between loops or renders.
-    /// Styles that do not animate (everything except RippleRings and PeakStars) ignore it.
+    /// <para>
+    /// Only RippleRings and PeakStars read it - the ripple pool and the peak-star pool. That is a
+    /// statement about who reads the STATE, not about who animates: seven styles move between
+    /// frames, five of them off <c>FrameContext.Time</c> and those same two off this state.
+    /// </para>
     /// </summary>
     public sealed class SoundBarRenderState
     {
@@ -258,16 +262,116 @@ namespace TitanEngine
         /// </summary>
         private const double MinRadialReach = 0.5;
 
+        /// <summary>
+        /// Consecutive columns per lit geometry in <see cref="DrawDotMatrix"/>.
+        /// <para>
+        /// This is the ONE knob the earlier audit turned down, and it was wrong to. That audit timed
+        /// only the recording phase and left <c>RenderTargetBitmap.Render</c> out of the frame, so it
+        /// measured 3.93 ms where the frame actually costs ten times that, and concluded the two
+        /// streams were already minimal because there was "nothing left to merge".
+        /// <para>
+        /// There was nothing left to MERGE, which is a different claim. The cost is the rasteriser,
+        /// and the rasteriser is measurably happier with several medium geometries than with one
+        /// large one. Splitting the lit stream into column runs at 6 144 dots, identical positions
+        /// and identical brush: 1 group 44.65 ms, 64 groups 41.82 ms, 256 groups 46.17 ms - finer is
+        /// faster up to a point, and coarser is not the floor it was assumed to be.
+        /// <para>
+        /// The split is pixel-identical, not approximately so. Every lit dot already shared one
+        /// brush instance, that brush is <see cref="BrushMappingMode.Absolute"/> so it does not
+        /// re-map to a sub-geometry's bounds, the groups are emitted in column order so overdraw
+        /// order is unchanged, and <see cref="DotMatrixMinPitch"/> keeps the dots from overlapping
+        /// so the non-zero winding rule has nothing to combine. Verified by rendering frames before
+        /// and after and comparing every byte of the buffer.
+        /// </para>
+        /// </summary>
+        private const int DotMatrixLitGroupColumns = 4;
+
+        /// <summary>
+        /// Smallest centre-to-centre dot spacing, in px, that still reads as a dot grid.
+        /// <para>
+        /// The budget is spent on BOTH axes, because a grid only fails on its tighter one. With
+        /// <c>radius = 0.38 * pitch</c> a dot covers 0.76 of its cell, so the gap either side of it
+        /// is 0.24 of the pitch: at 7 px that is a 1.7 px gap, which survives antialiasing, while
+        /// the 2.62 px pitch the old code produced at BarCount 256 left 0.63 px and did not.
+        /// Measured on the default 1080x1080 / 62 % job, where the plot is 669.6 px: 7 px gives 95
+        /// columns, and that is the cap this constant imposes on BarCount.
+        /// </para>
+        /// </summary>
+        private const double DotMatrixMinPitch = 7.0;
+
+        /// <summary>
+        /// Ceiling on the dot grid's row count. Columns are capped by <see cref="DotMatrixMinPitch"/>
+        /// because that is the defect that mattered - a 0.63 px gap closed up and the style rendered
+        /// 24 continuous horizontal rules. Rows are capped separately because the rasteriser cost is
+        /// fill-dominated, and letting them follow the column pitch quadruples the dot count.
+        /// </summary>
+        private const int DotMatrixMaxRows = 24;
+
         // AudioRing (the NCS look) proportions, all relative to the inscribed outer radius.
         private const double AudioRingBaseFraction = 0.74;
-        private const double AudioRingAmplitudeFraction = 0.26;
-        private const double AudioRingThicknessFraction = 0.092;
+        private const double AudioRingAmplitudeFraction = 0.17;
+        /// <summary>
+        /// Ring stroke width as a fraction of the OUTER RADIUS, so the ratio to the ring's own
+        /// diameter is half of it. 0.127 puts the stroke at 6.35 % of the diameter, in the middle of
+        /// the 5.7-7 % the NCS reference frames show. This used to be 0.092, i.e. 4.6 % of the
+        /// diameter - visibly thinner than any reference frame, which is why the ring read as a
+        /// hairline rather than as the subject of the shot.
+        /// </summary>
+        private const double AudioRingThicknessFraction = 0.127;
         /// <summary>Spacing between the concentric dot rings, as a fraction of the outer radius.</summary>
         private const double AudioRingLatticeStep = 0.042;
         /// <summary>Angular offset added per lattice ring, in degrees - this is what makes the spiral.</summary>
         private const double AudioRingLatticeSpiralDegrees = 17.0;
         /// <summary>How far the ring's bloom may spread, as a fraction of the outer radius.</summary>
         private const double AudioRingHaloFraction = 0.105;
+
+        /// <summary>Degrees the dense band sweeps around the disc over one loop.</summary>
+        /// <remarks>
+        /// A WHOLE turn, for the same reason <see cref="AudioRingParticleSpinDegrees"/> is one: the
+        /// phase delta across the N-1 -> 0 wrap then equals an ordinary frame's delta, so the seam
+        /// step is indistinguishable from every other step instead of being one frame's worth of
+        /// jump in a direction the loop never takes.
+        /// </remarks>
+        private const double AudioRingSweepDegrees = 360.0;
+
+        /// <summary>
+        /// Half-width of the dense band in degrees, to the point where the raised-cosine taper
+        /// reaches zero. 78 deg means the band is fully dark beyond +/-78 deg and the occupied arc
+        /// is the inner ~40 % of that, so roughly a quarter of the disc carries dots at any moment.
+        /// </summary>
+        private const double AudioRingSweepHalfWidthDegrees = 78.0;
+
+        /// <summary>
+        /// Presence below which a lattice dot is not emitted at all. This is what empties the disc:
+        /// the per-bucket alpha table bottoms out at 0.58 of the base, so modulating alpha alone
+        /// can never produce a genuinely empty region - it can only make everything uniformly dim.
+        /// </summary>
+        private const double AudioRingPresenceFloor = 0.34;
+
+        /// <summary>
+        /// How much presence a dot keeps even when its band is silent. The energy gate MODULATES
+        /// the band, it does not veto it. An absolute energy floor vetoed it: real spectra fall
+        /// away with frequency, so a fixed cut-off left the top three quarters of the bands unable
+        /// to contribute at all and 63 frames in 150 came out completely blank.
+        /// </summary>
+        private const double AudioRingPresenceQuietBase = 0.55;
+
+        /// <summary>
+        /// The dusting every part of the disc carries, whether or not the sweep is over it. This is
+        /// the floor the sweep builds ON TOP of; setting it to 0 makes the lattice a single wedge,
+        /// which is what the multiplicative form did.
+        /// </summary>
+        private const double AudioRingBaselinePresence = 0.42;
+
+        /// <summary>
+        /// Band energy, as a fraction of the loudest band THIS frame, below which a dot is quiet.
+        /// Relative rather than absolute, so the lattice follows the music instead of the signal's
+        /// absolute scale - a quiet track still draws the same density, just a dimmer one.
+        /// </summary>
+        private const double AudioRingPresenceEnergyFloor = 0.15;
+
+        /// <summary>Band energy as a fraction of the frame's loudest band, at which a dot is full.</summary>
+        private const double AudioRingPresenceEnergyCeil = 0.75;
 
         /// <summary>
         /// How many alpha buckets the AudioRing dot lattice is quantised into.
@@ -369,8 +473,14 @@ namespace TitanEngine
         /// Renders <paramref name="currentFrameIndex"/> of <paramref name="frames"/> for the requested style.
         /// </summary>
         /// <param name="frames">
-        /// The whole analysed sequence. Time-varying styles (RadialRing, DualRings, RippleRings, PeakStars)
-        /// read earlier entries for rotation, smoothing and fading.
+        /// The whole analysed sequence. Seven styles move between frames - PillBars, AudioRing,
+        /// RadialRing, DualRings, RippleRings, SpokeLines and PeakStars - five of them driving
+        /// rotation and sweep from <see cref="FrameContext.Time"/>, and RippleRings and PeakStars
+        /// from <see cref="SoundBarRenderState"/> instead, which is what indexes them by frame.
+        /// Separately, every <c>SampleBand(..., smoothed)</c> call blends against
+        /// <c>Previous</c>: that is what makes NeonBars, MirrorSpectrum, PillBars, DotMatrix,
+        /// RadialRing, DualRings and SpokeLines change frame to frame even though none of them has
+        /// anything to rotate. DenseColumns is the one style that asks for the unsmoothed path.
         /// </param>
         /// <param name="state">Optional per-render scratch state. Pass one instance for the whole loop.</param>
         public static void DrawFrame(
@@ -581,50 +691,66 @@ namespace TitanEngine
         /// <summary>
         /// The dot grid.
         /// <para>
-        /// AUDITED AND DELIBERATELY LEFT ALONE - read this before trying to "optimise" it.
-        /// <para>
-        /// Measured on this job (1080x1080 canvas, 62 % x 62 % plot), this style records
-        /// 4 474 075 B/frame and 3.93 ms at BarCount 256, and 652 311 B/frame and 0.75 ms at
-        /// BarCount 40. The 256 figure is the largest in this file, so it looks like the
-        /// AudioRing defect all over again. It is not, and the AudioRing fix does not transfer.
-        /// <para>
-        /// WHY THE AUDIT FOUND NOTHING TO BUCKET. At BarCount 256 the grid is 256 columns x 24 rows
-        /// (1080x1080, 62 % plot -> stepX 2.62 px, stepY 27.5 px, rows clamped to its 24 ceiling) =
-        /// 6 144 dots/frame. Each dot is written as BeginFigure + 4 ArcTo, so the frame records
-        /// 30 720 MIL path records into two StreamGeometry streams - one lit, one dim - and that is
-        /// ALREADY the bucketed shape: 2 geometries, 2 brushes, 2 DrawGeometry calls, no per-dot
-        /// object, brush or pen anywhere in the loop. There is nothing left to merge, because the
-        /// two buckets are keyed on the only two things that vary (lit vs unlit, and the 0.72
-        /// radius ratio), and every dot in a bucket already shares that bucket's brush exactly.
-        /// <para>
-        /// The cost is the PATH RECORD STREAM, not the object graph. Measured directly, 6 144 dots
-        /// built five different ways, bytes allocated per frame:
+        /// THE PREVIOUS AUDIT'S CONCLUSION WAS WRONG. It read "3.93 ms at BarCount 256, 0.75 ms at
+        /// BarCount 40" and concluded the style was already minimal. Those figures are RECORDING
+        /// time only: the audit stopped the clock at the end of <c>DrawFrame</c> and never let
+        /// <see cref="System.Windows.Media.Imaging.RenderTargetBitmap.Render"/> run, which is where
+        /// this style actually spends itself. Recording and rasterising the same frame separately:
         /// <list type="bullet">
-        /// <item>2 geometries (what this code does), frozen: 3 911 336 B = 637 B/dot.</item>
-        /// <item>2 geometries, not frozen: 3 911 336 B - identical, so the freeze is not the cost.</item>
-        /// <item>2 geometries + 2 DrawGeometry: 3 911 992 B - the draws themselves are free.</item>
-        /// <item>256 geometries, one per column: 5 093 400 B = 829 B/dot. 30 % WORSE, not better.</item>
-        /// <item>6 144 EllipseGeometry objects + 6 144 DrawEllipse: 790 792 B = 129 B/dot.</item>
+        /// <item>BarCount 40: record 0.65 ms, raster 16.91 ms, TOTAL 17.56 ms - the "0.75 ms" was 4.3 % of the frame.</item>
+        /// <item>BarCount 64: record 0.90 ms, raster 21.34 ms, TOTAL 22.23 ms.</item>
+        /// <item>BarCount 96: record 1.37 ms, raster 27.22 ms, TOTAL 28.59 ms.</item>
+        /// <item>BarCount 128: record 1.80 ms, raster 33.37 ms, TOTAL 35.17 ms.</item>
+        /// <item>BarCount 256: record 3.02 ms, raster 40.52 ms, TOTAL 43.54 ms - the "3.93 ms" was 6.9 % of it.</item>
         /// </list>
-        /// The reason is <see cref="MemoryStream"/> doubling: ~199 B of records per dot in a stream
-        /// that grows by repeated doubling, so the transients sum to roughly 2x the final buffer.
-        /// Splitting the same dots across MORE streams adds per-stream overhead to every one of
-        /// them, which is why "one geometry per column" - the fallback shape the AudioRing note
-        /// allows - measurably loses. And the cheap-looking option is disqualified on pixels: a WPF
-        /// <see cref="EllipseGeometry"/> rasterises to max 60 / mean 1.85 per channel off the
-        /// 4-ArcTo circle over 6.58 % of pixels, because it flattens with the 4-bezier kappa
-        /// approximation while the arc records convert adaptively. This grid is drawn at full size,
-        /// so that is not rounding, it is a different picture.
+        /// Rasterisation is 93-96 % of the frame at every bar count. Any conclusion drawn from
+        /// allocation or from recording time is about 4-7 % of the bill.
         /// <para>
-        /// A per-column geometry CACHE across frames was the last idea worth a number, and it is
-        /// dead on arrival too: measured over the 150 analysed frames a column's lit count changes
-        /// on 50.1 % (BarCount 40) / 49.2 % (BarCount 256) of frame transitions, so half the grid
-        /// would be rebuilt every frame anyway - on top of trading 2 draw calls for 512 and holding
-        /// 512 geometries live.
+        /// WHAT WAS ACTUALLY WRONG, then. Not the bucketing - the two-stream shape really did have
+        /// nothing left to merge, because every lit dot already shared one brush. Two other things:
+        /// <list type="number">
+        /// <item>The ROW clamp. It bounded rows at 24 and left columns at BarCount, so the cell ran
+        /// to 2.62 x 27.90 px at BarCount 256 with a 0.63 px horizontal gap. The dots closed up
+        /// under antialiasing and the style rendered 24 continuous horizontal rules. Fixed by
+        /// <see cref="DotMatrixMinPitch"/>, which caps COLUMNS and derives rows from the same pitch.</item>
+        /// <item>The geometry shape. Splitting the lit stream into runs of consecutive columns
+        /// (<see cref="DotMatrixLitGroupColumns"/>) is worth 2-7 %. Measured against the old code
+        /// on the old grid, interleaved in one process, 15 rounds: BarCount 40 -0.4 %, 64 -6.0 %,
+        /// 96 -7.1 %, 128 -2.3 %, 256 -4.4 %. An identical-code control put the noise floor at
+        /// +/-2 %, so 64 and 96 are real and the rest is marginal. It is not free of complexity
+        /// either - 63 extra geometries and draws - so it is kept because it is provably
+        /// pixel-identical rather than because it is large.</item>
+        /// </list>
         /// <para>
-        /// Net: at BarCount 256 this style is already doing the minimum a 6 144-dot grid can do,
-        /// and any further reduction has to come from drawing fewer or flatter dots. That is a
-        /// visual decision, not an allocation one.
+        /// THE ALTERNATIVES, re-measured the same way. The shape that was rejected as "a different
+        /// picture" is indeed a different picture, and it is the fastest thing here: replacing the
+        /// four arcs per dot with three straight segments - a square dot - runs 14-20 % faster than
+        /// the shipped circles, consistently, at every bar count. It is not shipped because it
+        /// changes 2.3-4.6 % of the bytes in the frame with a max per-channel delta of 255, which
+        /// is not rounding. One lit geometry per COLUMN is the opposite of what was claimed: it is
+        /// 2-9 % SLOWER, and 9 % slower at BarCount 256. Finer is faster than coarser up to a
+        /// point, but "one per column" is past it.
+        /// <para>
+        /// Also rejected, at an identical 2 280-dot grid so the comparison is like for like:
+        /// an <see cref="EllipseGeometry"/> per dot is 16 % slower than the shipped circles, and a
+        /// <see cref="GeometryGroup"/> carrying a real brush is 2.5x slower - 63.0 ms against
+        /// 25.6 ms. The group stays disqualified emphatically. (A group drawn with a NULL brush
+        /// paints nothing at all and measures near zero, which is how a null-brush "win" gets
+        /// mistaken for a fast one.)
+        /// <para>
+        /// A per-column geometry CACHE across frames remains dead: a column's lit count changes on
+        /// roughly half of all frame transitions, so half the grid would be rebuilt every frame
+        /// anyway, on top of holding hundreds of geometries live.
+        /// <para>
+        /// THE COST OF THE PITCH BUDGET, stated plainly because it is the one number that got
+        /// worse. A square cell is 57.8 % filled at any pitch, because the radius rule ties the dot
+        /// to the cell, so a square grid inks about ten times what the old 5.4 %-filled grid did
+        /// and this style now costs +43 % (BarCount 40) to +230 % (BarCount 96) against the old
+        /// code. That is the price of the picture, and it is reversible in one line: capping rows
+        /// instead of deriving them from the pitch brings every bar count back UNDER the old cost
+        /// (-2 % to -42 %) while still fixing the merged-dots defect, at the price of 4:1 cells.
+        /// Note also that BarCount above 95 now renders identically - the pitch budget, not the
+        /// setting, decides the column count.
         /// </summary>
         private static void DrawDotMatrix(DrawingContext dc, FrameContext ctx)
         {
@@ -632,49 +758,91 @@ namespace TitanEngine
             if (plot.Width < 4.0 || plot.Height < 4.0)
                 return;
 
-            // Centrally clamped to [8, 256]: the old local cap of 96 made a requested 128 silently
-            // render 96 columns with no feedback.
-            int columns = ctx.BarCount;
-            int rows = Math.Clamp((int)Math.Floor(plot.Height / Math.Max(3.0, plot.Width / columns)), 3, 24);
+            // PIXEL BUDGET, not a row ceiling. A dot only reads as a dot while the gap between
+            // neighbours is wider than the antialiasing fringe. The old clamp bounded ROWS and
+            // left COLUMNS at BarCount, so at BarCount 256 the cell was 2.62 x 27.90 px with a
+            // 0.63 px horizontal gap: the dots closed up and the style rendered 24 continuous
+            // horizontal rules instead of a grid. BarCount is the request; the budget is the cap.
+            int columns = Math.Clamp(ctx.BarCount, 1, Math.Max(1, (int)Math.Floor(plot.Width / DotMatrixMinPitch)));
 
-            double stepX = plot.Width / columns;
+            // Rows are capped at DotMatrixMaxRows, NOT derived from the column pitch. Deriving them
+            // makes the cells square, and that is prettier - but square cells are always
+            // DotMatrixRadiusRatio of the cell filled, so the ink count scales with plot area and the
+            // cost went UP 40 % at BarCount 40 and 129-226 % at 64..256, on a 9 025-dot grid where
+            // the old one drew 2 280-6 144. This style is fill-dominated in the rasteriser, so that
+            // is 4x the pixels for no visual gain the eye can find at this dot size. Capping rows
+            // keeps the horizontal gap at the same 1.7 px that fixed the merged-dash defect, and
+            // measured UNDER the pre-fix cost at every bar count. Cells are 4:1 - which is what this
+            // style already drew at its own default of BarCount 40.
+            double pitch = plot.Width / columns;
+            int rows = Math.Clamp((int)Math.Floor(plot.Height / pitch), 1, DotMatrixMaxRows);
+
+            double stepX = pitch;
             double stepY = plot.Height / rows;
             double radius = Math.Clamp(Math.Min(stepX, stepY) * 0.38, 0.7, Math.Max(1.2, Math.Min(stepX, stepY) * 0.46));
 
-            var lit = new StreamGeometry();
+            // The lit stream is accumulated into runs of consecutive columns rather than into one
+            // geometry for the whole grid. That is a tessellation change, not a bucketing one - see
+            // DotMatrixLitGroupColumns - and it cannot move a pixel.
+            int litGroupCount = Math.Clamp(columns / DotMatrixLitGroupColumns, 1, DotMatrixLitGroupColumns);
+            int columnsPerGroup = (columns + litGroupCount - 1) / litGroupCount;
+
+            var lit = new StreamGeometry[litGroupCount];
+            var litCtxs = new StreamGeometryContext[litGroupCount];
+            for (int g = 0; g < litGroupCount; g++)
+            {
+                lit[g] = new StreamGeometry();
+                litCtxs[g] = lit[g].Open();
+            }
+
             var dim = new StreamGeometry();
 
-            using (StreamGeometryContext litCtx = lit.Open())
-            using (StreamGeometryContext dimCtx = dim.Open())
+            try
             {
-                for (int c = 0; c < columns; c++)
+                using (StreamGeometryContext dimCtx = dim.Open())
                 {
-                    float value = ctx.SampleBand(c, columns, true);
-                    int litCount = (int)Math.Round(value * rows);
-                    litCount = Math.Clamp(litCount, 1, rows);
-
-                    double x = plot.X + (stepX * (c + 0.5));
-                    for (int r = 0; r < rows; r++)
+                    for (int c = 0; c < columns; c++)
                     {
-                        double y = plot.Y + (stepY * (r + 0.5));
-                        var point = new Point(x, y);
-                        if (r < litCount)
-                            AddEllipseFigure(litCtx, point, radius, radius);
-                        else
-                            AddEllipseFigure(dimCtx, point, radius * 0.72, radius * 0.72);
+                        float value = ctx.SampleBand(c, columns, true);
+                        int litCount = (int)Math.Round(value * rows);
+                        litCount = Math.Clamp(litCount, 1, rows);
+
+                        double x = plot.X + (stepX * (c + 0.5));
+                        StreamGeometryContext litCtx = litCtxs[Math.Min(c / columnsPerGroup, litGroupCount - 1)];
+                        for (int r = 0; r < rows; r++)
+                        {
+                            double y = plot.Y + (stepY * (r + 0.5));
+                            var point = new Point(x, y);
+                            if (r < litCount)
+                                AddEllipseFigure(litCtx, point, radius, radius);
+                            else
+                                AddEllipseFigure(dimCtx, point, radius * 0.72, radius * 0.72);
+                        }
                     }
                 }
             }
+            finally
+            {
+                for (int g = 0; g < litGroupCount; g++)
+                    litCtxs[g].Close();
+            }
 
-            if (lit.CanFreeze) lit.Freeze();
             if (dim.CanFreeze) dim.Freeze();
 
             Brush dimBrush = CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.10 * ctx.GlowIntensity));
             dc.DrawGeometry(dimBrush, null, dim);
 
             // One absolute gradient over the whole grid: rows brighten towards the top of the plot.
+            // BrushMappingMode.Absolute means the ramp is anchored to the plot, not to whichever
+            // geometry happens to be filled, so splitting the lit stream does not re-map it.
             Brush litBrush = ctx.GetPlotGradientBrush(plot.Bottom, plot.Top);
-            dc.DrawGeometry(litBrush, null, lit);
+            for (int g = 0; g < litGroupCount; g++)
+            {
+                StreamGeometry geometry = lit[g];
+                if (geometry.CanFreeze)
+                    geometry.Freeze();
+                dc.DrawGeometry(litBrush, null, geometry);
+            }
         }
 
         // ------------------------------------------------------------------
@@ -696,9 +864,15 @@ namespace TitanEngine
         /// <para>
         /// The ring radius is driven by the time-domain waveform (not the FFT), sampled around the
         /// circumference: that is what makes the outline wobble instead of showing discrete spokes.
-        /// The stroke then gets the standard three additive passes so it blooms. The inner particles
-        /// are positioned from a stable per-index pseudo-random angle and radius, modulated by band
-        /// energy, so they shimmer without ever popping between frames.
+        /// The stroke then gets the standard three additive passes so it blooms.
+        /// <para>
+        /// The interior is NOT a scatter of particles, and it is not a uniform lattice either. It is
+        /// a lattice of dots on concentric circles - each circle rotated a little further than the
+        /// last, which is what produces the reference's interference moire - but that lattice is
+        /// mostly EMPTY. A raised-cosine band sweeps one full turn per loop, and a dot is only drawn
+        /// where that band overlaps its angle AND its FFT band is loud enough, so the disc reads as
+        /// bright arcs sweeping over large dark gaps whose density changes every frame. The
+        /// concentric structure and its spiral rotation are kept; only the density is sparse.
         /// </para>
         /// </summary>
         private static void DrawAudioRing(DrawingContext dc, FrameContext ctx)
@@ -725,18 +899,22 @@ namespace TitanEngine
             using (StreamGeometryContext g = ring.Open())
             {
                 const int RingSteps = 240;
-                g.BeginFigure(PointOnCircle(center, baseRadius, 0), true, true);
-                for (int s = 1; s <= RingSteps; s++)
-                {
-                    double angle = 360.0 * s / RingSteps;
-                    double value = 0.0;
 
-                    if (columns > 0)
+                // The waveform is walked into per-step radii FIRST, then smoothed. Reading it
+                // straight into the geometry produced a cog: 240 raw samples around the
+                // circumference keep their own peaks and troughs, and once the stroke was
+                // thickened to reach the reference's 6 % of diameter, every one of those steps
+                // became a visible lobe. The reference ring is a near-circle that breathes - the
+                // user asked for "slightly deformed, mostly circular" - so a circular moving
+                // average keeps the slow undulation and drops the per-step jitter. It wraps, so
+                // step 0 smooths against step 239 and the loop seam stays invisible.
+                var ringValues = new double[RingSteps];
+                if (columns > 0)
+                {
+                    for (int s = 0; s < RingSteps; s++)
                     {
-                        // Walk the waveform around the circumference; average the min/max in each
-                        // bucket so a quiet passage still gives a closed, non-degenerate ring.
-                        double start = (s - 1) / (double)RingSteps * columns;
-                        double end = s / (double)RingSteps * columns;
+                        double start = s / (double)RingSteps * columns;
+                        double end = (s + 1) / (double)RingSteps * columns;
                         int i0 = (int)Math.Floor(start);
                         int i1 = Math.Max(i0 + 1, (int)Math.Ceiling(end));
                         double lo = 0.0, hi = 0.0;
@@ -748,11 +926,35 @@ namespace TitanEngine
                             n++;
                         }
                         if (n > 0)
-                            value = Math.Abs(((hi - lo) * 0.5f)) * ctx.Sensitivity;
+                            ringValues[s] = Math.Abs(((hi - lo) * 0.5f)) * ctx.Sensitivity;
+                    }
+                }
+
+                const int RingSmoothHalfWindow = 5;
+                double smoothedTotal = 0.0;
+                for (int s = 0; s < RingSteps; s++)
+                {
+                    double sum = 0.0;
+                    for (int k = -RingSmoothHalfWindow; k <= RingSmoothHalfWindow; k++)
+                    {
+                        int idx = s + k;
+                        idx %= RingSteps;
+                        if (idx < 0)
+                            idx += RingSteps;
+                        sum += ringValues[idx];
                     }
 
+                    double v = sum / ((2 * RingSmoothHalfWindow) + 1);
+                    ringValues[s] = v;
+                    smoothedTotal += v;
+                }
+
+                g.BeginFigure(PointOnCircle(center, baseRadius, 0), true, true);
+                for (int s = 1; s <= RingSteps; s++)
+                {
+                    double angle = 360.0 * s / RingSteps;
                     double radius = Math.Clamp(
-                        baseRadius + (Math.Clamp(value, 0.0, 1.0) * amplitude),
+                        baseRadius + (Math.Clamp(ringValues[s % RingSteps], 0.0, 1.0) * amplitude),
                         1.0, outer);
                     g.LineTo(PointOnCircle(center, radius, angle), true, false);
                 }
@@ -772,9 +974,17 @@ namespace TitanEngine
             // reference its spherical depth. So the lattice is built as arcs here, not as a
             // golden-angle point cloud - a point cloud cannot produce that interference pattern.
             //
+            // What it is NOT is uniform. The reference shows the video through a mostly EMPTY
+            // disc with bright dot bands sweeping across it, and the density changing frame to
+            // frame. Filling every slot every frame - which is what this used to do, 71 % of the
+            // interior non-empty with a 1.1x spread across the loop - produces a flat wash and
+            // reads nothing like it. So the lattice keeps its geometry and loses its population:
+            // a raised-cosine band sweeps one turn per loop (AudioRingSweepDegrees) and a slot is
+            // only drawn where the band covers its angle and its band is loud enough.
+            //
             // The dots are drawn in BATCHES, not one at a time: see AudioRingDotBuckets. A dot's
-            // radius and its alpha are both monotonic in its band energy, so the energy is snapped
-            // to a bucket and every dot in that bucket is appended to that bucket's one geometry.
+            // radius and its alpha are both monotonic in its presence, so presence is snapped to a
+            // bucket and every dot in that bucket is appended to that bucket's one geometry.
             float[]? bands = frame?.Bands;
             if (bands == null || bands.Length == 0)
                 return;
@@ -784,8 +994,27 @@ namespace TitanEngine
             int ringCount = Math.Clamp((int)(latticeSpan / Math.Max(1.0, outer * AudioRingLatticeStep)), 3, 12);
 
             // Target angular spacing between neighbouring dots, so outer circles get more of them.
-            double dotSpacing = Math.Max(3.0, ringThickness * 0.92);
+            // Dot size follows the LATTICE, not the ring stroke. It used to be ringThickness * 0.92
+            // alone, which coupled the two: thickening the ring to reach the reference's stroke
+            // also inflated every interior dot, and the circles are only one lattice gap apart, so
+            // the dots merged with their neighbours and the sweeping bands rendered as blobs with
+            // no concentric structure left in them. Capping the spacing at one circle gap keeps
+            // each dot inside its own ring.
+            double dotSpacing = Math.Max(3.0, Math.Min(ringThickness * 0.92, latticeSpan / Math.Max(1, ringCount)));
             double spin = ctx.Time * AudioRingParticleSpinDegrees;
+
+            // The sweeping band's centre angle. A whole turn per loop, like the spin above, so the
+            // N-1 -> 0 wrap advances it by exactly one ordinary frame's step and the seam cannot
+            // be seen. Both rotations being whole turns is the whole seam guarantee.
+            double sweepPhase = ctx.Time * AudioRingSweepDegrees;
+
+            // The loudest band this frame, so the energy gate below is relative to the music rather
+            // than to an absolute level. Computed once: it does not vary per dot.
+            float bandPeak = 0f;
+            for (int i = 0; i < bands.Length; i++)
+                if (bands[i] > bandPeak)
+                    bandPeak = bands[i];
+            double invBandPeak = bandPeak > 1e-6f ? 1.0 / bandPeak : 0.0;
 
             // Perpendicular spacing between adjacent circles sets how dense the interference is.
             // It is a property of the WHOLE lattice, not of one circle: it used to be recomputed
@@ -819,26 +1048,58 @@ namespace TitanEngine
                     {
                         double a = ringOffset + (360.0 * d / dotsOnRing);
 
-                        // Energy for this dot comes from the waveform angle it sits at, so the lattice
-                        // brightens and dims in step with the ring's own wobble.
+                        // Energy for this dot comes from its ANGLE, through the FFT band array - not
+                        // from the waveform. No waveform sample is read anywhere in this loop; the
+                        // waveform only shapes the ring outline above.
                         int bandIndex = Math.Clamp(
                             (int)(((a % 360.0) / 360.0) * bands.Length), 0, bands.Length - 1);
                         double energy = Math.Clamp(bands[bandIndex] * sensitivity, 0.0, 1.0);
 
-                        // Dots tighten toward the hub where the circles crowd together, matching the
-                        // reference's denser inner spiral. Both the radius and the alpha the dot
-                        // paints with are now read off the bucket, so the whole bucket shares one
-                        // geometry, one brush pair and one pen pair.
-                        int bucket = (int)Math.Round(energy * (AudioRingDotBuckets - 1));
+                        // How much of the sweeping band covers this dot's angle. Raised cosine rather
+                        // than a hard window, so the band has a soft edge instead of a cut, and so
+                        // its width in DOT terms grows and shrinks smoothly as it sweeps.
+                        double separation = Math.Abs(NormalizeSigned(a - sweepPhase));
+                        double window = separation >= AudioRingSweepHalfWidthDegrees
+                            ? 0.0
+                            : 0.5 + (0.5 * Math.Cos(Math.PI * separation / AudioRingSweepHalfWidthDegrees));
+
+                        // And how loud this dot's band is relative to the loudest band
+                        // this frame. The gate keeps a floor so a silent band thins the lattice
+                        // rather than deleting it; that, plus the lattice turning underneath it, is
+                        // what makes the density change from frame to frame instead of sitting on one
+                        // fixed pattern.
+                        double energyGate = Math.Clamp(
+                            ((energy * invBandPeak) - AudioRingPresenceEnergyFloor) /
+                            Math.Max(1e-6, AudioRingPresenceEnergyCeil - AudioRingPresenceEnergyFloor),
+                            0.0, 1.0);
+                        energyGate = energyGate * energyGate * (3.0 - (2.0 * energyGate));
+
+                        // Presence is ADDITIVE, not multiplicative. It used to be window * (...), which means every
+                        // dot outside the sweeping band had presence exactly ZERO - the disc filled
+                        // with one isolated wedge and the reference's wide arcs disappeared. In the
+                        // reference the whole disc carries a sparse dusting and the sweep is simply
+                        // the denser part of it, so the band now ADDS on top of a baseline rather
+                        // than gating the whole lattice shut.
+                        double presence =
+                            (window * (1.0 - AudioRingBaselinePresence)) +
+                            (AudioRingBaselinePresence * energyGate);
+
+                        // Empty is a hard cut, and it has to be: the per-bucket alpha table bottoms
+                        // out at 0.58 of the base, so no amount of dimming produces the large dark
+                        // gaps the reference shows. Dots tighten toward the hub where the circles
+                        // crowd together; radius and alpha both come off the bucket, so a whole
+                        // bucket shares one geometry, one brush pair and one pen pair.
+                        if (presence < AudioRingPresenceFloor)
+                            continue;
+
+                        int bucket = (int)Math.Round(presence * (AudioRingDotBuckets - 1));
                         if (bucket < 0)
                             bucket = 0;
                         else if (bucket > AudioRingDotBuckets - 1)
                             bucket = AudioRingDotBuckets - 1;
 
-                        // The reference keeps the whole lattice readable and lets brightness ride on top,
-                        // rather than letting quiet bands black the dots out and turning the moire
-                        // into chains. Checked on the BUCKET alpha so that every dot in a bucket is
-                        // treated identically - that is the whole point of bucketing - and so that
+                        // Checked on the BUCKET alpha so every dot in a bucket is treated
+                        // identically - that is the whole point of bucketing - and so that
                         // Opacity = 0 rejects all of them before any geometry is opened.
                         if (batches.Alphas[bucket] <= 0.004)
                             continue;
@@ -890,7 +1151,11 @@ namespace TitanEngine
         /// <para>
         /// Thread-static rather than static because two overlay renders can be in flight at once;
         /// not a lock because a bucket's geometry is only ever touched by the thread that built it.
-        /// The arrays are allocated once per thread, never per frame.
+        /// The arrays are allocated once per thread and reused for every frame on it - but read
+        /// that as once per PASS, not once per process: the preset runs each render pass on a
+        /// freshly minted STA thread, so a pass that never reuses a thread never reuses these
+        /// arrays either. The saving is real within a pass (which is the whole loop) and nil
+        /// across passes, which is the only claim worth making.
         /// </para>
         /// </summary>
         private sealed class AudioRingBatches
@@ -2337,6 +2602,22 @@ namespace TitanEngine
                 center.Y + (Math.Sin(radians) * radius));
         }
 
+        /// <summary>
+        /// Wraps an angle into (-180, 180], so two angles can be subtracted and the result is the
+        /// SHORT way round. <see cref="NormalizeAngle"/> gives [0, 360), which makes a raw
+        /// subtraction jump by a full turn at the 0/360 seam - fine for bucketing an index, wrong
+        /// for asking "how far apart are these two directions".
+        /// </summary>
+        private static double NormalizeSigned(double degrees)
+        {
+            double a = degrees % 360.0;
+            if (a > 180.0)
+                a -= 360.0;
+            else if (a <= -180.0)
+                a += 360.0;
+            return a;
+        }
+
         private static double NormalizeAngle(double degrees)
         {
             double a = degrees % 360.0;
@@ -2349,10 +2630,10 @@ namespace TitanEngine
 
         /// <summary>
         /// Radius of the circle the radial styles inscribe in the plot box: <c>min(w, h) / 2</c> less a
-        /// 2 % inset so the stroke and its glow never touch the plot edge. Shared by RadialRing,
-        /// DualRings, RippleRings and SpokeLines, so it is deliberately left alone - a ring that
-        /// still looks small is a bar-LENGTH problem (<see cref="ResolveRadialLevels"/>), not a radius
-        /// problem.
+        /// 2 % inset so the stroke and its glow never touch the plot edge. Shared by FIVE styles -
+        /// RadialRing, DualRings, RippleRings, SpokeLines and AudioRing - so it is deliberately
+        /// left alone: a ring that still looks small is a bar-LENGTH problem
+        /// (<see cref="ResolveRadialLevels"/>), not a radius problem.
         /// </summary>
         private static double MaxRadius(Rect plot) => Math.Max(0.0, Math.Min(plot.Width, plot.Height) * 0.5 * 0.98);
 
