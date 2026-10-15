@@ -346,7 +346,7 @@ namespace TitanEngine
         /// the per-bucket alpha table bottoms out at 0.58 of the base, so modulating alpha alone
         /// can never produce a genuinely empty region - it can only make everything uniformly dim.
         /// </summary>
-        private const double AudioRingPresenceFloor = 0.34;
+        private const double AudioRingPresenceFloor = 0.52;
 
         /// <summary>
         /// How much presence a dot keeps even when its band is silent. The energy gate MODULATES
@@ -361,7 +361,7 @@ namespace TitanEngine
         /// the floor the sweep builds ON TOP of; setting it to 0 makes the lattice a single wedge,
         /// which is what the multiplicative form did.
         /// </summary>
-        private const double AudioRingBaselinePresence = 0.42;
+        private const double AudioRingBaselinePresence = 0.55;
 
         /// <summary>
         /// Band energy, as a fraction of the loudest band THIS frame, below which a dot is quiet.
@@ -1080,9 +1080,18 @@ namespace TitanEngine
                         // reference the whole disc carries a sparse dusting and the sweep is simply
                         // the denser part of it, so the band now ADDS on top of a baseline rather
                         // than gating the whole lattice shut.
+                        //
+                        // The baseline's own modulator is SQRT of the relative band level, not
+                        // energyGate. energyGate is a smoothstep of a steep ramp, so it collapses to
+                        // near zero across most of the spectrum - and because the lattice maps ANGLE
+                        // to band, that removed dots from most angles and left the lone wedge the
+                        // sweep was drawing. sqrt is the same shape without the cliff: it keeps the
+                        // quiet and loud ends apart while letting mid-level bands - which are most
+                        // of them - survive to be drawn sparsely.
+                        double relative = Math.Clamp(energy * invBandPeak, 0.0, 1.0);
                         double presence =
                             (window * (1.0 - AudioRingBaselinePresence)) +
-                            (AudioRingBaselinePresence * energyGate);
+                            (AudioRingBaselinePresence * Math.Sqrt(relative));
 
                         // Empty is a hard cut, and it has to be: the per-bucket alpha table bottoms
                         // out at 0.58 of the base, so no amount of dimming produces the large dark
@@ -2995,7 +3004,15 @@ namespace TitanEngine
 
                     Pen[] built =
                     {
-                        CreatePen(CreateBrush(haloColor), dotRadius * 2.8, PenLineCap.Round),
+// The halo is 2.8x the dot. That is fine for a dot that has open canvas around it,
+                        // but the lattice has 12 circles one dot-spacing apart, and a 2.8x halo on a
+                        // 14.5 px pitch is 12.2 px - the halos touch and the whole interior fills in
+                        // as one sheet of light, which is the opposite of the reference's dark gaps
+                        // between arcs. Raising AudioRingPresenceFloor does nothing to fix that: the
+                        // surviving dots all sit far above the threshold, so the density is decided
+                        // by the halo width, not by the gate. 1.9x keeps the neon bloom on each dot
+                        // and leaves the space between the circles visible.
+                        CreatePen(CreateBrush(haloColor), dotRadius * 1.9, PenLineCap.Round),
                         CreatePen(CreateBrush(coreColor), dotRadius * 2.0, PenLineCap.Round)
                     };
 

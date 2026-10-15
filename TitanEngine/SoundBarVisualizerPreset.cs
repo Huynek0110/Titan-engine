@@ -98,7 +98,7 @@ namespace TitanEngine
         /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r17";
+        private const string RendererVersion = "soundbar-r21";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

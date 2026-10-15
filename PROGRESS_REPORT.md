@@ -92,23 +92,28 @@ Ra đời ở commit `cc72fbb`, đã qua **8 vòng sửa**. 13 kiểu hình, 30 
 
 ## 3. VẤN ĐỀ CÒN LẠI — chưa xong
 
-### 3.1 ⭐ SOUNDBAR NCS (`audio-ring`) — CHƯA GIỐNG BẢN GỐC
+### 3.1 SOUNDBAR NCS (`audio-ring`) — đã cải thiện nhiều, vẫn còn khác mẫu
 
-**Mức độ: gần đúng cấu trúc, sai tinh thần.** Đây là việc quan trọng nhất còn tồn.
+**Mức độ: cấu trúc đã khớp, còn mỉa.**
 
 | Đặc điểm | Bản gốc | Hiện tại |
 |---|---|---|
-| Vòng neon | Tròn, mảnh vừa, sáng đều | ✅ Đã khớp (dày 6,35% đường kính, trơn tru) |
-| Chấm bên trong | **Các cung đồng tâm trải khắp đĩa**, xen kẽ dải đặc – khoảng trống lớn | ⚠️ **Quạt đặc dồn một góc**, phần còn lại trống |
-| Mật độ biến động theo nhạc | Rất mạnh giữa các khung | ⚠️ Yếu |
-| Làn theo tần số | Chấm nằm trên cung, mờ dần theo tần | ⚠️ Chưa rõ |
+| Vòng neon | Tròn, sáng đều, hơi méo | ✅ Khớp (6,35% đường kính, đã làm trơn hết răng cưa) |
+| Cấu trúc chấm | Cung đồng tâm + quạt quét | ✅ Khớp |
+| Khoảng tối giữa các cung | Rõ, lớn | ✅ Đã có (trước bị hào quang lấp kín) |
+| Mật độ dao động theo nhịp | Rất mạnh | ✅ 15,5% → 28,5% giữa các khung |
+| Kích thước chấm | Rất mảnh, tinh tế | ⚠️ Còn hơi thô so với mẫu |
+| Màu | Vàng neon | ✅ Có sẵn `cyberpunk-yellow` / `ncs-house-yellow` |
 
-**Nguyên nhân:** dải quét hiện là **cửa sổ góc** (`window` raised-cosine) rộng 156°, ngoài đó chỉ còn nền `0.42 × energyGate`. Với ngưỡng `AudioRingPresenceFloor = 0.34`, phần lớn chấm ngoài dải bị cắt hết → thành một nêm.
+**Ba lỗi đã sửa, mỗi cái tìm ra bằng đo chứ không bằng mắt:**
 
-**Cần làm gì:**
-- Mở rộng vùng có chấm ra toàn đĩa, giữ dải quét chỉ là phần *đặc hơn*
-- Cân bằng lại `AudioRingBaselinePresence` / `AudioRingPresenceFloor` / `AudioRingSweepHalfWidthDegrees`
-- Bám sát ảnh mẫu: nhiều ảnh gần như trống (ảnh 3, 6), số khác có dải rõ (ảnh 2, 5, 7) → **mật độ phải dao động mạnh, không cố định**
+1. **Chấm dồn thành nêm** — `presence` là `window × (...)` nên ngoài dải quét luôn bằng 0. Đổi sang phép **cộng**: nền phủ toàn đĩa + dải quét làm phần *đặc hơn*.
+2. **Nền bị `energyGate` dốc quá** — smoothstep trên năng lượng tương đối sụp về ~0 ở hầu hết dải tần, mà lưới ánh xạ **góc → dải tần**, nên chấm biến mất ở gần hết các góc. Thay bằng `sqrt(relative)`: cùng hình dạng nhưng không có vá dốc.
+3. **Hào quang lấp kín đĩa** — hào rộng `2.8 × bán kính chấm`; với 12 vòng cách nhau 14,5px thì hào rộng 12,2px là **chạm nhau**, cả ruột thành một tấm sáng liền. Đổi `2.8 → 1.9`: mật độ rơi từ **46–51% xuống 15,5–28,5%**.
+
+Bài học đáng nhớ: **siết `AudioRingPresenceFloor` từ 0,46 lên 0,52 không đổi một pixel nào** — các chấm sống sót đều nằm xa trên ngưỡng, nên mật độ do **bề rộng hào quang** quyết định chứ không phải ngưỡng. Hai lần tôi sửa sai tham số trước khi tìm ra nguyên nhân thật.
+
+**Còn lại:** chấm hơi to, các cung hơi đều tăm tắp so với mẫu. Muốn khớp hơn thì giảm `dotUnit`, nhưng phải cân với độ nổi.
 
 ### 3.2 ⭐ 12 KIỂU SOUNDBAR CÒN LẠI — CHƯA ĐỦ TỐT
 
@@ -195,7 +200,7 @@ b795834  Sửa hình học radial, dải tần, rò cache
 
 ## 6. Việc nên làm tiếp — theo thứ tự
 
-1. **`audio-ring` cho giống mẫu** (3.1) — đây là thứ anh đã hỏi nhiều nhất
-2. **Rà 12 kiểu còn lại bằng mắt** (3.2) — thay tiêu chuẩn "đo bbox = đạt"
+1. **Rà 12 kiểu còn lại bằng mắt** (3.2) — `audio-ring` đã xong phần chính, đây là thứ lớn nhất còn lại
+2. **`audio-ring`: thu nhỏ chấm cho tinh tế** (3.1) — việc mỹ thuật nhỏ, cân với độ nổi
 3. **Gộp 2 file guide** (3.3) — cần anh quyết định giữ phần nào
 4. Tách `MainWindow.xaml.cs` — việc lớn, nên làm khi không có deadline
