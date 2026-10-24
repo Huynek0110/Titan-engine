@@ -317,7 +317,13 @@ namespace TitanEngine {
                 if (EnableSoundBar)
                 {
                     string style = string.IsNullOrWhiteSpace(SoundBarStyle) ? "neon-bars" : SoundBarStyle.Trim();
-                    string palette = string.IsNullOrWhiteSpace(SoundBarPalette) ? "ncs-cyan" : SoundBarPalette.Trim();
+                    // An empty palette means "not chosen", and the per-style default differs: the
+                    // NCS reference the audio-ring style reproduces is the yellow sphere era, every
+                    // other style keeps the cyan fallback. A non-empty value is the user's pick and
+                    // is never overridden.
+                    string palette = string.IsNullOrWhiteSpace(SoundBarPalette)
+                        ? (SoundBarVisualizerPreset.NormalizeStyleId(style) == "audio-ring" ? "ncs-house-yellow" : "ncs-cyan")
+                        : SoundBarPalette.Trim();
                     string xText = SoundBarXPercent.ToString("P0", CultureInfo.InvariantCulture);
                     string yText = SoundBarYPercent.ToString("P0", CultureInfo.InvariantCulture);
                     info += $" | SOUNDBAR[{style}/{palette} x={xText} y={yText}]";

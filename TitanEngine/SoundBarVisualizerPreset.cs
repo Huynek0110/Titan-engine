@@ -96,9 +96,28 @@ namespace TitanEngine
         /// changed - it already draws its whole grid with two geometries and two brushes, and the
         /// per-dot StreamGeometry record cost is not reducible by bucketing. See DrawDotMatrix.
         /// </item>
+        /// <item>
+        /// r22: AudioRing's interior rebuilt as a rotating 3D PARTICLE SPHERE (latitude
+        /// rings under a fixed tilt and a weak perspective, frequency mapped by latitude, per-dot
+        /// jitter, bass breathing shared by ring and sphere) replacing the 2D concentric-circle
+        /// lattice whose angular brightness sweep advanced at exactly the lattice's own spin rate
+        /// and was therefore frozen onto it. Dots are now FILLED halo+core disc pairs - the old
+        /// stroked pair drew every dot at double its intended radius (a circle of radius r stroked
+        /// with a 2r pen fills the disc of radius 2r) - and the lattice alpha no longer squares the
+        /// Opacity slider or vanishes at GlowIntensity 0. No other style's pixels changed.
+        /// </item>
+        /// <item>
+        /// r23 (this one): the AudioRing actually MOVES with the music. Added a loop-seamless
+        /// onset PULSE (backward-decaying max over the frame array via wrap-around indexing - a
+        /// pure function, so no mutable state and no seam pop) that kicks the whole figure, bass
+        /// + pulse breathing at 0.06/0.10 of outer, ring deformation driven by the FFT bands by
+        /// angle (0.65 band + 0.35 waveform) with a narrower smoothing window, the amplitude
+        /// budget raised 0.17 -> 0.30, and dot displacement 0.05 -> 0.09. Before this the
+        /// measured ring wobble was 1.5-4.5 px on a ~240 px ring and the style read as static.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r21";
+        private const string RendererVersion = "soundbar-r23";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
@@ -696,7 +715,7 @@ namespace TitanEngine
                 MakeStyle(SoundBarStyleId.PeakStars, "peak-stars", "Peak Stars",
                     "Glowing stars pinned to local band maxima, fading over time.", true, false, false, false, 64),
                 MakeStyle(SoundBarStyleId.AudioRing, "audio-ring", "Audio Ring (NCS)",
-                    "Vòng neon dày mép sóng run theo waveform, có hạt sáng lơ lửng bên trong - đúng kiểu vòng tròn NCS.", true, true, false, false, 64),
+                    "Quả cầu hạt 3D quay theo nhạc bên trong vòng neon mép sóng - đúng kiểu sphere NCS.", true, true, false, false, 64),
             };
         }
 

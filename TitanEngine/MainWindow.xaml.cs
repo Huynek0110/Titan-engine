@@ -2450,7 +2450,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             var sbSettings = new SoundBarSettings
                             {
                                 Style = SoundBarVisualizerPreset.FindStyle(job.SoundBarStyle)?.Id ?? SoundBarStyleId.NeonBars,
-                                PaletteId = string.IsNullOrWhiteSpace(job.SoundBarPalette) ? "ncs-cyan" : job.SoundBarPalette,
+                                // Empty palette = "not chosen": audio-ring defaults to the yellow of
+                                // its NCS reference, everything else keeps cyan. An explicit palette
+                                // always wins.
+                                PaletteId = string.IsNullOrWhiteSpace(job.SoundBarPalette)
+                                    ? (SoundBarVisualizerPreset.FindStyle(job.SoundBarStyle)?.Id == SoundBarStyleId.AudioRing
+                                        ? "ncs-house-yellow"
+                                        : "ncs-cyan")
+                                    : job.SoundBarPalette,
                                 XPercent = Math.Clamp(job.SoundBarXPercent, 0.0, 1.0),
                                 YPercent = Math.Clamp(job.SoundBarYPercent, 0.0, 1.0),
                                 WidthPercent = Math.Clamp(job.SoundBarWidthPercent, 0.02, 1.0),
@@ -17921,7 +17928,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     job.SoundBarStyle = SoundBarVisualizerPreset.NormalizeStyleId(
                         request.SoundBarStyle ?? GetFeatureString(request, "soundBarStyle", "soundbarStyle"));
                     job.SoundBarPalette = string.IsNullOrWhiteSpace(request.SoundBarPalette)
-                        ? "ncs-cyan"
+                        // Same per-style fallback as the local-job path: audio-ring's reference is
+                        // the yellow NCS sphere, everything else keeps cyan. An explicit palette
+                        // always wins.
+                        ? (job.SoundBarStyle == "audio-ring" ? "ncs-house-yellow" : "ncs-cyan")
                         : request.SoundBarPalette.Trim();
                     job.SoundBarAudioSource = NormalizeSoundBarAudioSource(
                         request.SoundBarAudioSource ?? GetFeatureString(request, "soundBarAudioSource", "soundbarAudioSource"));

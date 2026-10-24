@@ -309,7 +309,16 @@ namespace TitanEngine
 
         // AudioRing (the NCS look) proportions, all relative to the inscribed outer radius.
         private const double AudioRingBaseFraction = 0.74;
-        private const double AudioRingAmplitudeFraction = 0.17;
+        /// <summary>
+        /// The ring's deformation budget, as a fraction of the gap between the base radius and
+        /// the plot's outer edge. This was 0.17 - 4.4 % of outer, ~14 px at the default job -
+        /// fed by a waveform envelope that peaks around 0.1-0.3 on real music, so the measured
+        /// wobble was 1.5-4.5 px on a ~240 px ring: invisible, which is why the ring read as
+        /// never moving. The ring is now fed band levels (see DrawAudioRing) that genuinely
+        /// reach 1.0, and 0.30 of the gap gives real spikes while base + amplitude + breathe
+        /// still tops out at ~0.90 of outer, inside the clamp.
+        /// </summary>
+        private const double AudioRingAmplitudeFraction = 0.30;
         /// <summary>
         /// Ring stroke width as a fraction of the OUTER RADIUS, so the ratio to the ring's own
         /// diameter is half of it. 0.127 puts the stroke at 6.35 % of the diameter, in the middle of
@@ -318,71 +327,158 @@ namespace TitanEngine
         /// hairline rather than as the subject of the shot.
         /// </summary>
         private const double AudioRingThicknessFraction = 0.127;
-        /// <summary>Spacing between the concentric dot rings, as a fraction of the outer radius.</summary>
-        private const double AudioRingLatticeStep = 0.042;
-        /// <summary>Angular offset added per lattice ring, in degrees - this is what makes the spiral.</summary>
-        private const double AudioRingLatticeSpiralDegrees = 17.0;
         /// <summary>How far the ring's bloom may spread, as a fraction of the outer radius.</summary>
         private const double AudioRingHaloFraction = 0.105;
 
-        /// <summary>Degrees the dense band sweeps around the disc over one loop.</summary>
-        /// <remarks>
-        /// A WHOLE turn, for the same reason <see cref="AudioRingParticleSpinDegrees"/> is one: the
-        /// phase delta across the N-1 -> 0 wrap then equals an ordinary frame's delta, so the seam
-        /// step is indistinguishable from every other step instead of being one frame's worth of
-        /// jump in a direction the loop never takes.
-        /// </remarks>
-        private const double AudioRingSweepDegrees = 360.0;
+        // -------------------------------------------------------------------
+        // The AudioRing particle sphere. The reference visualiser (NCS, built in
+        // After Effects with Trapcode Form) is a 3D SPHERE of particles - from
+        // 2014 the particles "move in a more organized fashion, forming lines and
+        // grids", and the late-2014 redesign turned it into a glowing sphere. The
+        // previous implementation faked that with 2D concentric circles plus an
+        // angular brightness sweep; these constants describe the real geometry.
+        // -------------------------------------------------------------------
 
         /// <summary>
-        /// Half-width of the dense band in degrees, to the point where the raised-cosine taper
-        /// reaches zero. 78 deg means the band is fully dark beyond +/-78 deg and the occupied arc
-        /// is the inner ~40 % of that, so roughly a quarter of the disc carries dots at any moment.
+        /// Particle-sphere radius as a fraction of the outer radius. Sized so the sphere's
+        /// perspective silhouette (see <see cref="AudioRingSpherePerspective"/>) plus its beat
+        /// displacement stays just inside the ring's inner edge: 0.60 x 1.025 x 1.05 ~= 0.65 of
+        /// outer, against a ring inner edge at 0.74 - 0.0635 = 0.68. The dots may brush the ring
+        /// on the loudest frames but never cross it, matching the reference where the particle
+        /// sphere fills the circle almost completely.
         /// </summary>
-        private const double AudioRingSweepHalfWidthDegrees = 78.0;
+        private const double AudioRingSphereRadiusFraction = 0.60;
 
         /// <summary>
-        /// Presence below which a lattice dot is not emitted at all. This is what empties the disc:
-        /// the per-bucket alpha table bottoms out at 0.58 of the base, so modulating alpha alone
-        /// can never produce a genuinely empty region - it can only make everything uniformly dim.
+        /// Fixed tilt of the sphere's rotation axis, in degrees. A pure Y-axis sphere seen untilted
+        /// puts a dead pole at the centre of the disc; tilting gives the latitude rings their
+        /// elliptical projection - the strongest single cue that the disc is a sphere and not a
+        /// stack of flat circles. Constant rather than animated so the loop wrap stays seamless.
         /// </summary>
-        private const double AudioRingPresenceFloor = 0.52;
+        private const double AudioRingSphereTiltDegrees = 18.0;
 
         /// <summary>
-        /// How much presence a dot keeps even when its band is silent. The energy gate MODULATES
-        /// the band, it does not veto it. An absolute energy floor vetoed it: real spectra fall
-        /// away with frequency, so a fixed cut-off left the top three quarters of the bands unable
-        /// to contribute at all and 63 frames in 150 came out completely blank.
+        /// Perspective strength, as the camera-space depth coefficient k in
+        /// <c>persp = 1 / (1 - k*z)</c> with z in [-1, 1]. 0.22 is weak on purpose: the front pole
+        /// magnifies x1.28, the back pole shrinks to x0.82, and the silhouette lands at
+        /// 1/sqrt(1-k^2) = 1.025 of the sphere radius. That is enough parallax for the front
+        /// hemisphere to slide across the back one as the sphere turns, and small enough that the
+        /// figure still reads as a circle the ring can frame.
         /// </summary>
-        private const double AudioRingPresenceQuietBase = 0.55;
+        private const double AudioRingSpherePerspective = 0.22;
 
         /// <summary>
-        /// The dusting every part of the disc carries, whether or not the sweep is over it. This is
-        /// the floor the sweep builds ON TOP of; setting it to 0 makes the lattice a single wedge,
-        /// which is what the multiplicative form did.
+        /// How close to the poles the outermost latitude ring sits, in degrees. Rings do not reach
+        /// the poles themselves - dot spacing collapses there - but 84 deg leaves only a
+        /// sin(6 deg) = 10 %-of-radius cap uncovered at each pole, which reads as the pole's
+        /// highlight rather than a hole.
         /// </summary>
-        private const double AudioRingBaselinePresence = 0.55;
+        private const double AudioRingLatitudeMaxDegrees = 84.0;
 
         /// <summary>
-        /// Band energy, as a fraction of the loudest band THIS frame, below which a dot is quiet.
-        /// Relative rather than absolute, so the lattice follows the music instead of the signal's
-        /// absolute scale - a quiet track still draws the same density, just a dimmer one.
+        /// Spacing between neighbouring latitude rings, as a fraction of the outer radius. The
+        /// dark channels BETWEEN the rings are half the reference's look, so the pitch is a visual
+        /// constant, not a performance one. AudioRing draws in a SQUARE plot (see
+        /// <see cref="UsesSquarePlot"/>), so on the shipped defaults - 62 % x 26 % on 1080x1080 -
+        /// the plot side is ~281 px, outer ~138 px and the 6 px floor of the pitch calculation
+        /// binds (~6 px); on a 669 px plot (62 % width, 1080x1920 portrait) the fraction gives
+        /// ~13 px. Both keep the gap between rings wider than one halo radius.
         /// </summary>
-        private const double AudioRingPresenceEnergyFloor = 0.15;
-
-        /// <summary>Band energy as a fraction of the frame's loudest band, at which a dot is full.</summary>
-        private const double AudioRingPresenceEnergyCeil = 0.75;
+        private const double AudioRingRingPitchFraction = 0.040;
 
         /// <summary>
-        /// How many alpha buckets the AudioRing dot lattice is quantised into.
+        /// Core dot radius as a fraction of the ring pitch - i.e. of the cell the dot lives in -
+        /// with a 1.0 px floor so the smallest default-job sphere (pitch ~6 px) still paints
+        /// visible dots: 0.14 of 6 px is 0.84 px, which antialiasing would erase. On a 669 px plot
+        /// (pitch ~13 px) it is a ~1.8 px radius: the fine-dust size the reference shows. This
+        /// replaced a model whose dots drew at DOUBLE their intended size (a stroked circle of
+        /// radius r with a 2r-wide pen fills the whole disc of radius 2r) - the "coarse dots"
+        /// defect every earlier tuning round chased through dotUnit without finding.
+        /// </summary>
+        private const double AudioRingDotRadiusPitchRatio = 0.14;
+
+        /// <summary>
+        /// Halo disc radius as a multiple of the core dot radius. The halo is a FILLED translucent
+        /// ellipse, not a stroke, so the ratio is exact. The reference's 2022 restyle is described
+        /// as "reducing the opacity and increasing the glow radius" - a wide soft halo under a
+        /// small dimmer core - which 2.1x delivers without packing the disc solid.
+        /// </summary>
+        private const double AudioRingHaloToCoreRatio = 2.1;
+
+        /// <summary>
+        /// Halo alpha as a fraction of the core alpha, per dot. A little under a third: the disc
+        /// stays translucent where halos overlap, which is what keeps the dark channels between
+        /// the latitude rings visible under the glow.
+        /// </summary>
+        private const double AudioRingHaloAlphaRatio = 0.30;
+
+        /// <summary>
+        /// How far a full-scale band pushes its latitude ring outward, as a fraction of the sphere
+        /// radius. The displacement rides the SAME energy that drives the dot's brightness, so a
+        /// loud band brightens AND bulges its ring together - the sphere's silhouette deforms with
+        /// the music instead of only changing colour. Raised 0.05 -> 0.09 with the pulse work:
+        /// at 0.05 the push was under 10 px at the default job and the sphere read as static.
+        /// </summary>
+        private const double AudioRingDisplaceFraction = 0.09;
+
+        /// <summary>
+        /// Whole-figure breathing on the bass, as a fraction of the outer radius at full bass.
+        /// The slow half of the breath - the enveloped bass level rises and falls over whole
+        /// bars, and both the ring and the sphere are scaled by it, which is what keeps them
+        /// moving as one object. The fast half is <see cref="AudioRingPulseKickFraction"/>; the
+        /// previous version had bass only, at 0.05, and the figure never visibly moved.
+        /// </summary>
+        private const double AudioRingBassBreatheFraction = 0.06;
+
+        /// <summary>
+        /// The fast half of the breath: how far a full-scale onset kick expands the whole figure
+        /// (ring + sphere) as a fraction of the outer radius. This is the "thump" the reference
+        /// has and the previous implementation lacked entirely - no onset path existed anywhere
+        /// in the style. 0.10 of outer is ~33 px at the default job: unmistakable, and still
+        /// inside the ring's own clamp.
+        /// </summary>
+        private const double AudioRingPulseKickFraction = 0.10;
+
+        /// <summary>
+        /// Per-frame decay of one onset kick's contribution to the pulse envelope: each frame
+        /// after the hit keeps 78 % of the previous frame's expansion, so a kick fades over
+        /// roughly a third of a second at 30 fps - the attack/decay shape of a drum hit.
+        /// </summary>
+        private const double AudioRingPulseDecayPerFrame = 0.78;
+
+        /// <summary>
+        /// How many frames back the pulse envelope looks for a kick. 9 frames = 0.3 s at 30 fps,
+        /// which with <see cref="AudioRingPulseDecayPerFrame"/> leaves a late tail at ~8 % -
+        /// below perception, so the tail length and the decay agree.
+        /// </summary>
+        private const int AudioRingPulseTailFrames = 9;
+
+        /// <summary>
+        /// Floor for the depth dimming applied to the back hemisphere, as a fraction of the front
+        /// hemisphere's size and alpha. The sphere is semi-transparent - the reference shows the
+        /// back rings through the front ones - so back dots are DIMMED, never hidden, and the
+        /// dimming is folded into the bucket value so a whole bucket still shares one geometry.
+        /// </summary>
+        private const double AudioRingBackDimFloor = 0.35;
+
+        /// <summary>
+        /// Floor of the per-dot brightness jitter. A latitude ring whose every dot shares one band
+        /// value would light as a solid stripe; the jitter (a pure hash of the dot's lattice
+        /// position, stable frame to frame) breaks each ring into patches so the brightness reads
+        /// as scattered flicker following the music, the way the reference's particles do.
+        /// </summary>
+        private const double AudioRingJitterFloor = 0.55;
+
+        /// <summary>
+        /// How many alpha buckets the AudioRing dot sphere is quantised into.
         /// <para>
-        /// The lattice is ~297 dots at the default job, and drawing them one at a time cost an
-        /// EllipseGeometry plus two brushes plus two pens PER DOT: 1 485 WPF objects and 594
-        /// DrawGeometry calls per frame, 474 KiB of recording, 3.1 ms - more than every other style
-        /// in this file combined. A dot's radius and its alpha are both monotonic in its band
-        /// energy, so energy is quantised into this many buckets and every dot in a bucket
-        /// accumulates as one more figure in that bucket's single StreamGeometry. The frame then
-        /// draws at most <c>2 x AudioRingDotBuckets</c> times, with the pens cached across frames.
+        /// The sphere is ~1 400-2 100 dots at the default job, and drawing them one at a time cost
+        /// an EllipseGeometry plus brushes and pens PER DOT (measured at the old 297-dot lattice:
+        /// 1 485 WPF objects and 594 DrawGeometry calls per frame, 474 KiB of recording). A dot's
+        /// radius and its alpha are both monotonic in its combined energy, so that value is
+        /// quantised into this many buckets and every dot in a bucket accumulates as one more
+        /// figure in that bucket's single StreamGeometry. The frame then draws at most
+        /// <c>2 x AudioRingDotBuckets</c> times (one halo pass, one core pass per used bucket).
         /// </para>
         /// <para>
         /// The count is a quantisation-vs-object-count trade, and the measurement settles it. Whole
@@ -391,9 +487,7 @@ namespace TitanEngine
         /// &lt;= 48 draw calls" budget in the WORST frame, not just the median one. Against the
         /// unquantised reference the mean per-channel error is 3.14 (16), 2.86 (24), 2.81 (32) and
         /// 2.79 (48) out of 255 - i.e. 24 is within 3 % of a 48-step staircase while costing
-        /// 47 draw calls instead of 69. Allocation barely moves across the whole range
-        /// (236 KB at 16, 249 KB at 24, 262 KB at 48) because the 297 ellipse figures dominate
-        /// and the count does not change how many of them there are.
+        /// 47 draw calls instead of 69.
         /// </para>
         /// </summary>
         private const int AudioRingDotBuckets = 24;
@@ -401,7 +495,13 @@ namespace TitanEngine
         /// <summary>RippleRings: inner hub radius and stroke weight, both relative to the outer radius.</summary>
         private const double RippleInnerRadiusFraction = 0.14;
         private const double RippleThicknessFraction = 0.042;
-        /// <summary>Degrees the whole dot lattice drifts over one loop. A whole turn keeps the seam invisible.</summary>
+        /// <summary>
+        /// Degrees the particle sphere's yaw advances over one loop. A WHOLE turn, so the yaw at
+        /// frame N-1 is congruent to the yaw at frame 0 and the ffmpeg <c>loop</c> wrap cannot be
+        /// seen: the seam step equals an ordinary frame's step instead of being one frame's worth
+        /// of jump in a direction the loop never takes. The tilt is constant, so this yaw is the
+        /// sphere's only time-varying rotation.
+        /// </summary>
         private const double AudioRingParticleSpinDegrees = 360.0;
 
         /// <summary>
@@ -427,6 +527,14 @@ namespace TitanEngine
         private const double GlowWideAlpha = 0.08;
         private const double GlowMidAlpha = 0.22;
         private const double GlowCoreAlpha = 0.92;
+
+        /// <summary>
+        /// How much of the glow stroke the flat core pass covers, for the four linear bar styles
+        /// only. Their body is already a palette gradient running to a white-hot tip, so a full-width
+        /// core erases it; a thin filament inside the coloured body keeps the neon read without
+        /// turning every bar into a white barcode.
+        /// </summary>
+        private const double GlowColumnCoreWidthRatio = 0.34;
 
         /// <summary>
         /// Narrowest halo-to-core and mid-to-core ratios the halo clamp may leave behind.
@@ -475,7 +583,7 @@ namespace TitanEngine
         /// <param name="frames">
         /// The whole analysed sequence. Seven styles move between frames - PillBars, AudioRing,
         /// RadialRing, DualRings, RippleRings, SpokeLines and PeakStars - five of them driving
-        /// rotation and sweep from <see cref="FrameContext.Time"/>, and RippleRings and PeakStars
+        /// rotation from <see cref="FrameContext.Time"/>, and RippleRings and PeakStars
         /// from <see cref="SoundBarRenderState"/> instead, which is what indexes them by frame.
         /// Separately, every <c>SampleBand(..., smoothed)</c> call blends against
         /// <c>Previous</c>: that is what makes NeonBars, MirrorSpectrum, PillBars, DotMatrix,
@@ -638,7 +746,11 @@ namespace TitanEngine
             // 128 genuinely renders 128 capsules (the old local clamp to 64 silently halved it).
             int barCount = ctx.BarCount;
             double slot = plot.Width / barCount;
-            double barWidth = ClampSafe(slot * 0.94, 1.5, slot * 0.98);
+            // 0.94 left a 0.63 px gutter on a 10.46 px slot, and the halo pass alone is 5x the glow
+            // thickness - so neighbouring pills' halos overlapped and 64 separate capsules rendered
+            // as one unbroken 670 px band with no division anywhere. 0.72 keeps the pill shape
+            // legible under the halo while still reading as a dense row.
+            double barWidth = ClampSafe(slot * 0.72, 1.5, slot * 0.98);
 
             // Slow breathing so the block never looks frozen between beats.
             double breathe = 0.93 + (0.07 * Math.Sin(ctx.Time * Math.PI * 2.0));
@@ -670,7 +782,11 @@ namespace TitanEngine
             // bar count the user asked for. thickness is capped at 3 px so 256 columns stay hairlines.
             int barCount = ctx.BarCount;
             double slot = plot.Width / barCount;
-            double thickness = Math.Clamp(slot * 0.62, 1.0, 3.0);
+            // The hard 3.0 px ceiling made every column a white wire at any bar count up to 64: at
+            // bars = 64 the columns occupied 28.7 % of the plot width and the rest was empty
+            // gutter, and with the core pass painting over them the described purple-to-cyan
+            // curtain did not exist in the output at all - just a white picket fence.
+            double thickness = Math.Clamp(slot * 0.62, 1.0, 5.0);
             var columns = new List<ColumnSpec>(barCount);
 
             for (int i = 0; i < barCount; i++)
@@ -854,25 +970,30 @@ namespace TitanEngine
 // ------------------------------------------------------------------
 
         /// <summary>
-        /// Draws the ring NCS actually uses: one thick neon circle whose radius ripples with the
-        /// waveform, plus glowing particles drifting inside it.
+        /// Draws the reference NCS figure: one thick neon circle whose radius ripples with the
+        /// waveform, wrapped around a rotating 3D PARTICLE SPHERE.
         /// <para>
         /// This is deliberately NOT <see cref="RadialRing"/>. That style draws bars radiating from
-        /// a hub - the After Effects "polar spectrum" look - whereas the NCS visualiser is a single
-        /// stroked ring, so the two read nothing alike. The reference is a thick yellow neon circle
-        /// on a dark field with a scatter of small glowing dots inside it.
+        /// a hub - the After Effects "polar spectrum" look - whereas the NCS visualiser (built in
+        /// After Effects with Trapcode Form) is a sphere of particles, so the two read nothing
+        /// alike.
         /// <para>
-        /// The ring radius is driven by the time-domain waveform (not the FFT), sampled around the
-        /// circumference: that is what makes the outline wobble instead of showing discrete spokes.
-        /// The stroke then gets the standard three additive passes so it blooms.
+        /// THE SPHERE. Dots sit on the latitude rings of a 3D sphere; the sphere yaws one whole
+        /// turn per loop under a fixed tilt and a weak perspective projection. That single change
+        /// buys the three things the old 2D concentric-circle lattice could not fake: the rings
+        /// project as ELLIPSES, the front hemisphere slides across the back one with real parallax
+        /// as the sphere turns, and dots crowd naturally toward the silhouette. Each latitude ring
+        /// takes its brightness - and an outward beat displacement - from its own slice of the FFT
+        /// through the shared <see cref="FrameContext.SampleBandRange"/> pipeline, and a per-dot
+        /// jitter breaks the rings into flickering patches: the reference shows brightness
+        /// scattered over the WHOLE sphere following the music, not one bright wedge rotating over
+        /// a dark disc (which is all the old angular sweep, frozen to the lattice by advancing at
+        /// exactly the lattice's own spin rate, could ever draw).
         /// <para>
-        /// The interior is NOT a scatter of particles, and it is not a uniform lattice either. It is
-        /// a lattice of dots on concentric circles - each circle rotated a little further than the
-        /// last, which is what produces the reference's interference moire - but that lattice is
-        /// mostly EMPTY. A raised-cosine band sweeps one full turn per loop, and a dot is only drawn
-        /// where that band overlaps its angle AND its FFT band is loud enough, so the disc reads as
-        /// bright arcs sweeping over large dark gaps whose density changes every frame. The
-        /// concentric structure and its spiral rotation are kept; only the density is sparse.
+        /// THE RING is driven by the time-domain waveform (not the FFT), sampled around the
+        /// circumference and circularly smoothed, so the outline wobbles rather than showing
+        /// discrete spokes. The ring and the sphere breathe on the SAME bass factor, which keeps
+        /// them reading as one object instead of two layers pasted together.
         /// </para>
         /// </summary>
         private static void DrawAudioRing(DrawingContext dc, FrameContext ctx)
@@ -883,10 +1004,35 @@ namespace TitanEngine
                 return;
 
             Point center = plotCenter(plot);
-            double baseRadius = outer * AudioRingBaseFraction;
-            double amplitude = (outer - baseRadius) * AudioRingAmplitudeFraction;
 
             AudioFrameData? frame = ctx.Current;
+            float[]? bands = frame?.Bands;
+
+            // THE PULSE - the "thump". A decaying kick envelope driven by the onset detector,
+            // computed as a BACKWARD-LOOKING max over the frame array with wrap-around indexing
+            // (<see cref="FrameAt"/> wraps, so frame 0 sees the tail of the loop - exactly the
+            // frames ffmpeg plays before it once the sequence loops). It is therefore a PURE
+            // function of the analysed frames: no cross-frame mutable state, nothing needed from
+            // <see cref="SoundBarRenderState"/>, and the loop seam cannot pop by construction.
+            double pulse = 0.0;
+            for (int k = 0; k <= AudioRingPulseTailFrames; k++)
+            {
+                AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
+                if (back?.Onset == true)
+                    pulse = Math.Max(pulse, Math.Pow(AudioRingPulseDecayPerFrame, k));
+            }
+
+            // Whole-figure breathing: the ring and the sphere below are scaled by the SAME
+            // factor so they move as one object. Bass (enveloped, slow) carries the breath; the
+            // onset pulse carries the hit. The old version had bass only at half the depth and
+            // no onset path at all, which is why the figure never visibly moved.
+            double bass = Math.Clamp((frame?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double breathe = 1.0
+                + (AudioRingBassBreatheFraction * bass)
+                + (AudioRingPulseKickFraction * pulse);
+
+            double baseRadius = outer * AudioRingBaseFraction * breathe;
+            double amplitude = (outer - baseRadius) * AudioRingAmplitudeFraction;
             // Both waveform arrays are read at the same index in the loop below, so the bucket
             // count has to be bounded by the SHORTER of the two. Reading WaveMin.Length while
             // indexing WaveMax threw IndexOutOfRangeException on any frame where the two
@@ -900,18 +1046,17 @@ namespace TitanEngine
             {
                 const int RingSteps = 240;
 
-                // The waveform is walked into per-step radii FIRST, then smoothed. Reading it
-                // straight into the geometry produced a cog: 240 raw samples around the
-                // circumference keep their own peaks and troughs, and once the stroke was
-                // thickened to reach the reference's 6 % of diameter, every one of those steps
-                // became a visible lobe. The reference ring is a near-circle that breathes - the
-                // user asked for "slightly deformed, mostly circular" - so a circular moving
-                // average keeps the slow undulation and drops the per-step jitter. It wraps, so
-                // step 0 smooths against step 239 and the loop seam stays invisible.
+                // The deformation source is the FFT BAND array, not the raw waveform envelope.
+                // Band levels are per-frame adaptive-mapped to 0..1 and genuinely reach 1.0 on
+                // hits; the waveform envelope (hi-lo)/2 peaks around 0.1-0.3 on real music, which
+                // is why a ring fed on it alone read as frozen. The waveform stays in the mix at
+                // a third weight for its organic roughness. Angle maps to band index directly,
+                // bass at angle 0, so the ring's bulges sit under the sphere's bass latitudes.
                 var ringValues = new double[RingSteps];
-                if (columns > 0)
+                for (int s = 0; s < RingSteps; s++)
                 {
-                    for (int s = 0; s < RingSteps; s++)
+                    double v = 0.0;
+                    if (columns > 0)
                     {
                         double start = s / (double)RingSteps * columns;
                         double end = (s + 1) / (double)RingSteps * columns;
@@ -926,11 +1071,27 @@ namespace TitanEngine
                             n++;
                         }
                         if (n > 0)
-                            ringValues[s] = Math.Abs(((hi - lo) * 0.5f)) * ctx.Sensitivity;
+                            v = Math.Abs((hi - lo) * 0.5) * ctx.Sensitivity;
                     }
+
+                    if (bands is { Length: > 0 })
+                    {
+                        int bandIndex = (int)Math.Clamp(
+                            Math.Floor((s / (double)RingSteps) * bands.Length), 0, bands.Length - 1);
+                        double bandLevel = Math.Clamp(bands[bandIndex] * ctx.Sensitivity, 0.0, 1.0);
+                        v = (0.65 * bandLevel) + (0.35 * v);
+                    }
+
+                    ringValues[s] = v;
                 }
 
-                const int RingSmoothHalfWindow = 5;
+                // Circular moving average, wraps so the loop seam stays invisible. The window is
+                // NARROW - 3 steps either way spans ~3 bands at 64 bands - so one loud band still
+                // produces a visible bump instead of being averaged back into the circle. The
+                // original 11-tap window existed to tame raw per-step waveform jitter; the
+                // band-driven source is already smooth, so it only flattened the spikes that
+                // carry the beat.
+                const int RingSmoothHalfWindow = 3;
                 double smoothedTotal = 0.0;
                 for (int s = 0; s < RingSteps; s++)
                 {
@@ -967,182 +1128,158 @@ namespace TitanEngine
                 ctx.AlphaFactor, PenLineCap.Round,
                 Math.Max(RadialHaloExtent(outer), outer * AudioRingHaloFraction));
 
-            // --- the dot lattice inside the ring --------------------------------
-            // The NCS reference is not a scatter of particles: it is a LATTICE of dots on
-            // concentric circles, each circle rotated a little further than the last. The overlap
-            // between neighbouring circles is what reads as the moire / vortex that gives the
-            // reference its spherical depth. So the lattice is built as arcs here, not as a
-            // golden-angle point cloud - a point cloud cannot produce that interference pattern.
-            //
-            // What it is NOT is uniform. The reference shows the video through a mostly EMPTY
-            // disc with bright dot bands sweeping across it, and the density changing frame to
-            // frame. Filling every slot every frame - which is what this used to do, 71 % of the
-            // interior non-empty with a 1.1x spread across the loop - produces a flat wash and
-            // reads nothing like it. So the lattice keeps its geometry and loses its population:
-            // a raised-cosine band sweeps one turn per loop (AudioRingSweepDegrees) and a slot is
-            // only drawn where the band covers its angle and its band is loud enough.
+            // --- the particle sphere inside the ring -----------------------------
+            // The reference's interior is a 3D sphere of particles - "lines and grids" on the
+            // sphere surface since 2014, a glowing sphere since the late-2014 redesign. Every dot
+            // lives at a LATITUDE on that sphere: the sphere yaws one whole turn per loop under a
+            // fixed tilt, a weak perspective projects it, and each latitude ring's brightness and
+            // outward push come from its own slice of the FFT. See the AudioRingSphere* constants
+            // above for the provenance of each proportion.
             //
             // The dots are drawn in BATCHES, not one at a time: see AudioRingDotBuckets. A dot's
-            // radius and its alpha are both monotonic in its presence, so presence is snapped to a
-            // bucket and every dot in that bucket is appended to that bucket's one geometry.
-            float[]? bands = frame?.Bands;
+            // radius and its alpha are both monotonic in its combined energy x depth value, so
+            // that value is snapped to a bucket and every dot in a bucket is appended to that
+            // bucket's geometry - twice, once for the halo disc and once for the core disc.
+            // (`bands` was read at the top of the method - the ring deformation shares it.)
             if (bands == null || bands.Length == 0)
                 return;
 
-            double latticeInner = baseRadius * 0.10;
-            double latticeSpan = (baseRadius * 0.80) - latticeInner;
-            int ringCount = Math.Clamp((int)(latticeSpan / Math.Max(1.0, outer * AudioRingLatticeStep)), 3, 12);
+            double sphereR = outer * AudioRingSphereRadiusFraction * breathe;
+            if (sphereR < 8.0)
+                return;
 
-            // Target angular spacing between neighbouring dots, so outer circles get more of them.
-            // Dot size follows the LATTICE, not the ring stroke. It used to be ringThickness * 0.92
-            // alone, which coupled the two: thickening the ring to reach the reference's stroke
-            // also inflated every interior dot, and the circles are only one lattice gap apart, so
-            // the dots merged with their neighbours and the sweeping bands rendered as blobs with
-            // no concentric structure left in them. Capping the spacing at one circle gap keeps
-            // each dot inside its own ring.
-            double dotSpacing = Math.Max(3.0, Math.Min(ringThickness * 0.92, latticeSpan / Math.Max(1, ringCount)));
-            double spin = ctx.Time * AudioRingParticleSpinDegrees;
+            double ringPitch = Math.Max(6.0, outer * AudioRingRingPitchFraction);
+            double maxCoreRadius = Math.Max(1.0, ringPitch * AudioRingDotRadiusPitchRatio);
 
-            // The sweeping band's centre angle. A whole turn per loop, like the spin above, so the
-            // N-1 -> 0 wrap advances it by exactly one ordinary frame's step and the seam cannot
-            // be seen. Both rotations being whole turns is the whole seam guarantee.
-            double sweepPhase = ctx.Time * AudioRingSweepDegrees;
+            // Latitude rings pole to pole (bar the caps, see AudioRingLatitudeMaxDegrees), spaced
+            // by the same pitch the dots inside a ring use, so the lattice cells stay near-square:
+            // that grid regularity is the "lines and grids" look of the reference.
+            int ringCount = Math.Clamp(
+                (int)Math.Floor((2.0 * sphereR * Math.Sin(AudioRingLatitudeMaxDegrees * Math.PI / 180.0)) / ringPitch) + 1,
+                6, 40);
 
-            // The loudest band this frame, so the energy gate below is relative to the music rather
-            // than to an absolute level. Computed once: it does not vary per dot.
-            float bandPeak = 0f;
-            for (int i = 0; i < bands.Length; i++)
-                if (bands[i] > bandPeak)
-                    bandPeak = bands[i];
-            double invBandPeak = bandPeak > 1e-6f ? 1.0 / bandPeak : 0.0;
-
-            // Perpendicular spacing between adjacent circles sets how dense the interference is.
-            // It is a property of the WHOLE lattice, not of one circle: it used to be recomputed
-            // once per circle, and `densityBoost` - the only thing that reads it - once per DOT.
-            double circleGap = latticeSpan / Math.Max(1, ringCount - 1);
-            double densityBoost = Math.Clamp(circleGap / Math.Max(1.0, dotSpacing), 0.25, 1.0);
-
-            // Everything the dot loop still needs that does NOT vary per dot, hoisted: what is left
-            // of the old expressions is `dotUnit * (0.55 + 0.45 * energy)` and
-            // `alphaBase * (0.58 + 0.42 * energy)`, both now evaluated once per BUCKET.
-            double dotUnit = dotSpacing * 0.30 * (0.7 + (0.3 * densityBoost));
-            double alphaBase = ctx.AlphaFactor * ctx.GlowIntensity;
-            double sensitivity = ctx.Sensitivity;
+            double yawRad = (ctx.Time * AudioRingParticleSpinDegrees) * Math.PI / 180.0;
+            double tiltRad = AudioRingSphereTiltDegrees * Math.PI / 180.0;
+            double cosTilt = Math.Cos(tiltRad);
+            double sinTilt = Math.Sin(tiltRad);
 
             AudioRingBatches batches = RentBatches();
-            batches.Prepare(dotUnit, alphaBase);
+            batches.Prepare(maxCoreRadius, ctx.AlphaFactor, ctx.GlowIntensity);
 
             try
             {
                 for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
                 {
-                    double t = ringCount == 1 ? 0.0 : latticeRing / (double)(ringCount - 1);
-                    double radius = latticeInner + (latticeSpan * t);
+                    double t = ringCount == 1 ? 0.5 : latticeRing / (double)(ringCount - 1);
+                    double latRad = (-AudioRingLatitudeMaxDegrees + (t * 2.0 * AudioRingLatitudeMaxDegrees)) * Math.PI / 180.0;
+                    double cosLat = Math.Cos(latRad);
+                    double sinLat = Math.Sin(latRad);
 
-                    int dotsOnRing = Math.Max(8, (int)Math.Round(2.0 * Math.PI * radius / dotSpacing));
+                    // The whole latitude ring reads ONE band position, through the shared band
+                    // pipeline: sensitivity, pink tilt and the temporal one-pole smoothing all
+                    // come with it. Ring 0 is the south cap, so bass sits at the bottom of the
+                    // sphere and treble at the top - the spectrum reads as a vertical ramp the
+                    // way it does on the reference sphere. The per-dot jitter below is what keeps
+                    // a loud ring from lighting as one solid stripe.
+                    double ringEnergy = ctx.SampleBandRange(latticeRing, ringCount, 0, int.MaxValue, true);
 
-                    // Each circle is rotated a little further than the previous one: the spiral.
-                    double ringOffset = latticeRing * AudioRingLatticeSpiralDegrees + spin;
+                    // Pole-adjacent rings collapse to a handful of dots; the 0.12 floor keeps a
+                    // sparse ring closing each cap instead of an empty hole at the pole.
+                    int dotsOnRing = Math.Max(6, (int)Math.Round((2.0 * Math.PI * sphereR * Math.Max(0.12, cosLat)) / ringPitch));
 
                     for (int d = 0; d < dotsOnRing; d++)
                     {
-                        double a = ringOffset + (360.0 * d / dotsOnRing);
+                        double lon = yawRad + ((2.0 * Math.PI * d) / dotsOnRing);
+                        double x = cosLat * Math.Cos(lon);
+                        double y0 = sinLat;
+                        double z0 = cosLat * Math.Sin(lon);
 
-                        // Energy for this dot comes from its ANGLE, through the FFT band array - not
-                        // from the waveform. No waveform sample is read anywhere in this loop; the
-                        // waveform only shapes the ring outline above.
-                        int bandIndex = Math.Clamp(
-                            (int)(((a % 360.0) / 360.0) * bands.Length), 0, bands.Length - 1);
-                        double energy = Math.Clamp(bands[bandIndex] * sensitivity, 0.0, 1.0);
+                        // Fixed tilt about the screen X axis: the latitude rings project as
+                        // ellipses rather than circles, which is the cue that reads the disc as
+                        // a sphere instead of a stack of flat rings.
+                        double y1 = (y0 * cosTilt) - (z0 * sinTilt);
+                        double z1 = (y0 * sinTilt) + (z0 * cosTilt);
 
-                        // How much of the sweeping band covers this dot's angle. Raised cosine rather
-                        // than a hard window, so the band has a soft edge instead of a cut, and so
-                        // its width in DOT terms grows and shrinks smoothly as it sweeps.
-                        double separation = Math.Abs(NormalizeSigned(a - sweepPhase));
-                        double window = separation >= AudioRingSweepHalfWidthDegrees
-                            ? 0.0
-                            : 0.5 + (0.5 * Math.Cos(Math.PI * separation / AudioRingSweepHalfWidthDegrees));
+                        // Weak perspective: front dots magnify, back dots shrink, and the whole
+                        // silhouette stays a circle the neon ring can frame.
+                        double persp = 1.0 / (1.0 - (AudioRingSpherePerspective * z1));
+                        double px = center.X + (x * sphereR * persp);
+                        double py = center.Y - (y1 * sphereR * persp);
 
-                        // And how loud this dot's band is relative to the loudest band
-                        // this frame. The gate keeps a floor so a silent band thins the lattice
-                        // rather than deleting it; that, plus the lattice turning underneath it, is
-                        // what makes the density change from frame to frame instead of sitting on one
-                        // fixed pattern.
-                        double energyGate = Math.Clamp(
-                            ((energy * invBandPeak) - AudioRingPresenceEnergyFloor) /
-                            Math.Max(1e-6, AudioRingPresenceEnergyCeil - AudioRingPresenceEnergyFloor),
+                        double jitter = AudioRingJitterFloor +
+                            ((1.0 - AudioRingJitterFloor) * DotJitter(latticeRing, d));
+                        double energy = Math.Clamp(ringEnergy * jitter, 0.0, 1.0);
+
+                        // Beat displacement along the SCREEN radial: a loud latitude brightens AND
+                        // bulges outward, so the sphere's silhouette deforms with the music.
+                        double disp = energy * AudioRingDisplaceFraction * sphereR;
+                        double dx = px - center.X;
+                        double dy = py - center.Y;
+                        double dist = Math.Sqrt((dx * dx) + (dy * dy));
+                        if (dist > 0.5)
+                        {
+                            px += (dx / dist) * disp;
+                            py += (dy / dist) * disp;
+                        }
+
+                        // Depth dimming folded into the bucket value: one number drives the radius
+                        // AND both alphas, so a whole bucket still shares its one geometry pair.
+                        double depth = Math.Clamp((z1 + 1.0) * 0.5, 0.0, 1.0);
+                        double q = Math.Clamp(
+                            energy * (AudioRingBackDimFloor + ((1.0 - AudioRingBackDimFloor) * depth)),
                             0.0, 1.0);
-                        energyGate = energyGate * energyGate * (3.0 - (2.0 * energyGate));
 
-                        // Presence is ADDITIVE, not multiplicative. It used to be window * (...), which means every
-                        // dot outside the sweeping band had presence exactly ZERO - the disc filled
-                        // with one isolated wedge and the reference's wide arcs disappeared. In the
-                        // reference the whole disc carries a sparse dusting and the sweep is simply
-                        // the denser part of it, so the band now ADDS on top of a baseline rather
-                        // than gating the whole lattice shut.
-                        //
-                        // The baseline's own modulator is SQRT of the relative band level, not
-                        // energyGate. energyGate is a smoothstep of a steep ramp, so it collapses to
-                        // near zero across most of the spectrum - and because the lattice maps ANGLE
-                        // to band, that removed dots from most angles and left the lone wedge the
-                        // sweep was drawing. sqrt is the same shape without the cliff: it keeps the
-                        // quiet and loud ends apart while letting mid-level bands - which are most
-                        // of them - survive to be drawn sparsely.
-                        double relative = Math.Clamp(energy * invBandPeak, 0.0, 1.0);
-                        double presence =
-                            (window * (1.0 - AudioRingBaselinePresence)) +
-                            (AudioRingBaselinePresence * Math.Sqrt(relative));
-
-                        // Empty is a hard cut, and it has to be: the per-bucket alpha table bottoms
-                        // out at 0.58 of the base, so no amount of dimming produces the large dark
-                        // gaps the reference shows. Dots tighten toward the hub where the circles
-                        // crowd together; radius and alpha both come off the bucket, so a whole
-                        // bucket shares one geometry, one brush pair and one pen pair.
-                        if (presence < AudioRingPresenceFloor)
-                            continue;
-
-                        int bucket = (int)Math.Round(presence * (AudioRingDotBuckets - 1));
+                        int bucket = (int)Math.Round(q * (AudioRingDotBuckets - 1));
                         if (bucket < 0)
                             bucket = 0;
                         else if (bucket > AudioRingDotBuckets - 1)
                             bucket = AudioRingDotBuckets - 1;
 
-                        // Checked on the BUCKET alpha so every dot in a bucket is treated
+                        // Checked on the BUCKET alphas so every dot in a bucket is treated
                         // identically - that is the whole point of bucketing - and so that
-                        // Opacity = 0 rejects all of them before any geometry is opened.
-                        if (batches.Alphas[bucket] <= 0.004)
+                        // Opacity = 0 rejects all of them before any geometry is opened. Each
+                        // stream is also opened per its OWN alpha, so GlowIntensity = 0 does not
+                        // record hundreds of halo figures it would then paint at alpha 0.
+                        if (batches.CoreAlphas[bucket] <= 0.004 && batches.HaloAlphas[bucket] <= 0.004)
                             continue;
 
-                        double dotRadius = batches.Radii[bucket];
-                        AddEllipseFigure(
-                            batches.Open(bucket),
-                            PointOnCircle(center, radius, a),
-                            dotRadius,
-                            dotRadius);
+                        double coreRadius = batches.Radii[bucket];
+                        Point position = new Point(px, py);
+                        if (batches.CoreAlphas[bucket] > 0.004)
+                            AddEllipseFigure(batches.OpenCore(bucket), position, coreRadius, coreRadius);
+                        if (batches.HaloAlphas[bucket] > 0.004)
+                            AddEllipseFigure(
+                                batches.OpenHalo(bucket),
+                                position,
+                                coreRadius * AudioRingHaloToCoreRatio,
+                                coreRadius * AudioRingHaloToCoreRatio);
                     }
                 }
 
-                // One halo pass then one core pass per bucket, in the same order every single dot
-                // used to get: the translucent halo outline first, the bright core over it.
+                // All halo discs first, then all core discs: the halos are translucent, so their
+                // mutual order is irrelevant, and painting every core after every halo keeps the
+                // dots crisp on top of the shared glow field. Each loop also skips buckets whose
+                // OWN stream was never opened - at GlowIntensity 0 that is every halo bucket.
                 for (int b = 0; b < AudioRingDotBuckets; b++)
                 {
-                    if (!batches.Used[b])
+                    if (!batches.Used[b] || batches.HaloAlphas[b] <= 0.004)
                         continue;
 
-                    Geometry geometry = batches.Seal(b);
-                    if (geometry.CanFreeze)
-                        geometry.Freeze();
+                    Geometry halo = batches.SealHalo(b);
+                    if (halo.CanFreeze)
+                        halo.Freeze();
+                    dc.DrawGeometry(CreateBrush(WithAlpha(ctx.Resolved.Glow, batches.HaloAlphas[b])), null, halo);
+                }
 
-                    double dotRadius = batches.Radii[b];
-                    double alpha = batches.Alphas[b];
+                for (int b = 0; b < AudioRingDotBuckets; b++)
+                {
+                    if (!batches.Used[b] || batches.CoreAlphas[b] <= 0.004)
+                        continue;
 
-                    Pen[] pens = ctx.Resolved.GetDotPens(
-                        dotRadius,
-                        WithAlpha(ctx.Resolved.Glow, 0.20 * alpha),
-                        WithAlpha(ctx.Resolved.Core, 0.95 * alpha));
-
-                    dc.DrawGeometry(null, pens[0], geometry);
-                    dc.DrawGeometry(null, pens[1], geometry);
+                    Geometry core = batches.SealCore(b);
+                    if (core.CanFreeze)
+                        core.Freeze();
+                    dc.DrawGeometry(CreateBrush(WithAlpha(ctx.Resolved.Core, batches.CoreAlphas[b])), null, core);
                 }
             }
             finally
@@ -1151,12 +1288,31 @@ namespace TitanEngine
             }
         }
 
+        /// <summary>
+        /// Deterministic per-dot brightness jitter in [0, 1]: a multiplicative hash of the dot's
+        /// lattice position (latitude ring index, slot index). A pure function of the indices, so
+        /// a dot keeps its own jitter for the whole loop - the flicker pattern is stable and only
+        /// the band energy moving through it changes frame to frame.
+        /// </summary>
+        private static double DotJitter(int ring, int slot)
+        {
+            unchecked
+            {
+                uint h = ((uint)ring * 374761393u) + ((uint)slot * 668265263u);
+                h ^= h >> 13;
+                h *= 1274126177u;
+                h ^= h >> 16;
+                return (h & 0xFFFF) / 65535.0;
+            }
+        }
+
         [ThreadStatic]
         private static AudioRingBatches? _audioRingBatches;
 
         /// <summary>
-        /// Per-frame scratch for the bucketed AudioRing lattice: one lazily-opened
-        /// <see cref="StreamGeometry"/> per alpha bucket, reused across frames on the same thread.
+        /// Per-frame scratch for the bucketed AudioRing sphere: one lazily-opened
+        /// <see cref="StreamGeometry"/> per alpha bucket - a HALO stream and a CORE stream -
+        /// reused across frames on the same thread.
         /// <para>
         /// Thread-static rather than static because two overlay renders can be in flight at once;
         /// not a lock because a bucket's geometry is only ever touched by the thread that built it.
@@ -1166,66 +1322,116 @@ namespace TitanEngine
         /// arrays either. The saving is real within a pass (which is the whole loop) and nil
         /// across passes, which is the only claim worth making.
         /// </para>
+        /// <para>
+        /// Two streams, not one: a dot's halo disc and its core disc have DIFFERENT radii
+        /// (<see cref="AudioRingHaloToCoreRatio"/>), so they cannot share a geometry the way the
+        /// old stroked-pen pair shared one ellipse outline. Both are FILLED figures. The old core
+        /// pen was twice the dot's own radius, and stroking a circle of radius r with a 2r-wide
+        /// pen fills the whole disc of radius 2r - every dot drew at double its intended size,
+        /// which is the "coarse dots" defect every earlier tuning round chased through the dot
+        /// unit without finding.
+        /// </para>
         /// </summary>
         private sealed class AudioRingBatches
         {
-            private StreamGeometry?[] _geometries = Array.Empty<StreamGeometry?>();
-            private StreamGeometryContext?[] _contexts = Array.Empty<StreamGeometryContext?>();
+            private StreamGeometry?[] _haloGeometries = Array.Empty<StreamGeometry?>();
+            private StreamGeometryContext?[] _haloContexts = Array.Empty<StreamGeometryContext?>();
+            private StreamGeometry?[] _coreGeometries = Array.Empty<StreamGeometry?>();
+            private StreamGeometryContext?[] _coreContexts = Array.Empty<StreamGeometryContext?>();
             private bool[] _used = Array.Empty<bool>();
             private int _count;
 
-            /// <summary>Dot radius per bucket. Dots tighten toward the hub where the circles crowd.</summary>
+            /// <summary>Core dot radius per bucket. The halo disc is this x <see cref="AudioRingHaloToCoreRatio"/>.</summary>
             public double[] Radii { get; } = new double[AudioRingDotBuckets];
 
-            /// <summary>Alpha per bucket. Carries the Opacity slider, so 0 rejects the whole lattice.</summary>
-            public double[] Alphas { get; } = new double[AudioRingDotBuckets];
+            /// <summary>Core disc alpha per bucket. Driven by the Opacity slider, so 0 rejects the whole sphere.</summary>
+            public double[] CoreAlphas { get; } = new double[AudioRingDotBuckets];
+
+            /// <summary>Halo disc alpha per bucket. Driven by GlowIntensity, so glow off leaves flat dots.</summary>
+            public double[] HaloAlphas { get; } = new double[AudioRingDotBuckets];
 
             /// <summary>Which buckets got at least one dot this frame.</summary>
             public bool[] Used => _used;
 
-            /// <summary>Recomputes the per-bucket radius and alpha tables for this frame's canvas.</summary>
-            public void Prepare(double dotUnit, double alphaBase)
+            /// <summary>
+            /// Recomputes the per-bucket radius and alpha tables for this frame's canvas.
+            /// <para>
+            /// Core alpha is driven by <paramref name="coreAlphaBase"/> (the Opacity slider alone)
+            /// and halo alpha by <paramref name="glowBase"/> (GlowIntensity, which already folds
+            /// palette strength x Opacity), so the two knobs mean what they mean everywhere else
+            /// in this file: Opacity 0 kills the dots outright, Glow 0 leaves flat unbloomed dots
+            /// instead of deleting the sphere. The old table multiplied Opacity into BOTH through
+            /// <c>alphaBase = AlphaFactor x GlowIntensity</c> - a double application that squared
+            /// the Opacity slider and made the whole lattice vanish at Glow 0.
+            /// </para>
+            /// </summary>
+            public void Prepare(double maxCoreRadius, double coreAlphaBase, double glowBase)
             {
                 if (_count != AudioRingDotBuckets)
                 {
                     Release();
-                    _geometries = new StreamGeometry?[AudioRingDotBuckets];
-                    _contexts = new StreamGeometryContext?[AudioRingDotBuckets];
+                    _haloGeometries = new StreamGeometry?[AudioRingDotBuckets];
+                    _haloContexts = new StreamGeometryContext?[AudioRingDotBuckets];
+                    _coreGeometries = new StreamGeometry?[AudioRingDotBuckets];
+                    _coreContexts = new StreamGeometryContext?[AudioRingDotBuckets];
                     _used = new bool[AudioRingDotBuckets];
                     _count = AudioRingDotBuckets;
                 }
 
                 for (int b = 0; b < AudioRingDotBuckets; b++)
                 {
-                    // Bucket centres span the closed energy range [0, 1] so the extremes - a dead
-                    // quiet band and a full-scale one - are still drawn at their exact old values.
-                    double energy = b / (double)(AudioRingDotBuckets - 1);
-                    Radii[b] = Math.Max(0.7, dotUnit * (0.55 + (0.45 * energy)));
-                    Alphas[b] = alphaBase * (0.58 + (0.42 * energy));
+                    // Bucket centres span the closed combined-energy range [0, 1] so the extremes
+                    // - a dead quiet back dot and a full-scale front one - draw at their exact ends.
+                    // The 0.7 floor keeps the size ramp alive on the smallest default-job sphere,
+                    // where maxCoreRadius itself sits on its own 1.0 px floor.
+                    double q = b / (double)(AudioRingDotBuckets - 1);
+                    Radii[b] = Math.Max(0.70, maxCoreRadius * (0.50 + (0.50 * q)));
+                    CoreAlphas[b] = Math.Clamp(coreAlphaBase * (0.45 + (0.55 * q)), 0.0, 1.0);
+                    HaloAlphas[b] = Math.Clamp(glowBase * AudioRingHaloAlphaRatio * (0.55 + (0.45 * q)), 0.0, 1.0);
                     _used[b] = false;
                 }
             }
 
-            /// <summary>Returns the bucket's open context, creating its geometry on first touch.</summary>
-            public StreamGeometryContext Open(int bucket)
+            /// <summary>Returns the bucket's open HALO context, creating its geometry on first touch.</summary>
+            public StreamGeometryContext OpenHalo(int bucket)
+                => OpenStream(bucket, _haloGeometries, _haloContexts);
+
+            /// <summary>Returns the bucket's open CORE context, creating its geometry on first touch.</summary>
+            public StreamGeometryContext OpenCore(int bucket)
+                => OpenStream(bucket, _coreGeometries, _coreContexts);
+
+            private StreamGeometryContext OpenStream(
+                int bucket,
+                StreamGeometry?[] geometries,
+                StreamGeometryContext?[] contexts)
             {
-                if (_contexts[bucket] == null)
+                if (contexts[bucket] == null)
                 {
                     var geometry = new StreamGeometry();
-                    _geometries[bucket] = geometry;
-                    _contexts[bucket] = geometry.Open();
+                    geometries[bucket] = geometry;
+                    contexts[bucket] = geometry.Open();
                     _used[bucket] = true;
                 }
 
-                return _contexts[bucket]!;
+                return contexts[bucket]!;
             }
 
-            /// <summary>Closes the bucket's context so the geometry can be frozen and drawn.</summary>
-            public Geometry Seal(int bucket)
+            /// <summary>Closes the bucket's HALO context so the geometry can be frozen and drawn.</summary>
+            public Geometry SealHalo(int bucket)
+                => SealStream(bucket, _haloGeometries, _haloContexts);
+
+            /// <summary>Closes the bucket's CORE context so the geometry can be frozen and drawn.</summary>
+            public Geometry SealCore(int bucket)
+                => SealStream(bucket, _coreGeometries, _coreContexts);
+
+            private static Geometry SealStream(
+                int bucket,
+                StreamGeometry?[] geometries,
+                StreamGeometryContext?[] contexts)
             {
-                _contexts[bucket]?.Close();
-                _contexts[bucket] = null;
-                return _geometries[bucket]!;
+                contexts[bucket]?.Close();
+                contexts[bucket] = null;
+                return geometries[bucket]!;
             }
 
             /// <summary>Closes anything left open and drops every geometry so the next frame starts clean.</summary>
@@ -1233,9 +1439,12 @@ namespace TitanEngine
             {
                 for (int b = 0; b < _count; b++)
                 {
-                    _contexts[b]?.Close();
-                    _contexts[b] = null;
-                    _geometries[b] = null;
+                    _haloContexts[b]?.Close();
+                    _haloContexts[b] = null;
+                    _haloGeometries[b] = null;
+                    _coreContexts[b]?.Close();
+                    _coreContexts[b] = null;
+                    _coreGeometries[b] = null;
                     _used[b] = false;
                 }
             }
@@ -1862,7 +2071,8 @@ namespace TitanEngine
 
             // Three-pass additive glow over the SAME line geometry: halo wide -> core last.
             Geometry lines = BuildLineGeometry(columns);
-            DrawGlowPasses(dc, lines, glowThickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap);
+            DrawGlowPasses(dc, lines, glowThickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap,
+                coreWidthRatio: GlowColumnCoreWidthRatio);
         }
 
         /// <summary>
@@ -1920,7 +2130,8 @@ namespace TitanEngine
             double maxHaloThickness = double.PositiveInfinity,
             bool coreAlways = false,
             double alphaScale = 1.0,
-            Color? coreColor = null)
+            Color? coreColor = null,
+            double coreWidthRatio = 1.0)
         {
             // Opacity is the master fold. Nothing below - not the halo, not the mid, not the flat
             // core - is allowed to draw at all when the user has turned it to zero.
@@ -1958,7 +2169,18 @@ namespace TitanEngine
 
             Pen haloPen = CreatePen(CreateBrush(WithAlpha(resolved.Glow, GlowWideAlpha * intensity * fade)), wideThickness, cap);
             Pen midPen = CreatePen(CreateBrush(WithAlpha(resolved.Glow, GlowMidAlpha * intensity * fade)), midThickness, cap);
-            Pen corePen = CreatePen(CreateBrush(WithAlpha(core, GlowCoreAlpha * intensity * fade)), t, cap);
+            // The core pass paints BRIGHT COLOUR at 0.92 alpha, which is right when the geometry IS the
+            // element - a ray, a ring, a spoke, where the full-width stroke is the light source. It
+            // is wrong on the linear bar styles: their body is already painted with a palette
+            // gradient that runs to a white-hot tip (DrawColumns draws it with GetColumnBrush a
+            // few lines above this call), and a core at the full element width lays a near-white
+            // stripe straight down the middle of every bar. Measured at barWidth 6.70 px with a
+            // 0.34 ratio: a 2.28 px white core left ~2.2 px of gradient on each side, so all four
+            // bar styles rendered as a white barcode with coloured edges and the palette ramp was
+            // invisible. coreWidthRatio lets those styles keep a thin hot filament INSIDE a
+            // coloured body instead - still neon, but the colour survives.
+            double coreThickness = Math.Max(0.6, t * Math.Clamp(coreWidthRatio, 0.05, 1.0));
+            Pen corePen = CreatePen(CreateBrush(WithAlpha(core, GlowCoreAlpha * intensity * fade)), coreThickness, cap);
 
             dc.DrawGeometry(null, haloPen, geometry);
             dc.DrawGeometry(null, midPen, geometry);
@@ -2611,22 +2833,6 @@ namespace TitanEngine
                 center.Y + (Math.Sin(radians) * radius));
         }
 
-        /// <summary>
-        /// Wraps an angle into (-180, 180], so two angles can be subtracted and the result is the
-        /// SHORT way round. <see cref="NormalizeAngle"/> gives [0, 360), which makes a raw
-        /// subtraction jump by a full turn at the 0/360 seam - fine for bucketing an index, wrong
-        /// for asking "how far apart are these two directions".
-        /// </summary>
-        private static double NormalizeSigned(double degrees)
-        {
-            double a = degrees % 360.0;
-            if (a > 180.0)
-                a -= 360.0;
-            else if (a <= -180.0)
-                a += 360.0;
-            return a;
-        }
-
         private static double NormalizeAngle(double degrees)
         {
             double a = degrees % 360.0;
@@ -2981,56 +3187,8 @@ namespace TitanEngine
                 }
             }
 
-            /// <summary>
-            /// AudioRing's two outline pens per (dot radius, halo alpha byte, core alpha byte).
-            /// <para>
-            /// Same hoisting play as <see cref="GetAngularBrush"/>, one level up: the lattice used to
-            /// build a fresh <see cref="SolidColorBrush"/> pair and a fresh <see cref="Pen"/> pair for
-            /// every dot of every frame. The dot radius and both alpha bytes are part of the key
-            /// because all three move with the canvas, the Opacity and Glow sliders and the
-            /// sensitivity - keying on the bucket index alone would hand back a pen of the wrong
-            /// width or the wrong alpha the moment any of them changed.
-            /// </para>
-            /// </summary>
-            public Pen[] GetDotPens(double dotRadius, Color haloColor, Color coreColor)
-            {
-                byte halo = haloColor.A;
-                byte core = coreColor.A;
-
-                lock (DotPenCache)
-                {
-                    if (DotPenCache.TryGetValue((dotRadius, halo, core), out Pen[]? cached))
-                        return cached;
-
-                    Pen[] built =
-                    {
-// The halo is 2.8x the dot. That is fine for a dot that has open canvas around it,
-                        // but the lattice has 12 circles one dot-spacing apart, and a 2.8x halo on a
-                        // 14.5 px pitch is 12.2 px - the halos touch and the whole interior fills in
-                        // as one sheet of light, which is the opposite of the reference's dark gaps
-                        // between arcs. Raising AudioRingPresenceFloor does nothing to fix that: the
-                        // surviving dots all sit far above the threshold, so the density is decided
-                        // by the halo width, not by the gate. 1.9x keeps the neon bloom on each dot
-                        // and leaves the space between the circles visible.
-                        CreatePen(CreateBrush(haloColor), dotRadius * 1.9, PenLineCap.Round),
-                        CreatePen(CreateBrush(coreColor), dotRadius * 2.0, PenLineCap.Round)
-                    };
-
-                    // A palette is rendered at a handful of canvas sizes; the cap only exists so a
-                    // pathological resize sweep cannot grow this without bound.
-                    if (DotPenCache.Count > 512)
-                        DotPenCache.Clear();
-
-                    DotPenCache[(dotRadius, halo, core)] = built;
-                    return built;
-                }
-            }
-
             private readonly Dictionary<(int Index, int Alpha), SolidColorBrush> AlphaAngularCache =
                 new Dictionary<(int Index, int Alpha), SolidColorBrush>(16);
-
-            private readonly Dictionary<(double Radius, byte Halo, byte Core), Pen[]> DotPenCache =
-                new Dictionary<(double Radius, byte Halo, byte Core), Pen[]>(64);
         }
 
         private sealed class FrameContext
@@ -3155,7 +3313,15 @@ namespace TitanEngine
                     ? ApplyPinkTilt(Math.Clamp(previousBands[index] * Sensitivity, 0f, 1f), index, length)
                     : 0f;
 
-                float k = 1f - (0.85f * Smoothing);
+                // A one-pole smoother keeps (1-k) of the previous frame. At the shipped default
+                // Smoothing = 1.0 this was k = 0.15, i.e. 85 % of every bar's value carried over
+                // from the previous frame - the figure drifted rather than moved. Measured across
+                // frames 40 -> 78, mirror-spectrum had only 1 bar of 64 move more than 20 px, and
+                // neon-bars 24 of 64. Smoothing is meant to take the edge off jitter, not to freeze
+                // the animation, so the retention coefficient is now 0.45: Smoothing = 1 still
+                // gives k = 0.55, which visibly follows the beat while staying smooth, and
+                // Smoothing = 0 is unchanged at k = 1.0 (no smoothing at all).
+                float k = 1f - (0.45f * Smoothing);
                 return Math.Clamp(prior + ((value - prior) * k), 0f, 1f);
             }
 
