@@ -154,9 +154,20 @@ namespace TitanEngine
         /// same palette. (5) Peak caps bloom (halo + core) instead of sitting as bare white
         /// hairlines. Smoothing = 0 still disables smoothing on both envelope sides.
         /// </item>
+        /// <item>
+        /// r27 (this one): the "pro template" furniture. The four linear bar styles gain a
+        /// FLOOR SPILL - a soft gradient of the glow colour bleeding down from the baseline,
+        /// breathing with the onset pulse (LimePulse's glossy floor). The four radial styles
+        /// (radial-ring, dual-rings, spoke-lines, ripple-rings) gain an AMBIENT BLOOM - one
+        /// large soft radial disc behind the figure so it reads as a light source instead of
+        /// floating on raw video (Videobolt stage glow). MirrorSpectrum gains a thin bright
+        /// mirror axis so its two halves read as one figure. Everything is a pure function of
+        /// the current frame and folds both the Opacity and Glow sliders; Glow 0 removes the
+        /// additions entirely.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r26";
+        private const string RendererVersion = "soundbar-r27";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

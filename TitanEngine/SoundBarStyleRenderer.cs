@@ -791,6 +791,7 @@ namespace TitanEngine
 
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
             DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
+            DrawFloorSpill(dc, ctx, plot.Bottom, plot.Width, plot.X);
         }
 
         // ------------------------------------------------------------------
@@ -815,6 +816,21 @@ namespace TitanEngine
             double bounce = 1.0
                 + (BarBassBounceFraction * bass)
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+
+            // The mirror axis: mirrored visualizers read as ONE figure when a thin bright
+            // line anchors the centre - without it the two halves read as two separate
+            // spectrums that happen to touch.
+            var axis = new StreamGeometry();
+            using (StreamGeometryContext axisCtx = axis.Open())
+            {
+                axisCtx.BeginFigure(new Point(plot.X, midY), false, false);
+                axisCtx.LineTo(new Point(plot.Right, midY), true, false);
+            }
+            if (axis.CanFreeze)
+                axis.Freeze();
+            dc.DrawGeometry(null, CreatePen(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, 0.30 * ctx.AlphaFactor)),
+                Math.Max(1.2, plot.Height * 0.004)), axis);
 
             for (int i = 0; i < barCount; i++)
             {
@@ -880,6 +896,7 @@ namespace TitanEngine
             // PillBars' cap is a detached MINI PILL (fat stroke), not a hairline - the iOS
             // equalizer look the style references.
             DrawPeakCaps(dc, ctx, caps, Math.Max(2.0, barWidth * 0.42));
+            DrawFloorSpill(dc, ctx, baseY, plot.Width, plot.X);
         }
 
         // ------------------------------------------------------------------
@@ -916,6 +933,7 @@ namespace TitanEngine
             }
 
             DrawColumns(dc, ctx, columns, Math.Max(0.5, thickness * 0.55), PenLineCap.Round);
+            DrawFloorSpill(dc, ctx, plot.Bottom, plot.Width, plot.X);
         }
 
         // ------------------------------------------------------------------
@@ -1686,6 +1704,8 @@ namespace TitanEngine
 
             FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
 
+            DrawAmbientBloom(dc, ctx, center, outer);
+
             // Bright hub core: the AE polar reference has a luminous point at the centre, not
             // an empty hole. A soft radial-gradient disc under the wedges, pulsing with the
             // same beat (the disc's radius rides `beat`, so a kick visibly "ignites" the hub).
@@ -1739,6 +1759,8 @@ namespace TitanEngine
             float[]? bands = ctx.Current?.Bands;
             int bandLength = bands?.Length ?? 0;
             int slice = Math.Max(1, bandLength / ringCount);
+
+            DrawAmbientBloom(dc, ctx, center, outer);
 
             var rawRingLevels = new double[barCount];
             var rays = new List<RaySpec>(barCount);
@@ -1903,6 +1925,8 @@ namespace TitanEngine
             // alive at GlowIntensity = 0: the core still paints at `Accent` x fade, flat, with no
             // bloom. The halo is now bounded by RadialHaloExtent(outer) like the other three radial
             // styles, instead of an unbounded thickness * 5.0 that could halo wider than the ring.
+            DrawAmbientBloom(dc, ctx, center, outer);
+
             for (int i = 0; i < ringRadii.Count; i++)
             {
                 double radius = Math.Clamp(ringRadii[i], 0.5, outer);
@@ -1977,6 +2001,8 @@ namespace TitanEngine
             // SpokeLines draws no wedges, so it passes null for the two wedge-only outputs rather than
             // allocating a pair of barCount-sized arrays per frame for FillRadialBarSet to fill.
             FillRadialBarSet(levels, center, inner, outer, rotation, span, null, null, rays);
+
+            DrawAmbientBloom(dc, ctx, center, outer);
 
             // Tiny luminous hub at the same scale as RadialRing's: bare spokes read as floating
             // dashes; a bright pin in the centre anchors the figure and it pulses with the beat.
@@ -2435,6 +2461,74 @@ namespace TitanEngine
                 CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)),
                 capStroke);
             dc.DrawGeometry(null, capPen, geometry);
+        }
+
+        /// <summary>
+        /// The floor spill the professional templates carry (LimePulse's "glossy floor",
+        /// Videobolt's stage glow): a soft vertical gradient strip of the palette's glow
+        /// colour bleeding DOWN from the bars' baseline, as if the bars lit the floor.
+        /// Pure function of the frame (its alpha breathes with the shared onset pulse), so
+        /// the loop seam is invisible. Clipped to the canvas - the plot may end at the very
+        /// bottom edge, where the strip would otherwise spill off-frame.
+        /// </summary>
+        private static void DrawFloorSpill(
+            DrawingContext dc,
+            FrameContext ctx,
+            double baselineY,
+            double plotWidth,
+            double plotLeft)
+        {
+            if (ctx.GlowIntensity <= 0.002 || ctx.AlphaFactor <= 0.002)
+                return;
+
+            double stripHeight = Math.Max(4.0, ctx.Plot.Height * 0.055);
+            double available = ctx.Height - baselineY;
+            if (available < 2.0)
+                return;
+            stripHeight = Math.Min(stripHeight, available);
+
+            double punch = OnsetPulseEnvelope(ctx);
+            double alpha = Math.Min(1.0, 0.15 * ctx.GlowIntensity * (1.0 + (0.6 * punch))) * ctx.AlphaFactor;
+
+            var brush = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.Absolute,
+                StartPoint = new Point(0, baselineY),
+                EndPoint = new Point(0, baselineY + stripHeight)
+            };
+            brush.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, alpha), 0.0));
+            brush.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, alpha * 0.35), 0.45));
+            brush.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, 0.0), 1.0));
+            if (brush.CanFreeze)
+                brush.Freeze();
+
+            dc.DrawRectangle(brush, null, new Rect(plotLeft, baselineY, plotWidth, stripHeight));
+        }
+
+        /// <summary>
+        /// The ambient bloom behind a radial figure: one large, very soft radial-gradient
+        /// disc of the glow colour, breathing with the beat. This is the depth cue the pro
+        /// radial templates all have - without it the figure floats on raw video; with it
+        /// the figure reads as a light SOURCE. One ellipse, one brush, drawn before the
+        /// figure so every style's own drawing sits on top of it.
+        /// </summary>
+        private static void DrawAmbientBloom(
+            DrawingContext dc,
+            FrameContext ctx,
+            Point center,
+            double outer)
+        {
+            if (ctx.GlowIntensity <= 0.002 || ctx.AlphaFactor <= 0.002)
+                return;
+
+            double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double punch = OnsetPulseEnvelope(ctx);
+            double breathe = 1.0 + (0.04 * bass) + (0.03 * punch);
+            double radius = Math.Max(4.0, outer * 1.05 * breathe);
+            double alpha = Math.Min(1.0, 0.085 * ctx.GlowIntensity * (1.0 + (0.5 * punch))) * ctx.AlphaFactor;
+
+            RadialGradientBrush bloom = CreateRadialGlowBrush(ctx.Resolved.Glow, alpha, center, radius);
+            dc.DrawEllipse(bloom, null, center, radius, radius);
         }
 
         /// <summary>
