@@ -53,7 +53,7 @@ namespace TitanEngine
 
         internal IReadOnlyList<Ripple> Ripples => _ripples;
 
-        internal void NoteOnset(int frameIndex, int maxLiveRings)
+        internal void NoteOnset(int frameIndex, int maxLiveRings, float energy)
         {
             if (frameIndex == _lastOnsetFrame)
                 return;
@@ -64,7 +64,7 @@ namespace TitanEngine
             if (_ripples.Count >= Math.Max(1, maxLiveRings))
                 _ripples.RemoveAt(0);
 
-            _ripples.Add(new Ripple(frameIndex, 1f));
+            _ripples.Add(new Ripple(frameIndex, Math.Clamp(energy, 0.35f, 1f)));
         }
 
         internal void ExpireRipples(int frameIndex, int lifetimeFrames)
@@ -311,14 +311,13 @@ namespace TitanEngine
         private const double AudioRingBaseFraction = 0.74;
         /// <summary>
         /// The ring's deformation budget, as a fraction of the gap between the base radius and
-        /// the plot's outer edge. This was 0.17 - 4.4 % of outer, ~14 px at the default job -
-        /// fed by a waveform envelope that peaks around 0.1-0.3 on real music, so the measured
-        /// wobble was 1.5-4.5 px on a ~240 px ring: invisible, which is why the ring read as
-        /// never moving. The ring is now fed band levels (see DrawAudioRing) that genuinely
-        /// reach 1.0, and 0.30 of the gap gives real spikes while base + amplitude + breathe
-        /// still tops out at ~0.90 of outer, inside the clamp.
+        /// the plot's outer edge. The reference ring (the NCS "smooth circular spectrum")
+        /// undulates GENTLY - it is a near-circle that breathes, never a spiky polar graph.
+        /// 0.22 of the gap over the heavily smoothed band values below gives a visible but
+        /// rounded undulation; with base + amplitude + breathe the peak still lands at ~0.86
+        /// of outer, inside the clamp.
         /// </summary>
-        private const double AudioRingAmplitudeFraction = 0.30;
+        private const double AudioRingAmplitudeFraction = 0.22;
         /// <summary>
         /// Ring stroke width as a fraction of the OUTER RADIUS, so the ratio to the ring's own
         /// diameter is half of it. 0.127 puts the stroke at 6.35 % of the diameter, in the middle of
@@ -377,74 +376,85 @@ namespace TitanEngine
 
         /// <summary>
         /// Spacing between neighbouring latitude rings, as a fraction of the outer radius. The
-        /// dark channels BETWEEN the rings are half the reference's look, so the pitch is a visual
-        /// constant, not a performance one. AudioRing draws in a SQUARE plot (see
-        /// <see cref="UsesSquarePlot"/>), so on the shipped defaults - 62 % x 26 % on 1080x1080 -
-        /// the plot side is ~281 px, outer ~138 px and the 6 px floor of the pitch calculation
-        /// binds (~6 px); on a 669 px plot (62 % width, 1080x1920 portrait) the fraction gives
-        /// ~13 px. Both keep the gap between rings wider than one halo radius.
+        /// reference's particles are FINE dust - thousands of them - so the lattice is as fine
+        /// as the pitch budget allows while still leaving a visible dark channel between rings
+        /// (the halo of one ring must not paint over the next). AudioRing draws in a SQUARE
+        /// plot (see <see cref="UsesSquarePlot"/>): on a 669 px plot (62 % width, 1080x1920
+        /// portrait) this is ~10.5 px; on the shipped small default (plot side ~281 px on
+        /// 1080x1080) the 6 px floor of the pitch calculation binds.
         /// </summary>
-        private const double AudioRingRingPitchFraction = 0.040;
+        private const double AudioRingRingPitchFraction = 0.032;
 
         /// <summary>
         /// Core dot radius as a fraction of the ring pitch - i.e. of the cell the dot lives in -
         /// with a 1.0 px floor so the smallest default-job sphere (pitch ~6 px) still paints
-        /// visible dots: 0.14 of 6 px is 0.84 px, which antialiasing would erase. On a 669 px plot
-        /// (pitch ~13 px) it is a ~1.8 px radius: the fine-dust size the reference shows. This
-        /// replaced a model whose dots drew at DOUBLE their intended size (a stroked circle of
-        /// radius r with a 2r-wide pen fills the whole disc of radius 2r) - the "coarse dots"
-        /// defect every earlier tuning round chased through dotUnit without finding.
+        /// visible dots. 0.12 of a ~10.5 px pitch is a ~1.3 px radius at the large plot: the
+        /// fine-dust size the reference frames show. This replaced a model whose dots drew at
+        /// DOUBLE their intended size (a stroked circle of radius r with a 2r-wide pen fills
+        /// the whole disc of radius 2r) - the "coarse dots" defect every earlier tuning round
+        /// chased through dotUnit without finding.
         /// </summary>
-        private const double AudioRingDotRadiusPitchRatio = 0.14;
+        private const double AudioRingDotRadiusPitchRatio = 0.12;
 
         /// <summary>
         /// Halo disc radius as a multiple of the core dot radius. The halo is a FILLED translucent
         /// ellipse, not a stroke, so the ratio is exact. The reference's 2022 restyle is described
-        /// as "reducing the opacity and increasing the glow radius" - a wide soft halo under a
-        /// small dimmer core - which 2.1x delivers without packing the disc solid.
+        /// as "reducing the opacity and increasing the glow radius" - a soft halo under a small
+        /// dimmer core - but 1.9x keeps the halo of one ring from eating the dark channel to its
+        /// neighbour at the finer lattice pitch.
         /// </summary>
-        private const double AudioRingHaloToCoreRatio = 2.1;
+        private const double AudioRingHaloToCoreRatio = 1.9;
 
         /// <summary>
-        /// Halo alpha as a fraction of the core alpha, per dot. A little under a third: the disc
-        /// stays translucent where halos overlap, which is what keeps the dark channels between
-        /// the latitude rings visible under the glow.
+        /// Halo alpha as a fraction of the core alpha, per dot. A quarter: the disc stays
+        /// translucent where halos overlap, which is what keeps the dark channels between the
+        /// latitude rings visible under the glow.
         /// </summary>
-        private const double AudioRingHaloAlphaRatio = 0.30;
+        private const double AudioRingHaloAlphaRatio = 0.26;
 
         /// <summary>
         /// How far a full-scale band pushes its latitude ring outward, as a fraction of the sphere
         /// radius. The displacement rides the SAME energy that drives the dot's brightness, so a
-        /// loud band brightens AND bulges its ring together - the sphere's silhouette deforms with
-        /// the music instead of only changing colour. Raised 0.05 -> 0.09 with the pulse work:
-        /// at 0.05 the push was under 10 px at the default job and the sphere read as static.
+        /// loud band brightens AND bulges its ring together. 0.06: the reference's surface barely
+        /// ripples between beats - the read is a sphere that swells softly, not one whose surface
+        /// jumps - and the whole-figure pulse (<see cref="AudioRingPulseKickFraction"/>) carries
+        /// the beat, so the per-band push only has to add texture on top of it.
         /// </summary>
-        private const double AudioRingDisplaceFraction = 0.09;
+        private const double AudioRingDisplaceFraction = 0.06;
 
         /// <summary>
         /// Whole-figure breathing on the bass, as a fraction of the outer radius at full bass.
         /// The slow half of the breath - the enveloped bass level rises and falls over whole
         /// bars, and both the ring and the sphere are scaled by it, which is what keeps them
-        /// moving as one object. The fast half is <see cref="AudioRingPulseKickFraction"/>; the
-        /// previous version had bass only, at 0.05, and the figure never visibly moved.
+        /// moving as one object. The fast half is <see cref="AudioRingPulseKickFraction"/>.
         /// </summary>
-        private const double AudioRingBassBreatheFraction = 0.06;
+        private const double AudioRingBassBreatheFraction = 0.05;
 
         /// <summary>
         /// The fast half of the breath: how far a full-scale onset kick expands the whole figure
-        /// (ring + sphere) as a fraction of the outer radius. This is the "thump" the reference
-        /// has and the previous implementation lacked entirely - no onset path existed anywhere
-        /// in the style. 0.10 of outer is ~33 px at the default job: unmistakable, and still
-        /// inside the ring's own clamp.
+        /// (ring + sphere) as a fraction of the outer radius. The reference's beat response is a
+        /// SOFT push - Trapcode Sound Keys drives it through a smoothed envelope, so the circle
+        /// swells and settles; it never snaps. 0.055 of outer (~18 px at the default job) with
+        /// the attack ramp below reads as an elastic pulse. The first version of the pulse had
+        /// no attack ramp at 0.10 - one frame at full depth - and read as a crude mechanical
+        /// jerk ("dap qua tho").
         /// </summary>
-        private const double AudioRingPulseKickFraction = 0.10;
+        private const double AudioRingPulseKickFraction = 0.055;
+
+        /// <summary>
+        /// The level the kick's OWN frame carries, before the peak lands one frame later. 1.0
+        /// would mean the figure jumps to full depth in a single frame; 0.6 spreads the attack
+        /// over two frames (60 % then 100 %) which, at the 30 fps loop rate, the eye reads as
+        /// one smooth push instead of a snap.
+        /// </summary>
+        private const double AudioRingPulseAttackLevel = 0.6;
 
         /// <summary>
         /// Per-frame decay of one onset kick's contribution to the pulse envelope: each frame
-        /// after the hit keeps 78 % of the previous frame's expansion, so a kick fades over
-        /// roughly a third of a second at 30 fps - the attack/decay shape of a drum hit.
+        /// after the PEAK keeps 80 % of the previous frame's expansion, so a kick fades over
+        /// roughly a third of a second at 30 fps - the settle half of an elastic drum pulse.
         /// </summary>
-        private const double AudioRingPulseDecayPerFrame = 0.78;
+        private const double AudioRingPulseDecayPerFrame = 0.80;
 
         /// <summary>
         /// How many frames back the pulse envelope looks for a kick. 9 frames = 0.3 s at 30 fps,
@@ -462,12 +472,53 @@ namespace TitanEngine
         private const double AudioRingBackDimFloor = 0.35;
 
         /// <summary>
+        /// Linear falling-peak envelope, evaluated as a PURE function of the analysed frames:
+        /// <c>peak(t) = max over k in [0, Lookback] of v(t-k) - FallPerFrame * k</c>, wrapped
+        /// (<see cref="FrameAt"/>) so the loop seam is structurally invisible - the same
+        /// trick as the AudioRing pulse. Every band-driven bar style draws this as the
+        /// classic falling peak-hold cap.
+        /// <para>
+        /// Ballistics follow the broadcast convention (BBC PPM: instant attack, then fall;
+        /// 9-26 dB/s) scaled to the band array's ~30 dB mapped span: 0.012 of full scale per
+        /// frame at 30 fps is ~0.36 span/s, about 11 dB/s - mid-range of the standard. The
+        /// current value always participates (k = 0), so the cap never sits BELOW the bar.
+        /// </para>
+        /// </summary>
+        private const double PeakCapFallPerFrame = 0.012;
+
+        /// <summary>
+        /// How many frames back the peak cap looks. 24 frames = 0.8 s at 30 fps: by then the
+        /// linear fall has consumed 0.29 of full scale, so a cap older than that is below any
+        /// surviving value the eye is tracking anyway.
+        /// </summary>
+        private const int PeakCapMaxLookback = 24;
+
+        /// <summary>
+        /// Subtle whole-row bounce shared by the linear bar styles: full bass lifts every
+        /// bar's reach by this fraction. The reference analyzers (AE Audio Spectrum via
+        /// bass-driven expressions) couple the LOW band into overall height; 0.04 is a
+        /// breath, not a jump - the bars themselves carry the motion.
+        /// </summary>
+        private const double BarBassBounceFraction = 0.04;
+
+        /// <summary>
+        /// Radial styles' onset pulse, a quieter sibling of <see cref="AudioRingPulseKickFraction"/>:
+        /// the whole polar figure (rays, wedges, hub) expands by this fraction of the outer
+        /// radius on a beat, decaying at the same 0.80/frame with the same 2-frame attack.
+        /// </summary>
+        private const double RadialPulseKickFraction = 0.045;
+
+        /// <summary>Radial styles' slow bass breathe, alongside <see cref="RadialPulseKickFraction"/>.</summary>
+        private const double RadialBassBreatheFraction = 0.03;
+
+        /// <summary>
         /// Floor of the per-dot brightness jitter. A latitude ring whose every dot shares one band
         /// value would light as a solid stripe; the jitter (a pure hash of the dot's lattice
-        /// position, stable frame to frame) breaks each ring into patches so the brightness reads
-        /// as scattered flicker following the music, the way the reference's particles do.
+        /// position, stable frame to frame) breaks each ring into patches. 0.65 keeps the
+        /// patchiness SUBTLE - the reference's flicker reads as the sphere shimmering, not as
+        /// disconnected dots blinking independently.
         /// </summary>
-        private const double AudioRingJitterFloor = 0.55;
+        private const double AudioRingJitterFloor = 0.65;
 
         /// <summary>
         /// How many alpha buckets the AudioRing dot sphere is quantised into.
@@ -560,10 +611,15 @@ namespace TitanEngine
         private const double CenterColumnMinFraction = 0.10;
 
         /// <summary>Absolute level a PeakStars slice must clear before it draws.</summary>
-        private const float PeakStarFloor = 0.05f;
+        private const float PeakStarFloor = 0.12f;
 
-        /// <summary>How far a PeakStars slice maximum must beat its neighbourhood mean.</summary>
-        private const double PeakStarContrastRatio = 1.04;
+        /// <summary>
+        /// How far a PeakStars slice maximum must beat its neighbourhood mean. 1.04 let nearly
+        /// every slice through, carpeting the plot with same-brightness stars; 1.18 keeps only
+        /// genuine stand-out peaks, which is what makes each one READ as a highlight glint
+        /// (the Starglow reference glints at bright points, not everywhere).
+        /// </summary>
+        private const double PeakStarContrastRatio = 1.18;
 
         private static readonly ConcurrentDictionary<string, ResolvedPalette> PaletteCache =
             new ConcurrentDictionary<string, ResolvedPalette>(StringComparer.Ordinal);
@@ -685,6 +741,12 @@ namespace TitanEngine
             double slot = plot.Width / barCount;
             double barWidth = ClampSafe(slot * 0.64, 1.0, slot * 0.96);
             var columns = new List<ColumnSpec>(barCount);
+            var caps = new List<(double X, double Y, double Width)>(barCount);
+
+            // Bass bounce: the reference analyzers couple the low band into the whole row's
+            // height. A 4 % breath - the bars themselves carry the motion.
+            double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double bounce = 1.0 + (BarBassBounceFraction * bass);
 
             for (int i = 0; i < barCount; i++)
             {
@@ -695,12 +757,20 @@ namespace TitanEngine
                 // white beads floating on the baseline with no bar attached. A short rounded stub
                 // reads correctly. It is a FRACTION of the plot height, not a fixed 1.0 px: a hard
                 // pixel floor quantises every genuinely quiet band onto the same rail.
-                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height);
+                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height * bounce);
                 double tipY = plot.Bottom - reach;
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), plot.Bottom, tipY, barWidth));
+
+                // Falling peak-hold cap (the classic analyzer marker): only drawn when the
+                // historical peak actually stands ABOVE the live bar, otherwise it would
+                // bake into every tip as a solid line.
+                double peakReach = ctx.SampleBandPeak(i, barCount) * plot.Height * bounce;
+                if (peakReach > reach + 2.0)
+                    caps.Add((plot.X + (slot * (i + 0.5)), plot.Bottom - peakReach - (barWidth * 0.30), barWidth));
             }
 
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
+            DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
         }
 
         // ------------------------------------------------------------------
@@ -719,17 +789,29 @@ namespace TitanEngine
             double slot = plot.Width / barCount;
             double barWidth = ClampSafe(slot * 0.62, 1.0, slot * 0.96);
             var columns = new List<ColumnSpec>(barCount * 2);
+            var caps = new List<(double X, double Y, double Width)>(barCount * 2);
+
+            double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double bounce = 1.0 + (BarBassBounceFraction * bass);
 
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
-                double reach = Math.Max(MinimumReach(halfHeight), value * halfHeight);
+                double reach = Math.Max(MinimumReach(halfHeight), value * halfHeight * bounce);
                 double x = plot.X + (slot * (i + 0.5));
                 columns.Add(new ColumnSpec(x, midY, midY - reach, barWidth));
                 columns.Add(new ColumnSpec(x, midY, midY + reach, barWidth));
+
+                double peakReach = ctx.SampleBandPeak(i, barCount) * halfHeight * bounce;
+                if (peakReach > reach + 2.0)
+                {
+                    caps.Add((x, midY - peakReach - (barWidth * 0.30), barWidth));
+                    caps.Add((x, midY + peakReach + (barWidth * 0.30), barWidth));
+                }
             }
 
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
+            DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
         }
 
         // ------------------------------------------------------------------
@@ -757,15 +839,23 @@ namespace TitanEngine
             double baseY = plot.Bottom - (plot.Height * 0.04 * (1.0 - breathe));
 
             var columns = new List<ColumnSpec>(barCount);
+            var caps = new List<(double X, double Y, double Width)>(barCount);
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
                 double span = plot.Height * breathe;
                 double reach = Math.Max(MinimumReach(span), value * span);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
+
+                double peakReach = ctx.SampleBandPeak(i, barCount) * span;
+                if (peakReach > reach + 2.0)
+                    caps.Add((plot.X + (slot * (i + 0.5)), baseY - peakReach - (barWidth * 0.45), barWidth));
             }
 
             DrawColumns(dc, ctx, columns, Math.Max(0.8, barWidth * 0.42), PenLineCap.Round);
+            // PillBars' cap is a detached MINI PILL (fat stroke), not a hairline - the iOS
+            // equalizer look the style references.
+            DrawPeakCaps(dc, ctx, caps, Math.Max(2.0, barWidth * 0.42));
         }
 
         // ------------------------------------------------------------------
@@ -789,11 +879,13 @@ namespace TitanEngine
             double thickness = Math.Clamp(slot * 0.62, 1.0, 5.0);
             var columns = new List<ColumnSpec>(barCount);
 
+            double columnsBass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double columnsBounce = 1.0 + (BarBassBounceFraction * columnsBass);
             for (int i = 0; i < barCount; i++)
             {
                 // Deliberately unsmoothed: the curtain is meant to look raw and slightly ragged.
                 float value = ctx.SampleBand(i, barCount, false);
-                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height);
+                double reach = Math.Max(MinimumReach(plot.Height), value * plot.Height * columnsBounce);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), plot.Bottom, plot.Bottom - reach, thickness));
             }
 
@@ -912,10 +1004,13 @@ namespace TitanEngine
             }
 
             var dim = new StreamGeometry();
+            var peak = new StreamGeometry();
+            bool hasPeakDot = false;
 
             try
             {
                 using (StreamGeometryContext dimCtx = dim.Open())
+                using (StreamGeometryContext peakCtx = peak.Open())
                 {
                     for (int c = 0; c < columns; c++)
                     {
@@ -923,14 +1018,28 @@ namespace TitanEngine
                         int litCount = (int)Math.Round(value * rows);
                         litCount = Math.Clamp(litCount, 1, rows);
 
+                        // The column grows from the BOTTOM (the LED "line" mode), and the
+                        // retro analyzers' signature "line with peak hold" rides above it:
+                        // a falling-peak dot one row past the live top, in the hot Core
+                        // colour. Peak height comes from the same pure backward-max the bar
+                        // styles use, so it falls at the standard ballistic rate.
+                        double peakValue = ctx.SampleBandPeak(c, columns);
+                        int peakRow = Math.Clamp((int)Math.Round(peakValue * rows), 1, rows) + 1;
+                        bool showPeakDot = peakRow > litCount && peakRow <= rows;
+
                         double x = plot.X + (stepX * (c + 0.5));
                         StreamGeometryContext litCtx = litCtxs[Math.Min(c / columnsPerGroup, litGroupCount - 1)];
                         for (int r = 0; r < rows; r++)
                         {
                             double y = plot.Y + (stepY * (r + 0.5));
                             var point = new Point(x, y);
-                            if (r < litCount)
+                            if (r >= rows - litCount)
                                 AddEllipseFigure(litCtx, point, radius, radius);
+                            else if (showPeakDot && r == rows - peakRow)
+                            {
+                                AddEllipseFigure(peakCtx, point, radius * 1.15, radius * 1.15);
+                                hasPeakDot = true;
+                            }
                             else
                                 AddEllipseFigure(dimCtx, point, radius * 0.72, radius * 0.72);
                         }
@@ -944,6 +1053,7 @@ namespace TitanEngine
             }
 
             if (dim.CanFreeze) dim.Freeze();
+            if (peak.CanFreeze) peak.Freeze();
 
             Brush dimBrush = CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.10 * ctx.GlowIntensity));
             dc.DrawGeometry(dimBrush, null, dim);
@@ -958,6 +1068,12 @@ namespace TitanEngine
                 if (geometry.CanFreeze)
                     geometry.Freeze();
                 dc.DrawGeometry(litBrush, null, geometry);
+            }
+
+            if (hasPeakDot)
+            {
+                Brush peakBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, 0.92 * ctx.AlphaFactor));
+                dc.DrawGeometry(peakBrush, null, peak);
             }
         }
 
@@ -1008,18 +1124,27 @@ namespace TitanEngine
             AudioFrameData? frame = ctx.Current;
             float[]? bands = frame?.Bands;
 
-            // THE PULSE - the "thump". A decaying kick envelope driven by the onset detector,
+            // THE PULSE - the beat swell. A decaying kick envelope driven by the onset detector,
             // computed as a BACKWARD-LOOKING max over the frame array with wrap-around indexing
             // (<see cref="FrameAt"/> wraps, so frame 0 sees the tail of the loop - exactly the
             // frames ffmpeg plays before it once the sequence loops). It is therefore a PURE
             // function of the analysed frames: no cross-frame mutable state, nothing needed from
             // <see cref="SoundBarRenderState"/>, and the loop seam cannot pop by construction.
+            // Each kick's own frame carries only the ATTACK level and the peak lands one frame
+            // later, so the figure swells over two frames instead of snapping to full depth in
+            // one - the reference's beat response (Trapcode Sound Keys through a smoothed
+            // envelope) settles the same way.
             double pulse = 0.0;
             for (int k = 0; k <= AudioRingPulseTailFrames; k++)
             {
                 AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
-                if (back?.Onset == true)
-                    pulse = Math.Max(pulse, Math.Pow(AudioRingPulseDecayPerFrame, k));
+                if (back?.Onset != true)
+                    continue;
+
+                double level = k == 0
+                    ? AudioRingPulseAttackLevel
+                    : Math.Pow(AudioRingPulseDecayPerFrame, k - 1);
+                pulse = Math.Max(pulse, level);
             }
 
             // Whole-figure breathing: the ring and the sphere below are scaled by the SAME
@@ -1046,12 +1171,15 @@ namespace TitanEngine
             {
                 const int RingSteps = 240;
 
-                // The deformation source is the FFT BAND array, not the raw waveform envelope.
-                // Band levels are per-frame adaptive-mapped to 0..1 and genuinely reach 1.0 on
-                // hits; the waveform envelope (hi-lo)/2 peaks around 0.1-0.3 on real music, which
-                // is why a ring fed on it alone read as frozen. The waveform stays in the mix at
-                // a third weight for its organic roughness. Angle maps to band index directly,
-                // bass at angle 0, so the ring's bulges sit under the sphere's bass latitudes.
+                // The deformation source is DOMINANTLY the waveform envelope with the FFT bands
+                // as seasoning. The waveform (hi-lo)/2 is inherently smooth around the circle -
+                // it is a moving envelope, not a set of 64 discrete levels - which is what the
+                // reference's "smooth circular spectrum" undulation needs. The band term adds
+                // just enough frequency-following tilt for the ring to visibly track the music
+                // (bass at angle 0, under the sphere's bass latitudes). The first band-driven
+                // version was 0.65 band / 0.35 wave with a 3-step smoothing window: 64 discrete
+                // band levels around 240 steps with almost no averaging rendered a visibly
+                // STEPPED polygon - the "tho" (coarse) read.
                 var ringValues = new double[RingSteps];
                 for (int s = 0; s < RingSteps; s++)
                 {
@@ -1079,19 +1207,19 @@ namespace TitanEngine
                         int bandIndex = (int)Math.Clamp(
                             Math.Floor((s / (double)RingSteps) * bands.Length), 0, bands.Length - 1);
                         double bandLevel = Math.Clamp(bands[bandIndex] * ctx.Sensitivity, 0.0, 1.0);
-                        v = (0.65 * bandLevel) + (0.35 * v);
+                        v = (0.35 * bandLevel) + (0.65 * v);
                     }
 
                     ringValues[s] = v;
                 }
 
                 // Circular moving average, wraps so the loop seam stays invisible. The window is
-                // NARROW - 3 steps either way spans ~3 bands at 64 bands - so one loud band still
-                // produces a visible bump instead of being averaged back into the circle. The
-                // original 11-tap window existed to tame raw per-step waveform jitter; the
-                // band-driven source is already smooth, so it only flattened the spikes that
-                // carry the beat.
-                const int RingSmoothHalfWindow = 3;
+                // WIDE on purpose - 8 steps either way spans ~24 degrees, about 4 bands at 64 -
+                // because the reference ring undulates as one smooth curve. The narrow 3-step
+                // window used with the band-dominant mix left visible stair-steps between band
+                // levels; averaging over ~4 bands turns the discrete spectrum into the rounded
+                // swell the reference shows.
+                const int RingSmoothHalfWindow = 8;
                 double smoothedTotal = 0.0;
                 for (int s = 0; s < RingSteps; s++)
                 {
@@ -1306,6 +1434,47 @@ namespace TitanEngine
             }
         }
 
+        /// <summary>
+        /// The onset pulse envelope the radial styles share - a quieter sibling of the
+        /// AudioRing sphere's. Same shape as the sphere's: a backward-looking wrapped max over
+        /// the frames array with a 2-frame attack and an exponential settle, so it is a pure
+        /// function of the analysed frames and the loop seam cannot pop.
+        /// </summary>
+        private static double RadialPulseEnvelope(FrameContext ctx)
+        {
+            double pulse = 0.0;
+            for (int k = 0; k <= AudioRingPulseTailFrames; k++)
+            {
+                AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
+                if (back?.Onset != true)
+                    continue;
+
+                double level = k == 0
+                    ? AudioRingPulseAttackLevel
+                    : Math.Pow(AudioRingPulseDecayPerFrame, k - 1);
+                if (level > pulse)
+                    pulse = level;
+            }
+
+            return pulse;
+        }
+
+        /// <summary>
+        /// The beat scale the three radial figures (RadialRing, DualRings, SpokeLines) apply:
+        /// slow bass breathe plus the onset kick, both folded into ONE multiplier. Callers use
+        /// it to scale their bar LENGTH budget and to shrink the hub - the figure "inhales"
+        /// toward the centre on a hit and settles back out, which reads as a pulse without the
+        /// figure ever growing past the plot's outer edge (the shared
+        /// <see cref="MaxRadius"/> inset is preserved).
+        /// </summary>
+        private static double RadialBeatScale(FrameContext ctx)
+        {
+            double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            return 1.0
+                + (RadialBassBreatheFraction * bass)
+                + (RadialPulseKickFraction * RadialPulseEnvelope(ctx));
+        }
+
         [ThreadStatic]
         private static AudioRingBatches? _audioRingBatches;
 
@@ -1478,14 +1647,34 @@ namespace TitanEngine
 
             double[] levels = ResolveRadialLevels(rawLevels);
 
+            // Beat coupling: the whole ray set lengthens on bass and KICKS on onsets, clipped
+            // at 1.0 so a full-scale ray just reaches the (unchanged) outer edge. The headroom
+            // ResolveRadialLevels leaves below 1.0 is exactly what the kick consumes.
+            double beat = RadialBeatScale(ctx);
+            for (int i = 0; i < levels.Length; i++)
+                levels[i] = Math.Min(1.0, levels[i] * beat);
+
             var tipRadii = new double[barCount];
             var angles = new double[barCount];
             var rays = new List<RaySpec>(barCount);
 
             FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
 
+            // Bright hub core: the AE polar reference has a luminous point at the centre, not
+            // an empty hole. A soft radial-gradient disc under the wedges, pulsing with the
+            // same beat (the disc's radius rides `beat`, so a kick visibly "ignites" the hub).
+            double hubR = Math.Max(2.0, inner * 1.15 * beat);
+            RadialGradientBrush hub = CreateRadialGlowBrush(
+                ctx.Resolved.Glow,
+                Math.Min(1.0, 0.50 * ctx.GlowIntensity) * ctx.AlphaFactor,
+                center,
+                hubR);
+            if (hub.CanFreeze)
+                hub.Freeze();
+            dc.DrawEllipse(hub, null, center, hubR, hubR);
+
             DrawRadialWedges(dc, ctx, center, inner, tipRadii, angles, span);
-            DrawRadialRays(dc, ctx, rays, Math.Max(0.6, (outer - inner) * 0.020), PenLineCap.Round, RadialHaloExtent(outer));
+            DrawRadialRays(dc, ctx, rays, Math.Max(0.6, (outer - inner) * 0.030), PenLineCap.Round, RadialHaloExtent(outer));
         }
 
         // ------------------------------------------------------------------
@@ -1527,6 +1716,7 @@ namespace TitanEngine
 
             var rawRingLevels = new double[barCount];
             var rays = new List<RaySpec>(barCount);
+            double beat = RadialBeatScale(ctx);
 
             for (int ring = 0; ring < ringCount; ring++)
             {
@@ -1567,6 +1757,8 @@ namespace TitanEngine
                     rawRingLevels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
 
                 double[] levels = ResolveRadialLevels(rawRingLevels);
+                for (int i = 0; i < levels.Length; i++)
+                    levels[i] = Math.Min(1.0, levels[i] * beat);
                 rays.Clear();
 
                 FillRadialBarSet(levels, center, ringInner, ringOuter, rotation, span, tipRadii, angles, rays);
@@ -1606,7 +1798,13 @@ namespace TitanEngine
             int maxLive = Math.Clamp(ctx.Settings.RingCount, 1, MaxRipples);
 
             if (ctx.Current?.Onset == true)
-                ctx.State?.NoteOnset(ctx.Index, maxLive);
+            {
+                // The ripple carries the BASS level of the frame that spawned it: a kick in a
+                // bass drop throws a bright thick ring, a soft hi-hat onset a faint one. The
+                // reference radar ripples scale exactly this way.
+                float energy = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.35f, 1f);
+                ctx.State?.NoteOnset(ctx.Index, maxLive, energy);
+            }
 
             ctx.State?.ExpireRipples(ctx.Index, lifetime);
 
@@ -1737,12 +1935,27 @@ namespace TitanEngine
                 rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
             double[] levels = ResolveRadialLevels(rawLevels);
+            double beat = RadialBeatScale(ctx);
+            for (int i = 0; i < levels.Length; i++)
+                levels[i] = Math.Min(1.0, levels[i] * beat);
 
             var rays = new List<RaySpec>(barCount);
 
             // SpokeLines draws no wedges, so it passes null for the two wedge-only outputs rather than
             // allocating a pair of barCount-sized arrays per frame for FillRadialBarSet to fill.
             FillRadialBarSet(levels, center, inner, outer, rotation, span, null, null, rays);
+
+            // Tiny luminous hub at the same scale as RadialRing's: bare spokes read as floating
+            // dashes; a bright pin in the centre anchors the figure and it pulses with the beat.
+            double hubR = Math.Max(2.0, inner * 1.1 * beat);
+            RadialGradientBrush hub = CreateRadialGlowBrush(
+                ctx.Resolved.Glow,
+                Math.Min(1.0, 0.40 * ctx.GlowIntensity) * ctx.AlphaFactor,
+                center,
+                hubR);
+            if (hub.CanFreeze)
+                hub.Freeze();
+            dc.DrawEllipse(hub, null, center, hubR, hubR);
 
             // Legibility floor. The proportional term (outer - inner) * 0.014 is ~1.1 px at
             // 1280x720 and shrinks again as the canvas or the plot grows, so the whole style
@@ -1820,6 +2033,43 @@ namespace TitanEngine
 
             dc.DrawGeometry(ctx.GetPlotGradientBrush(plot.Bottom, plot.Top), null, ribbon);
 
+            // Ghost trail: the PREVIOUS analysed frame's envelope, stroked faintly under the
+            // live one. SoundCloud-style waveforms render one static envelope; an ANIMATED
+            // one needs a second of temporal context or every frame reads as a brand-new
+            // shape - the ghost is what makes the ribbon visibly flow instead of flicker.
+            AudioFrameData? previous = ctx.Previous;
+            float[]? prevMin = previous?.WaveMin;
+            float[]? prevMax = previous?.WaveMax;
+            int prevAvailable = Math.Min(prevMin?.Length ?? 0, prevMax?.Length ?? 0);
+            if (prevAvailable > 0)
+            {
+                var ghost = new StreamGeometry();
+                using (StreamGeometryContext gctx = ghost.Open())
+                {
+                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY - (Math.Clamp(prevMax![0], -1f, 1f) * halfHeight)), false, false);
+                    for (int i = 1; i < columns; i++)
+                    {
+                        int si = Math.Clamp((int)Math.Floor((i / (double)columns) * prevAvailable), 0, prevAvailable - 1);
+                        float hi = Math.Clamp(prevMax![si], -1f, 1f);
+                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY - (hi * halfHeight)), true, false);
+                    }
+
+                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY - (Math.Clamp(prevMin![0], -1f, 1f) * halfHeight)), false, false);
+                    for (int i = 1; i < columns; i++)
+                    {
+                        int si = Math.Clamp((int)Math.Floor((i / (double)columns) * prevAvailable), 0, prevAvailable - 1);
+                        float lo = Math.Clamp(prevMin![si], -1f, 1f);
+                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY - (lo * halfHeight)), true, false);
+                    }
+                }
+
+                if (ghost.CanFreeze)
+                    ghost.Freeze();
+                dc.DrawGeometry(null, CreatePen(
+                    CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.28 * ctx.AlphaFactor)),
+                    Math.Max(0.5, plot.Height * 0.010)), ghost);
+            }
+
             var rim = new StreamGeometry();
             using (StreamGeometryContext gctx = rim.Open())
             {
@@ -1880,6 +2130,27 @@ namespace TitanEngine
 
             if (track.CanFreeze) track.Freeze();
             dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.14 * ctx.AlphaFactor)), thickness * 0.45), track);
+
+            // dB scale ticks along the meter, at the window's standard marks (-6, -12, -20 dB
+            // of the -30..-3 dBFS mapping). A naked column reads as "some bar"; ticks make it
+            // read as a METER - the VU/PPM convention every reference meter carries.
+            var tickMarks = new StreamGeometry();
+            using (StreamGeometryContext tickCtx = tickMarks.Open())
+            {
+                double tickHalf = ClampSafe(thickness * 0.28, 2.0, Math.Max(2.0, plot.Width * 0.10));
+                foreach (double db in new[] { -6.0, -12.0, -20.0 })
+                {
+                    double t = (db - CenterColumnFloorDb) / (CenterColumnCeilDb - CenterColumnFloorDb);
+                    double h = CenterColumnMinFraction + ((1.0 - CenterColumnMinFraction) * Math.Clamp(t, 0.0, 1.0));
+                    double y = plot.Bottom - (h * plot.Height);
+                    tickCtx.BeginFigure(new Point(centerX - thickness * 0.85 - tickHalf, y), false, false);
+                    tickCtx.LineTo(new Point(centerX - thickness * 0.85 + tickHalf, y), true, false);
+                }
+            }
+            if (tickMarks.CanFreeze) tickMarks.Freeze();
+            dc.DrawGeometry(null, CreatePen(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, 0.30 * ctx.AlphaFactor)),
+                Math.Max(0.8, thickness * 0.06)), tickMarks);
 
             // The four linear bar styles now floor at MinimumReach(span), a FRACTION of their span. This
             // one deliberately keeps a flat 1.0 px floor: Rms and Peak are LINEAR and do not get the
@@ -2082,6 +2353,42 @@ namespace TitanEngine
         /// </summary>
         private static double MinimumReach(double span)
             => ClampSafe(span * MinimumReachFraction, 0.0, 1.0);
+
+        /// <summary>
+        /// Draws the falling peak-hold caps gathered by a bar style: one horizontal stroke per
+        /// cap, in the near-white Core colour, all of it in ONE geometry and ONE draw call.
+        /// Callers only collect a cap when the historical peak stands above the live bar, so
+        /// an empty list draws nothing at all - a silent passage has no caps, matching the
+        /// reference analyzers where the markers vanish once the bars catch up.
+        /// </summary>
+        private static void DrawPeakCaps(
+            DrawingContext dc,
+            FrameContext ctx,
+            List<(double X, double Y, double Width)> caps,
+            double strokeThickness)
+        {
+            if (caps.Count == 0)
+                return;
+
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext g = geometry.Open())
+            {
+                for (int i = 0; i < caps.Count; i++)
+                {
+                    (double x, double y, double width) = caps[i];
+                    g.BeginFigure(new Point(x - (width * 0.5), y), false, false);
+                    g.LineTo(new Point(x + (width * 0.5), y), true, false);
+                }
+            }
+
+            if (geometry.CanFreeze)
+                geometry.Freeze();
+
+            Pen capPen = CreatePen(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)),
+                Math.Max(1.2, strokeThickness));
+            dc.DrawGeometry(null, capPen, geometry);
+        }
 
         /// <summary>
         /// The mandatory neon trick: one geometry, three passes, halo first and core last.
@@ -3263,6 +3570,48 @@ namespace TitanEngine
 
             public float SampleBand(int barIndex, int barCount, bool smoothed)
                 => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
+
+            /// <summary>
+            /// Reads one band slot from an ARBITRARY frame (usually a past one, via
+            /// <see cref="FrameAt"/>), with the same Sensitivity + pink-tilt conditioning the
+            /// live samples get. This is the primitive the falling peak caps are built on:
+            /// the cap is a backward-looking max over past frames of the SAME slot, so both
+            /// must read bands identically or the cap will sit at a different height than
+            /// the bar it belongs to.
+            /// </summary>
+            public float SampleBandFrame(AudioFrameData frame, int barIndex, int barCount)
+            {
+                float[]? frameBands = frame?.Bands;
+                if (frameBands == null || frameBands.Length == 0 || barCount <= 0)
+                    return 0f;
+
+                int length = frameBands.Length;
+                int index = Math.Clamp(
+                    (int)Math.Floor((barIndex / (double)barCount) * length), 0, length - 1);
+                return ApplyPinkTilt(Math.Clamp(frameBands[index] * Sensitivity, 0f, 1f), index, length);
+            }
+
+            /// <summary>
+            /// The falling peak-hold cap for one bar slot, evaluated as a pure backward max
+            /// over the frames array (see <see cref="PeakCapFallPerFrame"/>). Wrapped indexing
+            /// keeps the loop seam invisible; the result is always &gt;= the current value.
+            /// </summary>
+            public double SampleBandPeak(int barIndex, int barCount)
+            {
+                double peak = 0.0;
+                for (int k = 0; k <= PeakCapMaxLookback; k++)
+                {
+                    AudioFrameData? back = FrameAt(Frames, Index - k);
+                    if (back == null)
+                        break;
+
+                    double contribution = SampleBandFrame(back, barIndex, barCount) - (PeakCapFallPerFrame * k);
+                    if (contribution > peak)
+                        peak = contribution;
+                }
+
+                return Math.Clamp(peak, 0.0, 1.0);
+            }
 
             /// <summary>
             /// Applies <c>Sensitivity</c> and the pink-noise tilt (currently a no-op - see

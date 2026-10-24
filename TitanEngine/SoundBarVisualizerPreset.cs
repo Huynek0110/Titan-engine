@@ -107,7 +107,7 @@ namespace TitanEngine
         /// Opacity slider or vanishes at GlowIntensity 0. No other style's pixels changed.
         /// </item>
         /// <item>
-        /// r23 (this one): the AudioRing actually MOVES with the music. Added a loop-seamless
+        /// r23: the AudioRing actually MOVES with the music. Added a loop-seamless
         /// onset PULSE (backward-decaying max over the frame array via wrap-around indexing - a
         /// pure function, so no mutable state and no seam pop) that kicks the whole figure, bass
         /// + pulse breathing at 0.06/0.10 of outer, ring deformation driven by the FFT bands by
@@ -115,9 +115,34 @@ namespace TitanEngine
         /// budget raised 0.17 -> 0.30, and dot displacement 0.05 -> 0.09. Before this the
         /// measured ring wobble was 1.5-4.5 px on a ~240 px ring and the style read as static.
         /// </item>
+        /// <item>
+        /// r24 (this one): the beat response SOFTENED to match the reference (a "smooth circular
+        /// spectrum", Trapcode Sound Keys through a smoothed envelope - never spiky, never
+        /// snapping). Pulse kick 0.10 -> 0.055 with a 2-frame attack ramp (the kick's own frame
+        /// carries 60 %, the peak lands one frame later); ring mix flipped to 0.35 band / 0.65
+        /// waveform with an 8-step circular window so the 64 discrete band levels average into a
+        /// rounded swell instead of a stepped polygon; amplitude 0.30 -> 0.22; lattice finer
+        /// (pitch 0.040 -> 0.032 of outer, dot 0.14 -> 0.12 of pitch, halo 2.1x -> 1.9x, halo
+        /// alpha 0.30 -> 0.26); jitter floor 0.55 -> 0.65 and per-band displacement 0.09 -> 0.06
+        /// so the sphere shimmers instead of blinking and swells instead of jumping.
+        /// </item>
+        /// <item>
+        /// r25 (this one): every style gets its reference feature, researched per family.
+        /// ALL bar styles (neon-bars, mirror-spectrum, pill-bars, dense-columns) gain the
+        /// classic falling PEAK-HOLD caps (broadcast ballistics: instant attack, linear fall
+        /// ~11 dB/s, pure backward-max over the frame array so the loop seam is invisible)
+        /// and a subtle shared bass bounce. dot-matrix re-orients to bottom-up LED "line with
+        /// peak hold" mode with a falling peak dot. The polar family (radial-ring,
+        /// dual-rings, spoke-lines) gains the AudioRing-style onset pulse + bass breathe on
+        /// the whole figure and a luminous hub core. ripple-rings carry the spawning frame's
+        /// bass energy (bright thick ring on a kick, faint on a soft onset). wave-ribbon gets
+        /// a ghost trail of the previous frame's envelope. center-column gains dB scale ticks
+        /// (-6/-12/-20). peak-stars' contrast gate tightened 1.04 -> 1.18 so only genuine
+        /// stand-out peaks glint.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r23";
+        private const string RendererVersion = "soundbar-r25";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
