@@ -140,9 +140,23 @@ namespace TitanEngine
         /// (-6/-12/-20). peak-stars' contrast gate tightened 1.04 -> 1.18 so only genuine
         /// stand-out peaks glint.
         /// </item>
+        /// <item>
+        /// r26 (this one): five polish rounds over every style. (1) The linear bar styles
+        /// gain the onset PUNCH the polar family already had - the whole row's reach
+        /// stretches ~8 % on a kick (BarBeatPunchFraction through the shared
+        /// OnsetPulseEnvelope, renamed from RadialPulseEnvelope). (2) The band smoother
+        /// becomes an ASYMMETRIC envelope follower - fast attack (75 % of the gap per frame
+        /// at Smoothing 1), slow release (40 %) - the standard ballistics; hits land in ~2
+        /// frames while decays settle over ~4-5. (3) Peak caps HOLD ~0.3 s before falling
+        /// (the BBC PPM hold-then-fall shape), shared by the bar caps and the LED peak dot.
+        /// (4) DualRings colour-codes its rings - each ring samples a further slice of the
+        /// palette ramp, so inner bass and outer treble read as different colours of the
+        /// same palette. (5) Peak caps bloom (halo + core) instead of sitting as bare white
+        /// hairlines. Smoothing = 0 still disables smoothing on both envelope sides.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r25";
+        private const string RendererVersion = "soundbar-r26";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

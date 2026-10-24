@@ -473,18 +473,27 @@ namespace TitanEngine
 
         /// <summary>
         /// Linear falling-peak envelope, evaluated as a PURE function of the analysed frames:
-        /// <c>peak(t) = max over k in [0, Lookback] of v(t-k) - FallPerFrame * k</c>, wrapped
-        /// (<see cref="FrameAt"/>) so the loop seam is structurally invisible - the same
+        /// <c>peak(t) = max over k in [0, Lookback] of v(t-k) - FallPerFrame * max(0, k - Hold)</c>,
+        /// wrapped (<see cref="FrameAt"/>) so the loop seam is structurally invisible - the same
         /// trick as the AudioRing pulse. Every band-driven bar style draws this as the
         /// classic falling peak-hold cap.
         /// <para>
-        /// Ballistics follow the broadcast convention (BBC PPM: instant attack, then fall;
-        /// 9-26 dB/s) scaled to the band array's ~30 dB mapped span: 0.012 of full scale per
-        /// frame at 30 fps is ~0.36 span/s, about 11 dB/s - mid-range of the standard. The
-        /// current value always participates (k = 0), so the cap never sits BELOW the bar.
+        /// Ballistics follow the broadcast convention (BBC PPM: instant attack, HOLD the peak,
+        /// then fall; 9-26 dB/s) scaled to the band array's ~30 dB mapped span: the cap pins
+        /// for <see cref="PeakCapHoldFrames"/> (~0.3 s) after a hit and THEN falls at 0.012 of
+        /// full scale per frame at 30 fps (~0.36 span/s, about 11 dB/s - mid-range of the
+        /// standard). The current value always participates (k = 0), so the cap never sits
+        /// BELOW the bar.
         /// </para>
         /// </summary>
         private const double PeakCapFallPerFrame = 0.012;
+
+        /// <summary>
+        /// How long a peak cap holds its height before starting to fall, in frames. 9 frames
+        /// = 0.3 s at 30 fps - the short pin the reference analyzers show between "the bar
+        /// reached here" and "the marker drops".
+        /// </summary>
+        private const int PeakCapHoldFrames = 9;
 
         /// <summary>
         /// How many frames back the peak cap looks. 24 frames = 0.8 s at 30 fps: by then the
@@ -500,6 +509,15 @@ namespace TitanEngine
         /// breath, not a jump - the bars themselves carry the motion.
         /// </summary>
         private const double BarBassBounceFraction = 0.04;
+
+        /// <summary>
+        /// The linear bar styles' onset PUNCH, on top of the bass breathe: every beat
+        /// stretches the whole row's reach by this fraction for ~0.3 s (same envelope the
+        /// polar family uses), which is the "bars bounce on the kick" behaviour the
+        /// reference visualizers show (EchoWave / TwoShot / Videobolt all pulse bar size on
+        /// the beat). 0.08 keeps it a push, not a jump - the individual bars carry the detail.
+        /// </summary>
+        private const double BarBeatPunchFraction = 0.08;
 
         /// <summary>
         /// Radial styles' onset pulse, a quieter sibling of <see cref="AudioRingPulseKickFraction"/>:
@@ -746,7 +764,9 @@ namespace TitanEngine
             // Bass bounce: the reference analyzers couple the low band into the whole row's
             // height. A 4 % breath - the bars themselves carry the motion.
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
-            double bounce = 1.0 + (BarBassBounceFraction * bass);
+            double bounce = 1.0
+                + (BarBassBounceFraction * bass)
+                + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             for (int i = 0; i < barCount; i++)
             {
@@ -792,7 +812,9 @@ namespace TitanEngine
             var caps = new List<(double X, double Y, double Width)>(barCount * 2);
 
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
-            double bounce = 1.0 + (BarBassBounceFraction * bass);
+            double bounce = 1.0
+                + (BarBassBounceFraction * bass)
+                + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             for (int i = 0; i < barCount; i++)
             {
@@ -836,6 +858,7 @@ namespace TitanEngine
 
             // Slow breathing so the block never looks frozen between beats.
             double breathe = 0.93 + (0.07 * Math.Sin(ctx.Time * Math.PI * 2.0));
+            double pillPunch = OnsetPulseEnvelope(ctx);
             double baseY = plot.Bottom - (plot.Height * 0.04 * (1.0 - breathe));
 
             var columns = new List<ColumnSpec>(barCount);
@@ -843,7 +866,8 @@ namespace TitanEngine
             for (int i = 0; i < barCount; i++)
             {
                 float value = ctx.SampleBand(i, barCount, true);
-                double span = plot.Height * breathe;
+                double span = plot.Height * breathe
+                    * (1.0 + (BarBeatPunchFraction * pillPunch));
                 double reach = Math.Max(MinimumReach(span), value * span);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
 
@@ -880,7 +904,9 @@ namespace TitanEngine
             var columns = new List<ColumnSpec>(barCount);
 
             double columnsBass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
-            double columnsBounce = 1.0 + (BarBassBounceFraction * columnsBass);
+            double columnsBounce = 1.0
+                + (BarBassBounceFraction * columnsBass)
+                + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
             for (int i = 0; i < barCount; i++)
             {
                 // Deliberately unsmoothed: the curtain is meant to look raw and slightly ragged.
@@ -1435,12 +1461,12 @@ namespace TitanEngine
         }
 
         /// <summary>
-        /// The onset pulse envelope the radial styles share - a quieter sibling of the
+        /// The onset pulse envelope every beat-coupled style shares - a quieter sibling of the
         /// AudioRing sphere's. Same shape as the sphere's: a backward-looking wrapped max over
         /// the frames array with a 2-frame attack and an exponential settle, so it is a pure
         /// function of the analysed frames and the loop seam cannot pop.
         /// </summary>
-        private static double RadialPulseEnvelope(FrameContext ctx)
+        private static double OnsetPulseEnvelope(FrameContext ctx)
         {
             double pulse = 0.0;
             for (int k = 0; k <= AudioRingPulseTailFrames; k++)
@@ -1472,7 +1498,7 @@ namespace TitanEngine
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             return 1.0
                 + (RadialBassBreatheFraction * bass)
-                + (RadialPulseKickFraction * RadialPulseEnvelope(ctx));
+                + (RadialPulseKickFraction * OnsetPulseEnvelope(ctx));
         }
 
         [ThreadStatic]
@@ -1763,7 +1789,14 @@ namespace TitanEngine
 
                 FillRadialBarSet(levels, center, ringInner, ringOuter, rotation, span, tipRadii, angles, rays);
 
-                DrawRadialWedges(dc, ctx, center, ringInner, tipRadii, angles, span);
+                // Frequency-coloured rings: each ring samples a further slice of the palette
+                // ramp, so bass (inner) and treble (outer) rings read as different colours of
+                // the SAME palette instead of one hue repeated - the multi-ring colour coding
+                // the reference circular visualizers use. A whole-palette step of 36 sectors
+                // (~72 degrees of the ramp) spreads the rings without breaking out of the
+                // palette's own range.
+                int ringColorShift = (int)Math.Round(36.0 * ring / Math.Max(1, ringCount - 1));
+                DrawRadialWedges(dc, ctx, center, ringInner, tipRadii, angles, span, ringColorShift);
 
                 // Ray thickness is bounded by the ANGULAR SLOT ARC, not by the ring's radial
                 // thickness. The old `ringThickness * 0.14` fed the ring's BAND width (45.7 px at
@@ -2384,9 +2417,23 @@ namespace TitanEngine
             if (geometry.CanFreeze)
                 geometry.Freeze();
 
+            double capStroke = Math.Max(1.2, strokeThickness);
+
+            // The caps get their own (small) bloom: a bare white hairline reads as a UI
+            // overlay; a halo-then-core pair makes them read as part of the neon figure.
+            // The halo is deliberately capped at 2.4x the stroke so neighbouring caps'
+            // blooms cannot merge into a bar of their own.
+            if (ctx.GlowIntensity > 0.002)
+            {
+                Pen capHalo = CreatePen(
+                    CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.28 * ctx.GlowIntensity * ctx.AlphaFactor)),
+                    capStroke * 2.4);
+                dc.DrawGeometry(null, capHalo, geometry);
+            }
+
             Pen capPen = CreatePen(
                 CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)),
-                Math.Max(1.2, strokeThickness));
+                capStroke);
             dc.DrawGeometry(null, capPen, geometry);
         }
 
@@ -2854,7 +2901,8 @@ namespace TitanEngine
             double inner,
             double[] tipRadii,
             double[] angles,
-            double spanDegrees)
+            double spanDegrees,
+            int colorSectorShift = 0)
         {
             var group = new DrawingGroup();
             int count = Math.Min(tipRadii.Length, angles.Length);
@@ -2881,7 +2929,7 @@ namespace TitanEngine
                     double b0 = a0 + ((a1 - a0) * s / sectors);
                     double b1 = a0 + ((a1 - a0) * (s + 1) / sectors);
                     Geometry wedge = BuildWedge(center, inner, tip, b0, b1);
-                    group.Children.Add(new GeometryDrawing(ctx.Resolved.GetAngularBrush(b0, ctx.Alpha), null, wedge));
+                    group.Children.Add(new GeometryDrawing(ctx.Resolved.GetAngularBrush(b0, ctx.Alpha, colorSectorShift), null, wedge));
                 }
             }
 
@@ -3468,9 +3516,9 @@ namespace TitanEngine
 
             public static ResolvedPalette Build(ColorPreset? preset) => BuildResolved(preset);
 
-            public SolidColorBrush GetAngularBrush(double angleDegrees, int alpha)
+            public SolidColorBrush GetAngularBrush(double angleDegrees, int alpha, int sectorShift = 0)
             {
-                int index = (int)Math.Round(NormalizeAngle(angleDegrees) / AngularSectorDegrees) % AngularSectorCount;
+                int index = ((int)Math.Round(NormalizeAngle(angleDegrees) / AngularSectorDegrees) + sectorShift) % AngularSectorCount;
                 if (index < 0)
                     index += AngularSectorCount;
 
@@ -3479,7 +3527,7 @@ namespace TitanEngine
 
                 lock (AlphaAngularCache)
                 {
-                    if (AlphaAngularCache.TryGetValue((index, alpha), out SolidColorBrush? tinted))
+                    if (AlphaAngularCache.TryGetValue((index, alpha, sectorShift), out SolidColorBrush? tinted))
                         return tinted;
 
                     // Pre-tinted variant, cached per (sector, alpha) inside the resolved palette.
@@ -3489,13 +3537,13 @@ namespace TitanEngine
                     if (AlphaAngularCache.Count > 512)
                         AlphaAngularCache.Clear();
 
-                    AlphaAngularCache[(index, alpha)] = built;
+                    AlphaAngularCache[(index, alpha, sectorShift)] = built;
                     return built;
                 }
             }
 
-            private readonly Dictionary<(int Index, int Alpha), SolidColorBrush> AlphaAngularCache =
-                new Dictionary<(int Index, int Alpha), SolidColorBrush>(16);
+            private readonly Dictionary<(int Index, int Alpha, int Shift), SolidColorBrush> AlphaAngularCache =
+                new Dictionary<(int Index, int Alpha, int Shift), SolidColorBrush>(16);
         }
 
         private sealed class FrameContext
@@ -3605,9 +3653,10 @@ namespace TitanEngine
                     if (back == null)
                         break;
 
-                    double contribution = SampleBandFrame(back, barIndex, barCount) - (PeakCapFallPerFrame * k);
-                    if (contribution > peak)
-                        peak = contribution;
+                double contribution = SampleBandFrame(back, barIndex, barCount)
+                    - (PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames));
+                if (contribution > peak)
+                    peak = contribution;
                 }
 
                 return Math.Clamp(peak, 0.0, 1.0);
@@ -3662,15 +3711,17 @@ namespace TitanEngine
                     ? ApplyPinkTilt(Math.Clamp(previousBands[index] * Sensitivity, 0f, 1f), index, length)
                     : 0f;
 
-                // A one-pole smoother keeps (1-k) of the previous frame. At the shipped default
-                // Smoothing = 1.0 this was k = 0.15, i.e. 85 % of every bar's value carried over
-                // from the previous frame - the figure drifted rather than moved. Measured across
-                // frames 40 -> 78, mirror-spectrum had only 1 bar of 64 move more than 20 px, and
-                // neon-bars 24 of 64. Smoothing is meant to take the edge off jitter, not to freeze
-                // the animation, so the retention coefficient is now 0.45: Smoothing = 1 still
-                // gives k = 0.55, which visibly follows the beat while staying smooth, and
-                // Smoothing = 0 is unchanged at k = 1.0 (no smoothing at all).
-                float k = 1f - (0.45f * Smoothing);
+                // ASYMMETRIC one-pole envelope - the standard envelope-follower ballistics
+                // (fast attack, slow release; kferg.dev's audio-reactive primer, the AAS CV-2
+                // manual). The symmetric kernel this replaced made a transient and a decay
+                // travel at the same speed, so hits arrived late and mushy. Now a RISING bar
+                // closes 75 % of its gap per frame at Smoothing 1 (a hit lands in ~2 frames)
+                // while a FALLING bar closes only 40 % (settles over ~4-5 frames) - the shape
+                // the ear maps to the music. Smoothing = 0 still means k = 1.0 on BOTH sides:
+                // no smoothing, exactly as before.
+                float k = value >= prior
+                    ? (float)(1.0 - (0.25 * Smoothing))
+                    : (float)(1.0 - (0.60 * Smoothing));
                 return Math.Clamp(prior + ((value - prior) * k), 0f, 1f);
             }
 
