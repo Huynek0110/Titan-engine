@@ -1550,6 +1550,41 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     job.MergeInputPaths.Count == 2 &&
                     normalizedFxEffectForMerge.Equals("Light Leak Burn", StringComparison.OrdinalIgnoreCase);
 
+                // ═══════════════════════════════════════════════════════════════
+                // IMAGE FAST-PATH GATE.
+                //
+                // A job that is exactly ONE still image + external music, with no template,
+                // no merge, no upscale and no video trim, gains nothing from the timeline
+                // pre-render pass: that pass only re-encodes an unchanging frame N times into
+                // an intermediate MP4 which the main render then decodes and encodes AGAIN -
+                // one whole lossy generation spent on static pixels (measured on this machine,
+                // the two passes cost ~3.4s + ~4.2s per 30s of output). Such jobs feed the
+                // looped still straight into the main render instead.
+                //
+                // Every other combination keeps the existing path UNCHANGED: multi-image
+                // timelines (the pre-render stitches them), any template (motion filters and
+                // drawtext run in it), merges/transitions, upscale (needs a video to work on),
+                // and video-trimmed jobs (the pre-render normalises the trim away first).
+                // External music is required so the output keeps an audio track exactly as the
+                // pre-rendered path produced one.
+                // ═══════════════════════════════════════════════════════════════
+                bool imageFastPathVideoTrimInactive =
+                    (string.IsNullOrWhiteSpace(job.VideoTrimStart) || job.VideoTrimStart == "00:00:00") &&
+                    string.IsNullOrWhiteSpace(job.VideoTrimDuration);
+                bool imageFastPathUpscaleInactive =
+                    job.UpscaleMode == "Off" || job.UpscaleMode == "Off (Original Size)";
+                bool imageFastPathAudioReady =
+                    !string.IsNullOrWhiteSpace(externalAudioPath) && File.Exists(externalAudioPath);
+                bool singleImageFastPath =
+                    containsImageSource &&
+                    !templateEnabled &&
+                    !job.MergeVideos &&
+                    timelineInputs.Count == 1 &&
+                    IsImageSourcePath(job.SourcePath) &&
+                    imageFastPathVideoTrimInactive &&
+                    imageFastPathUpscaleInactive &&
+                    imageFastPathAudioReady;
+
                 string videoToEncode = job.SourcePath;
                 bool lightLeakBurnTransitionBaked = false;
                 double imageTimelineTotalDurationOverride = 0.0;
@@ -1564,22 +1599,35 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             onLog);
                     }
 
-                    string templateTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
-                    onLog($"[TEMPLATE] Preparing timeline source (template={job.TemplateName}, inputs={timelineInputs.Count})...");
-                    var prepared = await BuildTemplateTimelineSourceAsync(
-                        timelineInputs,
-                        outDir,
-                        templateTag,
-                        job,
-                        externalAudioPath,
-                        imageTimelineTotalDurationOverride,
-                        token,
-                        onLog);
-                    videoToEncode = prepared.OutputPath;
-                    tempTemplateArtifacts.AddRange(prepared.TempArtifacts);
-                    if (prepared.DurationSec > 0.01)
-                        job.DurationSec = prepared.DurationSec;
-                    onLog($"[TEMPLATE] Timeline ready: {Path.GetFileName(videoToEncode)}");
+                    if (singleImageFastPath)
+                    {
+                        // DurationSec carries the resolved timeline length into the
+                        // DURATION-MASTER logic and the output -t cap, exactly the value the
+                        // pre-rendered intermediate used to report - so audio-authority and
+                        // duration-sync behave identically. videoToEncode stays the still
+                        // itself; the input args below loop it.
+                        job.DurationSec = imageTimelineTotalDurationOverride;
+                        onLog($"[IMAGE-FASTPATH] Single still + music: skipping the timeline pre-render ({imageTimelineTotalDurationOverride:F2}s, 1 encode pass instead of 2)");
+                    }
+                    else
+                    {
+                        string templateTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                        onLog($"[TEMPLATE] Preparing timeline source (template={job.TemplateName}, inputs={timelineInputs.Count})...");
+                        var prepared = await BuildTemplateTimelineSourceAsync(
+                            timelineInputs,
+                            outDir,
+                            templateTag,
+                            job,
+                            externalAudioPath,
+                            imageTimelineTotalDurationOverride,
+                            token,
+                            onLog);
+                        videoToEncode = prepared.OutputPath;
+                        tempTemplateArtifacts.AddRange(prepared.TempArtifacts);
+                        if (prepared.DurationSec > 0.01)
+                            job.DurationSec = prepared.DurationSec;
+                        onLog($"[TEMPLATE] Timeline ready: {Path.GetFileName(videoToEncode)}");
+                    }
                 }
                 else if (job.MergeVideos && job.MergeInputPaths.Count > 1)
                 {
@@ -1673,7 +1721,24 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     cmd.Append($"-t {job.VideoTrimDuration} ");
                 }
 
-                cmd.Append($"-y -i \"{videoToEncode}\" ");
+                if (singleImageFastPath)
+                {
+                    // Loop the still for exactly the resolved timeline length. -t here is
+                    // REQUIRED, not an optimisation: an uncapped -loop 1 input renders forever.
+                    // -framerate mirrors what the pre-rendered intermediate used to carry out
+                    // of its own -r (job fps, image-only default 30), so the output fps, the
+                    // looped soundbar sequence and the duration math all see the same value.
+                    double fastPathFps = job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
+                        ? Math.Clamp(job.SourceFps, 10.0, 120.0)
+                        : 30.0;
+                    double fastPathDuration = Math.Max(0.10, imageTimelineTotalDurationOverride);
+                    cmd.Append($"-y {FfmpegThreadCapArguments()}-loop 1 -framerate {FfmpegDouble(fastPathFps, 3)} -t {FfmpegDouble(fastPathDuration, 3)} -i \"{videoToEncode}\" ");
+                    onLog($"[IMAGE-FASTPATH] Input: looped still @ {fastPathFps:F3}fps for {fastPathDuration:F3}s");
+                }
+                else
+                {
+                    cmd.Append($"-y {FfmpegThreadCapArguments()}-i \"{videoToEncode}\" ");
+                }
 
                 bool hasExternalAudio = !string.IsNullOrEmpty(externalAudioPath) && File.Exists(externalAudioPath);
                 if (hasExternalAudio)
@@ -1888,6 +1953,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 if (encoder == "libx264")
                 {
+                    // x264 defaults to ~1.5x cores of frame threads; on the CPU fallback the
+                    // encoder is the hog, so it gets the same budget as the filters. Pixel
+                    // output is thread-count-independent; only the CPU footprint changes.
+                    cmd.Append($"-threads {FfmpegThreadCapCount()} ");
                     onLog($"[ENCODER-QUALITY] CRF 16 (High Quality)");
                 }
                 else if (encoder == "h264_nvenc" || encoder == "hevc_nvenc")
@@ -2615,6 +2684,50 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 else
                 {
                     onLog("[FILTER-RESOLUTION] Skipping internal upscale filter - video already upscaled externally");
+                }
+
+                // IMAGE FAST-PATH PRESCALE. The looped still is re-decoded by the image2
+                // demuxer on EVERY output frame, so a large source photo pays its full decode
+                // ~30x per second. When the chain below just appended a plain resolution
+                // scale, mirror that exact expression once into a small PNG and swap the
+                // input to it - the chain's own scale then runs over identical pixels at
+                // identical dimensions. "Original" resolution (no chain scale) and crop-FX
+                // jobs keep the raw still: there the prescale would ADD a resample the graph
+                // never performs.
+                if (singleImageFastPath && !hasCropFx && !job.Resolution.Contains("Original"))
+                {
+                    string prescaleExpression;
+                    int prescaleW = targetResW, prescaleH = targetResH;
+                    if (targetResW > 0 && targetResH > 0)
+                        prescaleExpression = $"scale={targetResW}:{targetResH}:flags=lanczos";
+                    else if (targetResW == -2 && targetResH > 0)
+                        prescaleExpression = $"scale=-2:{targetResH}:flags=lanczos";
+                    else
+                        prescaleExpression = string.Empty;
+
+                    if (!string.IsNullOrEmpty(prescaleExpression))
+                    {
+                        string? prescaled = await TryPrescaleStillForLoopAsync(
+                            videoToEncode, prescaleExpression, prescaleW, prescaleH, outDir, onLog, token);
+                        if (!string.IsNullOrWhiteSpace(prescaled))
+                        {
+                            tempTemplateArtifacts.Add(prescaled);
+                            string loopInput = $"-i \"{videoToEncode}\"";
+                            string prescaledInput = $"-i \"{prescaled}\"";
+                            if (cmd.ToString().Contains(loopInput, StringComparison.Ordinal))
+                            {
+                                cmd.Replace(loopInput, prescaledInput);
+                                // postInputInsertPoint is a NUMERIC offset captured when the
+                                // inputs were appended; the generated-overlay branches Insert()
+                                // their -i args at it LATER (the soundbar section below runs
+                                // after this block). The prescaled path is longer than the raw
+                                // still's, so without shifting the offset by the delta every
+                                // later Insert lands mid-token inside the audio input's path -
+                                // which ffmpeg rejects with exit -22 (measured, not theorised).
+                                postInputInsertPoint += prescaledInput.Length - loopInput.Length;
+                            }
+                        }
+                    }
                 }
 
                 // Add Motion Editor (60fps & RSMB)
@@ -6220,9 +6333,15 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     if (File.Exists(outPath))
                     {
                         onLog("[THUMBNAIL] Extracting 50% frame for default cover art...");
-                        string tempThumbPath = outPath + ".thumb.jpg";
-                        string tempMuxPath = outPath + ".mux.mp4";
-                        
+                        // BOTH scratch files live in the engine temp dir, NOT next to the output.
+                        // They used to be outPath + ".thumb.jpg" / ".mux.mp4": scratch names that
+                        // Explorer shows as a mysterious companion JPG beside the finished MP4
+                        // whenever the cleanup lost a race with the antivirus/ indexer locking the
+                        // just-written file - the delete threw, the catch swallowed it, and the
+                        // "thumbnail" stayed in the user's output folder for good.
+                        string tempThumbPath = Path.Combine(GetTitanTempDir(), $"cover_{System.Guid.NewGuid():N}.jpg");
+                        string tempMuxPath = Path.Combine(GetTitanTempDir(), $"cover_{System.Guid.NewGuid():N}.mux.mp4");
+
                         double actualDuration = estimatedOutputDuration;
                         if (actualDuration <= 0) actualDuration = 10.0; // fallback if unknown
                         double halfDuration = Math.Max(0.1, actualDuration / 2.0);
@@ -6251,7 +6370,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 File.Delete(outPath);
                                 File.Move(tempMuxPath, outPath);
                             }
-                            File.Delete(tempThumbPath);
+                            TryDeleteFileSafe(tempThumbPath);
+                            TryDeleteFileSafe(tempMuxPath);
                             onLog("[THUMBNAIL] Cover art successfully applied.");
                         }
                     }
@@ -7343,6 +7463,103 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 value = 0.0;
 
             return value.ToString($"F{decimals}", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Thread budget handed to ffmpeg so filter slices (and, on the libx264 fallback, the
+        /// encoder) cannot claim every core the machine has. ffmpeg defaults its filter and
+        /// encoder thread pools to the full core count, which on the filter-heavy graphs this
+        /// pipeline builds (base scale/crop + overlay blends at output resolution) pegs every
+        /// core at 100 % for the whole encode - reported as "CPU siêu ác" while wall time barely
+        /// improves, because the graphs do not scale linearly past roughly three quarters of the
+        /// cores. Filters are deterministic per slice, so the cap changes TIMING only: the
+        /// encoded frames are identical at any thread count (verified: x264 and the slice-threaded
+        /// filters - scale, overlay, crop, format - are bit-deterministic w.r.t. threading).
+        /// 3/4 of the logical cores, floored at 2, leaves one core's worth of headroom for the
+        /// UI, the queue worker and the overlay pre-render STA threads.
+        /// </summary>
+        private static int FfmpegThreadCapCount()
+            => Math.Max(2, (int)Math.Floor(Environment.ProcessorCount * 0.75));
+
+        /// <summary>
+        /// The cap as global ffmpeg arguments. Both flags are required: <c>-filter_complex_threads</c>
+        /// bounds the filter_complex graphs the overlay branches build, while <c>-filter_threads</c>
+        /// bounds simple <c>-vf</c> chains (the template segment pre-render path).
+        /// </summary>
+        private static string FfmpegThreadCapArguments()
+        {
+            int cap = FfmpegThreadCapCount();
+            return $"-filter_threads {cap} -filter_complex_threads {cap} ";
+        }
+
+        /// <summary>
+        /// Decodes and scales a still image ONCE so a <c>-loop 1</c> input stops paying the full
+        /// source decode on every output frame: the image2 demuxer re-decodes the file per frame,
+        /// so a 12 MP phone photo looped into a 1080p canvas spent ~0.74 s of decode per output
+        /// second (measured: 12 s of 1080x1920 from a 4032x3024 PNG = 8.9 s raw vs 1.7 s with
+        /// this prescale plus a 0.3 s one-off).
+        /// <para>
+        /// <paramref name="scaleExpression"/> must MIRROR the scale the consuming graph itself
+        /// applies, so the graph's own scale becomes an identity over identical pixels - the
+        /// output is unchanged and only the decode work moves out of the loop. (JPEG sources
+        /// take one extra RGB roundtrip through the lossless PNG intermediate; PNG sources are
+        /// exactly the pixels the graph would have produced.)
+        /// </para>
+        /// <para>
+        /// Returns null - and the caller keeps looping the original - unless the source long
+        /// edge is at least 1.3x the target long edge, so an identity or near-identity prescale
+        /// never adds a resample of its own. Failures are logged and also return null: the
+        /// prescale is an optimisation, never a dependency.
+        /// </para>
+        /// </summary>
+        private static async Task<string?> TryPrescaleStillForLoopAsync(
+            string stillPath,
+            string scaleExpression,
+            int targetWidth,
+            int targetHeight,
+            string outDir,
+            Action<string> onLog,
+            CancellationToken token)
+        {
+            try
+            {
+                if (token.IsCancellationRequested || !File.Exists(stillPath))
+                    return null;
+
+                (int srcW, int srcH) = await GetVideoResolutionAsync(stillPath);
+                if (srcW <= 0 || srcH <= 0)
+                    return null;
+
+                // Compare long edges: aspect-preserving targets constrain one dimension, but
+                // the long edge always maps to the long edge.
+                double srcLong = Math.Max(srcW, srcH);
+                double dstLong = Math.Max(targetWidth, targetHeight);
+                if (dstLong <= 0.0 || srcLong < dstLong * 1.3)
+                    return null;
+
+                Directory.CreateDirectory(outDir);
+                string prescaled = Path.Combine(
+                    outDir,
+                    $"prescaled_{Path.GetFileNameWithoutExtension(stillPath)}_{srcW}x{srcH}.png");
+                if (!File.Exists(prescaled))
+                {
+                    string args = $"-y -i \"{stillPath}\" -frames:v 1 -vf \"{scaleExpression}\" \"{prescaled}\"";
+                    var (exit, _) = await RunFfmpegCaptureAsync(args, token);
+                    if (exit != 0 || !File.Exists(prescaled) || new FileInfo(prescaled).Length <= 0)
+                    {
+                        TryDeleteFileSafe(prescaled);
+                        return null;
+                    }
+                }
+
+                onLog($"[PRESCALE] Still {srcW}x{srcH} -> ~{targetWidth}x{targetHeight} once ({Path.GetFileName(prescaled)}); the loop now decodes the small copy");
+                return prescaled;
+            }
+            catch (Exception ex)
+            {
+                onLog($"[PRESCALE-WARN] {ex.Message}; looping the original still.");
+                return null;
+            }
         }
 
         private static (double FadeIn, double FadeOut, double FadeOutStart) NormalizeFadeSettings(RenderJob job, double estimatedOutputDuration, Action<string> onLog)
@@ -10635,11 +10852,27 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string fps = FfmpegDouble(targetFps, 3);
             bool hasAudio = !isImageInput && await HasAudioStreamAsync(inputPath);
 
+            // Image inputs are looped, and the image2 demuxer re-decodes the still on every
+            // output frame. Pre-decode + pre-scale ONCE to the segment canvas (mirroring the
+            // baseFilter below so the graph's own scale runs as an identity) and loop the
+            // small copy instead. No-op for sources already near the target size.
+            string effectiveImageInput = inputPath;
+            if (isImageInput)
+            {
+                string prescaleExpression =
+                    $"scale={targetWidth}:{targetHeight}:force_original_aspect_ratio=decrease:flags=lanczos," +
+                    $"pad={targetWidth}:{targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black";
+                string? prescaled = await TryPrescaleStillForLoopAsync(
+                    inputPath, prescaleExpression, targetWidth, targetHeight, Path.GetDirectoryName(outputPath) ?? GetTitanTempDir(), onLog, token);
+                if (!string.IsNullOrWhiteSpace(prescaled))
+                    effectiveImageInput = prescaled;
+            }
+
             string args;
             if (isImageInput)
             {
                 args =
-                    $"-y -loop 1 -t {dur} -i \"{inputPath}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-loop 1 -t {dur} -i \"{effectiveImageInput}\" " +
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
@@ -10651,7 +10884,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             else if (hasAudio)
             {
                 args =
-                    $"-y -i \"{inputPath}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-i \"{inputPath}\" " +
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-filter_complex \"[0:a]aresample=48000,asetpts=PTS-STARTPTS[a0];[1:a]asetpts=PTS-STARTPTS[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]\" " +
                     "-map 0:v:0 -map \"[aout]\" " +
@@ -10664,7 +10897,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             else
             {
                 args =
-                    $"-y -i \"{inputPath}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-i \"{inputPath}\" " +
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
@@ -10674,18 +10907,55 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"\"{outputPath}\"";
             }
 
-            var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
-            if (exitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+            try
             {
-                string summary = string.Join(" | ",
-                    (stderr ?? string.Empty)
-                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Take(8));
-                throw new Exception($"Template segment render failed: {summary}");
-            }
+                var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
+                if (exitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+                {
+                    // ONE CPU retry before giving up. h264_nvenc segfaults on some machine/build
+                    // combinations the moment the graph carries a dynamic-expression scale filter
+                    // (the template zoom path: scale=...eval=frame). Measured on one box: NVENC +
+                    // the zoom graph crashed 8/8 while the IDENTICAL graph on libx264 succeeded
+                    // every time, and NVENC + a static scale also succeeded - an upstream
+                    // ffmpeg/NVENC defect, not a graph error. Retrying on CPU is the difference
+                    // between a slower successful render and a dead job. The stderr of a crash is
+                    // only the banner, so the log names the exit code instead.
+                    if (args.Contains("h264_nvenc", StringComparison.Ordinal))
+                    {
+                        onLog($"[TEMPLATE] GPU encode failed (exit {exitCode}); retrying segment on CPU (libx264)...");
+                        TryDeleteFileSafe(outputPath);
+                        string cpuArgs = args.Replace(
+                            "h264_nvenc -preset p5 -cq 18",
+                            "libx264 -preset veryfast -crf 18",
+                            StringComparison.Ordinal);
+                        var (cpuExit, cpuStderr) = await RunFfmpegCaptureAsync(cpuArgs, token);
+                        if (cpuExit == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                        {
+                            onLog("[TEMPLATE] Segment ready on CPU fallback: " + Path.GetFileName(outputPath));
+                            return outputPath;
+                        }
 
-            onLog($"[TEMPLATE] Segment ready: {Path.GetFileName(outputPath)}");
-            return outputPath;
+                        throw new Exception($"Template segment render failed (GPU exit {exitCode}, CPU retry exit {cpuExit}).");
+                    }
+
+                    string summary = string.Join(" | ",
+                        (stderr ?? string.Empty)
+                            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Take(8));
+                    throw new Exception($"Template segment render failed: {summary}");
+                }
+
+                onLog($"[TEMPLATE] Segment ready: {Path.GetFileName(outputPath)}");
+                return outputPath;
+            }
+            finally
+            {
+                // The prescaled still is a per-segment scratch copy: it only exists to be looped
+                // by the args above, so it goes as soon as the encode is done - success, retry
+                // or failure alike.
+                if (!string.Equals(effectiveImageInput, inputPath, StringComparison.OrdinalIgnoreCase))
+                    TryDeleteFileSafe(effectiveImageInput);
+            }
         }
 
         private static async Task<TemplateTimelineBuildResult> BuildTemplateTimelineSourceAsync(
@@ -11224,7 +11494,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (hasAudio)
             {
                 args =
-                    $"-y -i \"{inputPath}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-i \"{inputPath}\" " +
                     "-map 0:v:0 -map 0:a:0 " +
                     $"-vf \"{videoFilter}\" " +
                     (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
@@ -11235,7 +11505,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             else
             {
                 args =
-                    $"-y -i \"{inputPath}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-i \"{inputPath}\" " +
                     "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{videoFilter}\" " +
