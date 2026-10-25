@@ -1273,6 +1273,10 @@ namespace TitanEngine
                 Brush peakBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, 0.92 * ctx.AlphaFactor));
                 dc.DrawGeometry(peakBrush, null, peak);
             }
+
+            // Same baseline the bar family stands on: the LED grid sits on a lit edge,
+            // not a void.
+            DrawBaselineLine(dc, ctx, plot.Bottom, plot);
         }
 
         // ------------------------------------------------------------------
@@ -2651,6 +2655,17 @@ namespace TitanEngine
             //   2. PenLineCap.Flat, so even a short tick stays a line instead of closing into a disc;
             //   3. the glow stack is capped at 3x the tick's own stroke, so the halo can never be
             //      wider than the tick it is blooming.
+            // BASE LIGHT POOL: the meter stands in its own light - a soft disc under the
+            // base whose radius follows the level, so the column reads as standing on a
+            // surface rather than floating.
+            double poolRadius = Math.Max(6.0, thickness * (1.6 + (1.8 * rms)));
+            RadialGradientBrush pool = CreateRadialGlowBrush(
+                ctx.Resolved.Glow,
+                Math.Min(1.0, 0.20 * ctx.GlowIntensity) * ctx.AlphaFactor,
+                new Point(centerX, plot.Bottom),
+                poolRadius);
+            dc.DrawEllipse(pool, null, new Point(centerX, plot.Bottom), poolRadius, poolRadius * 0.6);
+
             double tickStroke = Math.Max(0.8, thickness * 0.10);
             double tickY = plot.Bottom - (hold * plot.Height);
             // Always at least a tick's worth of clear air above the column tip, so the two read as

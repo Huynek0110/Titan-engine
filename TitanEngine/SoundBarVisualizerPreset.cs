@@ -212,9 +212,14 @@ namespace TitanEngine
         /// gauge face the burst measures against) and ripple-rings a POND BOUNDARY (the
         /// still surface the ripples expand across), framing the quiet passages too.
         /// </item>
+        /// <item>
+        /// r33 (this one): center-column stands in its own light - a soft pool under the
+        /// base whose radius follows the level - and the dot-matrix grid sits on the same
+        /// lit baseline edge the bar family stands on.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r32";
+        private const string RendererVersion = "soundbar-r33";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
