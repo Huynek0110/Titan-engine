@@ -791,6 +791,7 @@ namespace TitanEngine
 
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
             DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
+            DrawBaselineLine(dc, ctx, plot.Bottom, plot);
             DrawFloorSpill(dc, ctx, plot.Bottom, plot.Width, plot.X);
         }
 
@@ -896,6 +897,29 @@ namespace TitanEngine
             // PillBars' cap is a detached MINI PILL (fat stroke), not a hairline - the iOS
             // equalizer look the style references.
             DrawPeakCaps(dc, ctx, caps, Math.Max(2.0, barWidth * 0.42));
+            DrawBaselineLine(dc, ctx, baseY, plot);
+
+            // Inner filament: a thin hot line up the centre of every capsule - a neon TUBE
+            // read (glass coloured outside, plasma inside) rather than a flat coloured pill.
+            var filament = new StreamGeometry();
+            using (StreamGeometryContext filamentCtx = filament.Open())
+            {
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    ColumnSpec column = columns[i];
+                    if (column.Height < barWidth * 0.8)
+                        continue;
+
+                    filamentCtx.BeginFigure(new Point(column.CenterX, column.BaseY - (barWidth * 0.35)), false, false);
+                    filamentCtx.LineTo(new Point(column.CenterX, column.TipY + (barWidth * 0.35)), true, false);
+                }
+            }
+            if (filament.CanFreeze)
+                filament.Freeze();
+            dc.DrawGeometry(null, CreatePen(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, 0.55 * ctx.AlphaFactor)),
+                Math.Max(1.0, barWidth * 0.16)), filament);
+
             DrawFloorSpill(dc, ctx, baseY, plot.Width, plot.X);
         }
 
@@ -932,7 +956,75 @@ namespace TitanEngine
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), plot.Bottom, plot.Bottom - reach, thickness));
             }
 
-            DrawColumns(dc, ctx, columns, Math.Max(0.5, thickness * 0.55), PenLineCap.Round);
+            // THE CURTAIN: hue runs along the FREQUENCY axis (purple -> cyan across the
+            // width) - the horizontal colour progression every reference curtain visualizer
+            // carries - instead of one vertical ramp repeated per bar. Columns are batched
+            // into 24 hue buckets so the whole curtain still costs ~25 draw calls, and each
+            // column tops out in a shared white-hot TIP strip, one geometry for all of them.
+            const int CurtainHueBuckets = 24;
+            var hueCtxs = new StreamGeometryContext?[CurtainHueBuckets];
+            var hueGeometries = new StreamGeometry?[CurtainHueBuckets];
+            for (int b = 0; b < CurtainHueBuckets; b++)
+            {
+                hueGeometries[b] = new StreamGeometry();
+                hueCtxs[b] = hueGeometries[b]!.Open();
+            }
+
+            var tips = new StreamGeometry();
+            double tipHeight = Math.Max(2.0, thickness * 1.8);
+
+            try
+            {
+                using StreamGeometryContext tipCtx = tips.Open();
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    ColumnSpec column = columns[i];
+                    double left = column.CenterX - (column.Width * 0.5);
+                    double top = Math.Min(column.BaseY, column.TipY);
+                    double bottom = Math.Max(column.BaseY, column.TipY);
+
+                    int bucket = (int)Math.Clamp(
+                        Math.Round(((column.CenterX - plot.X) / Math.Max(1.0, plot.Width)) * (CurtainHueBuckets - 1)),
+                        0, CurtainHueBuckets - 1);
+                    StreamGeometryContext hueCtx = hueCtxs[bucket]!;
+                    hueCtx.BeginFigure(new Point(left, top), true, true);
+                    hueCtx.LineTo(new Point(left + column.Width, top), true, true);
+                    hueCtx.LineTo(new Point(left + column.Width, bottom), true, true);
+                    hueCtx.LineTo(new Point(left, bottom), true, true);
+
+                    tipCtx.BeginFigure(new Point(left, top), true, true);
+                    tipCtx.LineTo(new Point(left + column.Width, top), true, true);
+                    tipCtx.LineTo(new Point(left + column.Width, top + tipHeight), true, true);
+                    tipCtx.LineTo(new Point(left, top + tipHeight), true, true);
+                }
+            }
+            finally
+            {
+                for (int b = 0; b < CurtainHueBuckets; b++)
+                    hueCtxs[b]?.Close();
+            }
+
+            for (int b = 0; b < CurtainHueBuckets; b++)
+            {
+                if (hueGeometries[b]!.CanFreeze)
+                    hueGeometries[b]!.Freeze();
+                double hueT = 0.15 + (0.85 * (b / (double)(CurtainHueBuckets - 1)));
+                Color hue = SampleRamp(ctx.Resolved.RampOffsets, ctx.Resolved.RampColors, hueT);
+                dc.DrawGeometry(CreateBrush(WithAlpha(hue, 0.88 * ctx.AlphaFactor)), null, hueGeometries[b]);
+            }
+
+            if (tips.CanFreeze)
+                tips.Freeze();
+            dc.DrawGeometry(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)), null, tips);
+
+            // Same neon rim stack the shared column path applies, over the same line set.
+            DrawGlowPasses(
+                dc, BuildLineGeometry(columns), Math.Max(0.5, thickness * 0.55), ctx.Resolved,
+                ctx.GlowIntensity, ctx.AlphaFactor, PenLineCap.Round,
+                coreWidthRatio: GlowColumnCoreWidthRatio);
+
+            DrawBaselineLine(dc, ctx, plot.Bottom, plot);
             DrawFloorSpill(dc, ctx, plot.Bottom, plot.Width, plot.X);
         }
 
@@ -1049,12 +1141,15 @@ namespace TitanEngine
 
             var dim = new StreamGeometry();
             var peak = new StreamGeometry();
+            var hotTops = new StreamGeometry();
             bool hasPeakDot = false;
+            bool hasHotTop = false;
 
             try
             {
                 using (StreamGeometryContext dimCtx = dim.Open())
                 using (StreamGeometryContext peakCtx = peak.Open())
+                using (StreamGeometryContext hotCtx = hotTops.Open())
                 {
                     for (int c = 0; c < columns; c++)
                     {
@@ -1077,7 +1172,16 @@ namespace TitanEngine
                         {
                             double y = plot.Y + (stepY * (r + 0.5));
                             var point = new Point(x, y);
-                            if (r >= rows - litCount)
+                            if (r == rows - litCount)
+                            {
+                                // The column's top lit cell is the LED stack's hot tip:
+                                // drawn again in the near-white Core over the gradient body,
+                                // so the eye reads WHERE each column ends at a glance.
+                                AddEllipseFigure(hotCtx, point, radius, radius);
+                                hasHotTop = true;
+                                AddEllipseFigure(litCtx, point, radius, radius);
+                            }
+                            else if (r > rows - litCount)
                                 AddEllipseFigure(litCtx, point, radius, radius);
                             else if (showPeakDot && r == rows - peakRow)
                             {
@@ -1112,6 +1216,12 @@ namespace TitanEngine
                 if (geometry.CanFreeze)
                     geometry.Freeze();
                 dc.DrawGeometry(litBrush, null, geometry);
+            }
+
+            if (hasHotTop)
+            {
+                Brush hotBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, 0.80 * ctx.AlphaFactor));
+                dc.DrawGeometry(hotBrush, null, hotTops);
             }
 
             if (hasPeakDot)
@@ -1706,6 +1816,17 @@ namespace TitanEngine
 
             DrawAmbientBloom(dc, ctx, center, outer);
 
+            // BASELINE CIRCLE: the thin ring every ray stands on. The AE polar reference
+            // always carries one - without it the rays float from an invisible circle and
+            // the hub reads as disconnected from them.
+            var baseline = new EllipseGeometry(center, inner, inner);
+            if (baseline.CanFreeze)
+                baseline.Freeze();
+            DrawGlowPasses(
+                dc, baseline, Math.Max(0.8, (outer - inner) * 0.012), ctx.Resolved,
+                ctx.GlowIntensity * 0.7, ctx.AlphaFactor, PenLineCap.Round,
+                Math.Max(2.0, (outer - inner) * 0.05));
+
             // Bright hub core: the AE polar reference has a luminous point at the centre, not
             // an empty hole. A soft radial-gradient disc under the wedges, pulsing with the
             // same beat (the disc's radius rides `beat`, so a kick visibly "ignites" the hub).
@@ -1818,6 +1939,18 @@ namespace TitanEngine
                 // (~72 degrees of the ramp) spreads the rings without breaking out of the
                 // palette's own range.
                 int ringColorShift = (int)Math.Round(36.0 * ring / Math.Max(1, ringCount - 1));
+
+                // Separator circle at the ring's base: with 2-6 coloured rings stacked in one
+                // annulus, a faint base circle per ring keeps the bands reading as distinct
+                // tiers instead of one noisy ring field.
+                var ringBase = new EllipseGeometry(center, ringInner, ringInner);
+                if (ringBase.CanFreeze)
+                    ringBase.Freeze();
+                DrawGlowPasses(
+                    dc, ringBase, Math.Max(0.7, stride * 0.030), ctx.Resolved,
+                    ctx.GlowIntensity * 0.5, ctx.AlphaFactor, PenLineCap.Round,
+                    Math.Max(2.0, stride * 0.12));
+
                 DrawRadialWedges(dc, ctx, center, ringInner, tipRadii, angles, span, ringColorShift);
 
                 // Ray thickness is bounded by the ANGULAR SLOT ARC, not by the ring's radial
@@ -1931,6 +2064,21 @@ namespace TitanEngine
             {
                 double radius = Math.Clamp(ringRadii[i], 0.5, outer);
 
+                // ECHO ring: real sonar returns carry a second, fainter front a step behind
+                // the main one. Drawn first at 40 % alpha and ~7 % of the outer radius
+                // behind, it turns one lonely circle into a wave train.
+                double echoRadius = radius - (outer * 0.07);
+                if (echoRadius > inner * 0.5 && ringAlpha[i] > 0.08)
+                {
+                    var echo = new EllipseGeometry(center, echoRadius, echoRadius);
+                    if (echo.CanFreeze)
+                        echo.Freeze();
+                    DrawGlowPasses(
+                        dc, echo, thickness * 0.7, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor,
+                        PenLineCap.Round, RadialHaloExtent(outer),
+                        coreAlways: true, alphaScale: ringAlpha[i] * 0.40, coreColor: ctx.Resolved.Accent);
+                }
+
                 var ellipse = new EllipseGeometry(center, radius, radius);
                 if (ellipse.CanFreeze)
                     ellipse.Freeze();
@@ -2004,6 +2152,16 @@ namespace TitanEngine
 
             DrawAmbientBloom(dc, ctx, center, outer);
 
+            // Same baseline circle as RadialRing: spokes grow from a visible ring, not a
+            // void. Drawn beneath the hub so the hub stays the brightest point.
+            var spokeBaseline = new EllipseGeometry(center, inner, inner);
+            if (spokeBaseline.CanFreeze)
+                spokeBaseline.Freeze();
+            DrawGlowPasses(
+                dc, spokeBaseline, Math.Max(0.8, (outer - inner) * 0.012), ctx.Resolved,
+                ctx.GlowIntensity * 0.6, ctx.AlphaFactor, PenLineCap.Round,
+                Math.Max(2.0, (outer - inner) * 0.05));
+
             // Tiny luminous hub at the same scale as RadialRing's: bare spokes read as floating
             // dashes; a bright pin in the centre anchors the figure and it pulses with the beat.
             double hubR = Math.Max(2.0, inner * 1.1 * beat);
@@ -2055,9 +2213,13 @@ namespace TitanEngine
             var bottom = new Point[columns];
             double slot = plot.Width / columns;
 
+            // SYMMETRIC envelope (the SoundCloud signature): each column's magnitude is
+            // mirrored above and below the centre, so the two halves meet in one bright
+            // seam instead of an asymmetric oscilloscope hugging an off-centre zero. A
+            // light 3-tap spatial pass keeps the mirror organic without flattening peaks.
+            var magnitudes = new double[columns];
             for (int i = 0; i < columns; i++)
             {
-                double x = plot.X + (slot * (i + 0.5));
                 float lo = 0f;
                 float hi = 0f;
 
@@ -2068,13 +2230,23 @@ namespace TitanEngine
                     hi = Math.Clamp(waveMax![si], -1f, 1f);
                 }
 
-                if (lo > hi)
-                {
-                    (lo, hi) = (hi, lo);
-                }
+                magnitudes[i] = Math.Max(Math.Abs(lo), Math.Abs(hi));
+            }
 
-                top[i] = new Point(x, midY - (hi * halfHeight));
-                bottom[i] = new Point(x, midY - (lo * halfHeight));
+            double magnitudeSum = 0.0;
+            for (int i = 0; i < columns; i++)
+            {
+                double m = magnitudes[i];
+                if (i > 0)
+                    m = Math.Max(m, magnitudes[i - 1] * 0.55);
+                if (i < columns - 1)
+                    m = Math.Max(m, magnitudes[i + 1] * 0.55);
+                magnitudes[i] = m;
+                magnitudeSum += m;
+
+                double x = plot.X + (slot * (i + 0.5));
+                top[i] = new Point(x, midY - (m * halfHeight));
+                bottom[i] = new Point(x, midY + (m * halfHeight));
             }
 
             var ribbon = new StreamGeometry();
@@ -2090,7 +2262,68 @@ namespace TitanEngine
             if (ribbon.CanFreeze)
                 ribbon.Freeze();
 
-            dc.DrawGeometry(ctx.GetPlotGradientBrush(plot.Bottom, plot.Top), null, ribbon);
+            // Centered fill: brighter towards the seam, dimming to the edges - a vertical
+            // mirror of itself, matching the symmetric envelope.
+            var fill = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.Absolute,
+                StartPoint = new Point(0, plot.Top),
+                EndPoint = new Point(0, plot.Bottom)
+            };
+            double fillAlpha = Math.Min(1.0, 0.55 * ctx.AlphaFactor);
+            fill.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, fillAlpha * 0.45), 0.0));
+            fill.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, fillAlpha), 0.5));
+            fill.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, fillAlpha * 0.45), 1.0));
+            if (fill.CanFreeze)
+                fill.Freeze();
+            dc.DrawGeometry(fill, null, ribbon);
+
+            // THE SEAM. In the SoundCloud waveform the mirrored halves meet in one bright
+            // centre line; its alpha follows the average magnitude so a quiet passage dims
+            // the seam and a hit lights it end to end.
+            double averageMagnitude = columns > 0 ? magnitudeSum / columns : 0.0;
+            var seam = new StreamGeometry();
+            using (StreamGeometryContext seamCtx = seam.Open())
+            {
+                seamCtx.BeginFigure(new Point(plot.X, midY), false, false);
+                seamCtx.LineTo(new Point(plot.Right, midY), true, false);
+            }
+            if (seam.CanFreeze)
+                seam.Freeze();
+            dc.DrawGeometry(null, CreatePen(
+                CreateBrush(WithAlpha(ctx.Resolved.Core, (0.22 + (0.55 * averageMagnitude)) * ctx.AlphaFactor)),
+                Math.Max(1.0, plot.Height * 0.010)), seam);
+
+            // PLAYHEAD (the SoundCloud signature): a bright sweep line advances across the
+            // ribbon over the loop, everything ahead of it sits slightly dimmed - the
+            // played/unplayed read. ctx.Time IS the loop progress, so this is a pure
+            // function of the frame; the head's alpha fades over the first and last 6 % of
+            // the sweep, which turns the loop-wrap snap into a soft dissolve.
+            double progress = Math.Clamp(ctx.Time, 0.0, 1.0);
+            double headFade = Math.Clamp(Math.Min(progress / 0.06, (1.0 - progress) / 0.06), 0.0, 1.0);
+            double headX = plot.X + (plot.Width * progress);
+
+            if (headFade > 0.01)
+            {
+                var veil = new SolidColorBrush(Color.FromArgb(
+                    (byte)Math.Round(0.16 * headFade * 255.0 * ctx.AlphaFactor), 0, 0, 0));
+                if (veil.CanFreeze)
+                    veil.Freeze();
+                dc.DrawRectangle(veil, null, new Rect(headX, plot.Top, Math.Max(0.0, plot.Right - headX), plot.Height));
+
+                var head = new StreamGeometry();
+                using (StreamGeometryContext headCtx = head.Open())
+                {
+                    headCtx.BeginFigure(new Point(headX, plot.Top), false, false);
+                    headCtx.LineTo(new Point(headX, plot.Bottom), true, false);
+                }
+                if (head.CanFreeze)
+                    head.Freeze();
+                DrawGlowPasses(
+                    dc, head, Math.Max(1.2, plot.Width * 0.0022), ctx.Resolved,
+                    ctx.GlowIntensity, ctx.AlphaFactor * headFade, PenLineCap.Round,
+                    Math.Max(3.0, plot.Width * 0.012));
+            }
 
             // Ghost trail: the PREVIOUS analysed frame's envelope, stroked faintly under the
             // live one. SoundCloud-style waveforms render one static envelope; an ANIMATED
@@ -2105,20 +2338,23 @@ namespace TitanEngine
                 var ghost = new StreamGeometry();
                 using (StreamGeometryContext gctx = ghost.Open())
                 {
-                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY - (Math.Clamp(prevMax![0], -1f, 1f) * halfHeight)), false, false);
+                    // The ghost is the previous frame's SYMMETRIC envelope (same magnitude
+                    // rule as the live one), so the trail and the ribbon share one shape
+                    // language instead of a mirrored figure trailing an asymmetric one.
+                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY - (Math.Max(Math.Abs(Math.Clamp(prevMin![0], -1f, 1f)), Math.Abs(Math.Clamp(prevMax![0], -1f, 1f))) * halfHeight)), false, false);
                     for (int i = 1; i < columns; i++)
                     {
                         int si = Math.Clamp((int)Math.Floor((i / (double)columns) * prevAvailable), 0, prevAvailable - 1);
-                        float hi = Math.Clamp(prevMax![si], -1f, 1f);
-                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY - (hi * halfHeight)), true, false);
+                        double m = Math.Max(Math.Abs(Math.Clamp(prevMax![si], -1f, 1f)), Math.Abs(Math.Clamp(prevMin![si], -1f, 1f)));
+                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY - (m * halfHeight)), true, false);
                     }
 
-                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY - (Math.Clamp(prevMin![0], -1f, 1f) * halfHeight)), false, false);
+                    gctx.BeginFigure(new Point(plot.X + (slot * 0.5), midY + (Math.Max(Math.Abs(Math.Clamp(prevMin![0], -1f, 1f)), Math.Abs(Math.Clamp(prevMax![0], -1f, 1f))) * halfHeight)), false, false);
                     for (int i = 1; i < columns; i++)
                     {
                         int si = Math.Clamp((int)Math.Floor((i / (double)columns) * prevAvailable), 0, prevAvailable - 1);
-                        float lo = Math.Clamp(prevMin![si], -1f, 1f);
-                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY - (lo * halfHeight)), true, false);
+                        double m = Math.Max(Math.Abs(Math.Clamp(prevMax![si], -1f, 1f)), Math.Abs(Math.Clamp(prevMin![si], -1f, 1f)));
+                        gctx.LineTo(new Point(plot.X + (slot * (i + 0.5)), midY + (m * halfHeight)), true, false);
                     }
                 }
 
@@ -2222,12 +2458,64 @@ namespace TitanEngine
             double columnReach = rms > 0.0 ? Math.Max(1.0, rms * plot.Height) : 0.0;
             if (columnReach > 0.0)
             {
-                var columns = new List<ColumnSpec>(1)
-                {
-                    new ColumnSpec(centerX, plot.Bottom, plot.Bottom - columnReach, thickness)
-                };
+                // SEGMENTED LED body - how every broadcast meter actually draws (LM3915-style
+                // ~3 dB per segment; our -30..-3 dBFS window is 27 dB = 9 segments). A solid
+                // rounded bar reads as "some bar"; the segment gaps + the white-hot top lit
+                // segment read as a METER, and quantising the display is authentic - real LED
+                // meters step, they do not glide.
+                const int MeterSegments = 9;
+                double slot = plot.Height / MeterSegments;
+                double gap = Math.Max(1.5, slot * 0.18);
+                double segmentHeight = Math.Max(2.0, slot - gap);
+                double radius = Math.Min(thickness * 0.30, segmentHeight * 0.5);
 
-                DrawColumns(dc, ctx, columns, Math.Max(0.8, thickness * 0.30), PenLineCap.Round);
+                // Soft backlight behind the lit stack: one vertical gradient rect, so the
+                // segments sit in their own glow instead of on raw video.
+                var backlight = new LinearGradientBrush
+                {
+                    MappingMode = BrushMappingMode.Absolute,
+                    StartPoint = new Point(0, plot.Bottom - columnReach),
+                    EndPoint = new Point(0, plot.Bottom)
+                };
+                backlight.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, 0.22 * ctx.GlowIntensity * ctx.AlphaFactor), 0.0));
+                backlight.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, 0.0), 1.0));
+                if (backlight.CanFreeze)
+                    backlight.Freeze();
+                dc.DrawRectangle(backlight, null, new Rect(centerX - thickness, plot.Bottom - columnReach, thickness * 2.0, columnReach));
+
+                int topLit = -1;
+                for (int k = 0; k < MeterSegments; k++)
+                {
+                    double segmentTop = plot.Bottom - ((k + 1) * slot) + gap;
+                    if (plot.Bottom - segmentTop - gap > columnReach + slot * 0.25)
+                        break;
+
+                    topLit = k;
+                }
+
+                for (int k = 0; k <= topLit; k++)
+                {
+                    double y0 = plot.Bottom - ((k + 1) * slot) + gap;
+                    double mid = y0 + (segmentHeight * 0.5);
+                    double t = Math.Clamp((plot.Bottom - mid) / plot.Height, 0.0, 1.0);
+                    Color segment = SampleRamp(ctx.Resolved.RampOffsets, ctx.Resolved.RampColors, t);
+                    if (k == topLit)
+                    {
+                        // The top lit segment is the pointer: blend it toward the near-white
+                        // Core so the eye lands where the level actually is.
+                        segment = Color.FromRgb(
+                            (byte)((segment.R * 3 + ctx.Resolved.Core.R * 7) / 10),
+                            (byte)((segment.G * 3 + ctx.Resolved.Core.G * 7) / 10),
+                            (byte)((segment.B * 3 + ctx.Resolved.Core.B * 7) / 10));
+                    }
+
+                    dc.DrawRoundedRectangle(
+                        CreateBrush(WithAlpha(segment, 0.92 * ctx.AlphaFactor)),
+                        null,
+                        new Rect(centerX - (thickness * 0.5), y0, thickness, segmentHeight),
+                        radius,
+                        radius);
+                }
             }
 
             // Peak-hold tick: a SHORT HORIZONTAL LINE, flat-capped and kept clear of the column top.
@@ -2350,7 +2638,12 @@ namespace TitanEngine
 
                 dc.DrawEllipse(glow, null, center, Math.Max(2.0, radius * 2.6), Math.Max(2.0, radius * 2.6));
 
-                Geometry sparkle = BuildSparkleGeometry(center, radius);
+                // Twinkle: a gentle 1.5-cycle shimmer over the star's life plus an
+                // orientation that alternates with the band - two stars never sit at the
+                // same angle, which reads as field depth rather than a stamped sprite.
+                double twinkle = 0.86 + (0.14 * Math.Sin(age * Math.PI * 2.0 * 1.5));
+                double rotation = (star.BandIndex % 2 == 0) ? 0.0 : 45.0;
+                Geometry sparkle = BuildSparkleGeometry(center, radius * twinkle, rotation);
                 dc.DrawGeometry(starBrush, null, sparkle);
             }
         }
@@ -2461,6 +2754,27 @@ namespace TitanEngine
                 CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)),
                 capStroke);
             dc.DrawGeometry(null, capPen, geometry);
+        }
+
+        /// <summary>
+        /// The thin bright line the bar family stands on - every hardware analyzer and AE
+        /// reference frame has one. It grounds the bars the way the baseline circle grounds
+        /// the radial styles: without it the row floats.
+        /// </summary>
+        private static void DrawBaselineLine(DrawingContext dc, FrameContext ctx, double y, Rect plot)
+        {
+            var baseline = new StreamGeometry();
+            using (StreamGeometryContext baselineCtx = baseline.Open())
+            {
+                baselineCtx.BeginFigure(new Point(plot.X, y), false, false);
+                baselineCtx.LineTo(new Point(plot.Right, y), true, false);
+            }
+            if (baseline.CanFreeze)
+                baseline.Freeze();
+            DrawGlowPasses(
+                dc, baseline, Math.Max(1.0, plot.Height * 0.008), ctx.Resolved,
+                ctx.GlowIntensity, ctx.AlphaFactor * 0.75, PenLineCap.Round,
+                Math.Max(2.0, plot.Height * 0.03));
         }
 
         /// <summary>
@@ -3157,22 +3471,44 @@ namespace TitanEngine
             return geometry;
         }
 
-        private static Geometry BuildSparkleGeometry(Point center, double radius)
+        /// <summary>
+        /// The Starglow cross-flare star: four LONG cardinal rays with short, weaker
+        /// diagonals between them and a tiny inner waist - the shape Trapcode Starglow
+        /// builds from its eight directions when the diagonals are turned down (Maxon's
+        /// Starglow docs). The 16-vertex polygon (outer point, waist point, alternating)
+        /// gives the thin anamorphic rays; `rotateDegrees` spins the whole cross so callers
+        /// can alternate star orientation.
+        /// </summary>
+        private static Geometry BuildSparkleGeometry(Point center, double radius, double rotateDegrees = 0.0)
         {
             var geometry = new StreamGeometry();
             double r = Math.Max(0.8, radius);
-            double inner = r * 0.22;
+            const double Waist = 0.10;
+            const double Diagonal = 0.42;
+
+            double Sin(double deg) => Math.Sin(deg * Math.PI / 180.0);
+            double Cos(double deg) => Math.Cos(deg * Math.PI / 180.0);
 
             using (StreamGeometryContext ctx = geometry.Open())
             {
-                ctx.BeginFigure(new Point(center.X, center.Y - r), true, true);
-                ctx.LineTo(new Point(center.X + inner, center.Y - inner), true, true);
-                ctx.LineTo(new Point(center.X + r, center.Y), true, true);
-                ctx.LineTo(new Point(center.X + inner, center.Y + inner), true, true);
-                ctx.LineTo(new Point(center.X, center.Y + r), true, true);
-                ctx.LineTo(new Point(center.X - inner, center.Y + inner), true, true);
-                ctx.LineTo(new Point(center.X - r, center.Y), true, true);
-                ctx.LineTo(new Point(center.X - inner, center.Y - inner), true, true);
+                ctx.BeginFigure(
+                    new Point(center.X + (Cos(rotateDegrees) * r), center.Y + (Sin(rotateDegrees) * r)), true, true);
+
+                for (int k = 1; k <= 15; k++)
+                {
+                    // Odd vertices are the waist between rays; even vertices are ray tips.
+                    // Tips alternate cardinal (full r) and diagonal (short), exactly the
+                    // Starglow 8-direction layout with weakened diagonals.
+                    bool isTip = (k & 1) == 0;
+                    double angle = rotateDegrees + (k * 22.5);
+                    double length = !isTip
+                        ? r * Waist
+                        : ((k & 3) == 0 ? r : r * Diagonal);
+
+                    ctx.LineTo(
+                        new Point(center.X + (Cos(angle) * length), center.Y + (Sin(angle) * length)),
+                        true, true);
+                }
             }
 
             if (geometry.CanFreeze)

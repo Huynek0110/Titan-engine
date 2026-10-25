@@ -165,9 +165,24 @@ namespace TitanEngine
         /// the current frame and folds both the Opacity and Glow sliders; Glow 0 removes the
         /// additions entirely.
         /// </item>
+        /// <item>
+        /// r28 (this one): eight polish rounds, one style family at a time.
+        /// wave-ribbon is rebuilt as the SoundCloud figure - symmetric mirrored envelope,
+        /// centered fill, a bright centre SEAM whose alpha follows the average magnitude, a
+        /// PLAYHEAD sweeping the loop with a dimmed not-yet veil (edge-faded so the wrap
+        /// dissolves), and the ghost trail mirrored to match. center-column becomes a real
+        /// broadcast meter: 9 discrete LED segments (~3 dB each) over a soft backlight, the
+        /// top lit segment blended white-hot. peak-stars draw the Starglow cross-flare (long
+        /// cardinal rays, short diagonals, 16-vertex star) with a per-star twinkle and
+        /// alternating orientation. dense-columns finally IS the curtain - hue runs along the
+        /// frequency axis in 24 buckets with a shared white-hot tip strip. radial-ring and
+        /// spoke-lines gain the baseline circle their rays stand on; dual-rings gains a
+        /// separator circle per tier; ripple-rings carries an echo front behind every ring.
+        /// The bar family gains a baseline line and pill-bars a hot inner filament.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r27";
+        private const string RendererVersion = "soundbar-r28";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
