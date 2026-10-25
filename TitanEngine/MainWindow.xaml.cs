@@ -12168,6 +12168,31 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
     public partial class MainWindow : Window
     {
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern void DwmSetWindowAttribute(System.IntPtr hwnd, int attribute, ref int value, int size);
+
+        /// <summary>
+        /// Windows 11 chrome for the modern dark UI: a DARK title bar (immersive dark mode)
+        /// and DWM-rounded window corners, applied on source init. Purely visual, additive,
+        /// and silently skipped on systems without DWM support.
+        /// </summary>
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            try
+            {
+                System.IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                int on = 1;
+                DwmSetWindowAttribute(hwnd, 20, ref on, 4);   // DWMWA_USE_IMMERSIVE_DARK_MODE
+                int round = 2;
+                DwmSetWindowAttribute(hwnd, 33, ref round, 4); // DWMWA_WINDOW_CORNER_PREFERENCE = ROUND
+            }
+            catch
+            {
+                // Older DWM: keep the standard chrome, nothing else depends on it.
+            }
+        }
+
         // The soundbar clamp ranges live on EngineCore, which owns the render pipeline and the API
         // job builder. This class needs the same numbers for the UI controls and the preview path, so
         // it mirrors them by reference rather than repeating the literals - a single edit upstream

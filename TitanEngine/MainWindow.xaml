@@ -259,6 +259,25 @@
             </Setter>
         </Style>
 
+        <Style x:Key="ScrollBarThumbStyle" TargetType="Thumb">
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="thumbBorder" Background="#2E3642" CornerRadius="4" Margin="1.5"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="thumbBorder" Property="Background" Value="#435064"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="thumbBorder" Property="Background" Value="#4CC3FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ScrollBar">
             <Setter Property="Width" Value="9"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -268,13 +287,7 @@
                         <Grid Background="Transparent">
                             <Track x:Name="PART_Track" IsDirectionReversed="True">
                                 <Track.Thumb>
-                                    <Thumb>
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Border Background="#2E3642" CornerRadius="4" Margin="1.5"/>
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
+                                    <Thumb Style="{StaticResource ScrollBarThumbStyle}"/>
                                 </Track.Thumb>
                             </Track>
                         </Grid>
@@ -341,6 +354,14 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <Border Grid.Row="0" Grid.RowSpan="2" Background="#11141A" CornerRadius="10" BorderBrush="#1E242E" BorderThickness="1"/>
+                            <Border Grid.Row="0" Grid.RowSpan="2" CornerRadius="10,10,0,0" BorderThickness="0,1,0,0" VerticalAlignment="Top" Height="14">
+                                <Border.BorderBrush>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#26FFFFFF" Offset="0"/>
+                                        <GradientStop Color="#00FFFFFF" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.BorderBrush>
+                            </Border>
                             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="17,12,0,4">
                                 <Ellipse Width="6" Height="6" Fill="#4CC3FF" VerticalAlignment="Center" Margin="0,1,9,0"/>
                                 <ContentPresenter ContentSource="Header" TextElement.FontWeight="SemiBold" TextElement.FontSize="12" TextElement.Foreground="#C9D2DE"/>
@@ -521,7 +542,13 @@
                         </GroupBox>
 
                         <!-- BUTTON ADD TO QUEUE -->
-                        <Button x:Name="btnAddJob" Height="50" Click="BtnAddJob_Click" Background="#1F6FEB" BorderBrush="#3B82F6" Margin="0,0,0,10">
+                        <Button x:Name="btnAddJob" Height="50" Click="BtnAddJob_Click" Margin="0,0,0,10">
+                            <Button.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#3B82F6" Offset="0"/>
+                                    <GradientStop Color="#1D5FD6" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Button.Background>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="+" FontSize="20" FontWeight="Bold" Margin="0,0,10,0"/>
                                 <TextBlock Text="ADD TO QUEUE" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
@@ -1307,6 +1334,7 @@
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0" Background="#11141A" CornerRadius="10" BorderBrush="#1E242E" BorderThickness="1">
+                    <Grid>
                     <ListBox x:Name="lstQueue" Background="Transparent" BorderThickness="0" Padding="10">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -1356,6 +1384,22 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <TextBlock Text="No jobs yet - drop files or add from the left panel"
+                               Foreground="#5C6672" FontSize="12"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Items.Count, ElementName=lstQueue}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    </Grid>
                 </Border>
 
                 <ProgressBar x:Name="pbGlobalProgress" Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="0" Background="#0D1014" Foreground="#4CC3FF" BorderThickness="0" Height="10"/>
@@ -1371,7 +1415,13 @@
                         <ColumnDefinition Width="150"/>
                     </Grid.ColumnDefinitions>
                     <Button x:Name="btnClear" Content="CLEAR" Grid.Column="0" Margin="0,0,15,0" Background="#1A202A" Click="BtnClear_Click"/>
-                    <Button x:Name="btnStart" Grid.Column="1" Margin="0,0,15,0" Click="BtnStartBatch_Click" Background="#16A34A">
+                    <Button x:Name="btnStart" Grid.Column="1" Margin="0,0,15,0" Click="BtnStartBatch_Click">
+                        <Button.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#22C55E" Offset="0"/>
+                                <GradientStop Color="#149E44" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Button.Background>
                         <TextBlock Text="START BATCH" FontWeight="Bold" FontSize="14"/>
                     </Button>
                     <Button x:Name="btnHostMode" Grid.Column="2" Content="HOST: OFF" Click="BtnHostMode_Click" Background="#2A1518" BorderBrush="#5A2A32"/>
