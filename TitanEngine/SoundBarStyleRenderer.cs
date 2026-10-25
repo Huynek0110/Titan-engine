@@ -1580,6 +1580,10 @@ namespace TitanEngine
                 // no state, no seam pop.
                 const int DustGrains = 26;
                 double dustSpin = ctx.Time * 360.0;
+                // Grain size follows the CANVAS, not a fixed 1.1 px: at the 1:1 portrait
+                // render a fixed hairline vanished, at a thumbnail plot it drowned the ring.
+                double dustRadius = Math.Clamp(outer * 0.006, 1.0, 3.0);
+                double dustPen = Math.Max(1.2, dustRadius * 1.2);
                 var dust = new StreamGeometry();
                 using (StreamGeometryContext dustCtx = dust.Open())
                 {
@@ -1597,14 +1601,14 @@ namespace TitanEngine
                         double direction = (grain & 1) == 0 ? 1.0 : -1.0;
                         double angle = (slot2 * 360.0) + (dustSpin * turns * direction);
                         Point position = PointOnCircle(center, radius, angle);
-                        AddEllipseFigure(dustCtx, position, 1.1, 1.1);
+                        AddEllipseFigure(dustCtx, position, dustRadius, dustRadius);
                     }
                 }
                 if (dust.CanFreeze)
                     dust.Freeze();
                 double dustAlpha = Math.Min(1.0, 0.42 * ctx.AlphaFactor * (1.0 + (0.35 * pulse)));
                 dc.DrawGeometry(null, CreatePen(
-                    CreateBrush(WithAlpha(ctx.Resolved.Glow, dustAlpha)), 1.3, PenLineCap.Round), dust);
+                    CreateBrush(WithAlpha(ctx.Resolved.Glow, dustAlpha)), dustPen, PenLineCap.Round), dust);
             }
             finally
             {

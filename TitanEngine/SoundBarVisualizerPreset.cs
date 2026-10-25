@@ -200,9 +200,14 @@ namespace TitanEngine
         /// now. 4K canvases still cap at 1920. The audio-ring sphere also gains a subtle
         /// equator accent (its belt latitudes carry a touch more energy weight).
         /// </item>
+        /// <item>
+        /// r31 (this one): the dust grains scale with the canvas (clamp 1.0-3.0 px radius,
+        /// ~0.6 % of the ring's outer radius) - the fixed 1.1 px hairline vanished at the
+        /// new 1:1 portrait render.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r30";
+        private const string RendererVersion = "soundbar-r31";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
