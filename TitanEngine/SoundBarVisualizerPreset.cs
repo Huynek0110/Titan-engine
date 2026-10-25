@@ -217,9 +217,18 @@ namespace TitanEngine
         /// base whose radius follows the level - and the dot-matrix grid sits on the same
         /// lit baseline edge the bar family stands on.
         /// </item>
+        /// <item>
+        /// r34 (this one): the last three styles get their beat coupling. dot-matrix - the
+        /// one band-driven style still without one - climbs taller columns and swells its
+        /// grid on the kick (ENTTEC ELM's "everything follows that one input" model).
+        /// wave-ribbon's amplitude breathes with the bass and lifts on the kick, the way
+        /// every animated waveform player scales with loudness. audio-ring's own bloom
+        /// flares ~35 % brighter and ~25 % wider on a hit and settles between beats - the
+        /// Pulse Halo behaviour of the reference halo templates.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r33";
+        private const string RendererVersion = "soundbar-r34";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

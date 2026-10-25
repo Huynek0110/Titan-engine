@@ -1175,6 +1175,14 @@ namespace TitanEngine
             int litGroupCount = Math.Clamp(columns / DotMatrixLitGroupColumns, 1, DotMatrixLitGroupColumns);
             int columnsPerGroup = (columns + litGroupCount - 1) / litGroupCount;
 
+            // BEAT COUPLING - the one band-driven style that still had none. Real LED
+            // matrices are driven by ONE audio input (ENTTEC ELM's model): the beat lifts
+            // the whole grid, columns climbing taller and the dots swelling slightly on a
+            // kick, then settling. Same shared envelope as the bar family.
+            double dotBeat = 1.0
+                + (BarBassBounceFraction * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
+                + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+
             var lit = new StreamGeometry[litGroupCount];
             var litCtxs = new StreamGeometryContext[litGroupCount];
             for (int g = 0; g < litGroupCount; g++)
@@ -1198,7 +1206,7 @@ namespace TitanEngine
                     for (int c = 0; c < columns; c++)
                     {
                         float value = ctx.SampleBand(c, columns, true);
-                        int litCount = (int)Math.Round(value * rows);
+                        int litCount = (int)Math.Round(value * dotBeat * rows);
                         litCount = Math.Clamp(litCount, 1, rows);
 
                         // The column grows from the BOTTOM (the LED "line" mode), and the
@@ -1453,10 +1461,16 @@ namespace TitanEngine
             if (ring.CanFreeze) ring.Freeze();
 
             double ringThickness = Math.Max(1.5, outer * AudioRingThicknessFraction);
+            // PULSE HALO: the ring's own bloom flares with the beat - alpha up ~35 % and
+            // the halo budget widening ~25 % on a hit, settling between beats - exactly
+            // the "flares and scales up on hits, breathes down between them" behaviour of
+            // the reference halo templates. The stroke geometry itself stays calm; only
+            // the light around it breathes.
             DrawGlowPasses(
                 dc, ring, ringThickness, ctx.Resolved, ctx.GlowIntensity,
                 ctx.AlphaFactor, PenLineCap.Round,
-                Math.Max(RadialHaloExtent(outer), outer * AudioRingHaloFraction));
+                Math.Max(RadialHaloExtent(outer), outer * AudioRingHaloFraction * (1.0 + (0.25 * pulse))),
+                alphaScale: 1.0 + (0.35 * pulse));
 
             // --- the particle sphere inside the ring -----------------------------
             // The reference's interior is a 3D sphere of particles - "lines and grids" on the
@@ -2326,7 +2340,13 @@ namespace TitanEngine
                 return;
 
             double midY = plot.Y + (plot.Height * 0.5);
-            double halfHeight = plot.Height * 0.48;
+            // BEAT COUPLING: the animated waveform players scale their amplitude with the
+            // music's loudness - the ribbon breathes on the bass and lifts on the kick
+            // (same shared envelope), on top of following the raw waveform envelope.
+            double ribbonBeat = 1.0
+                + (0.05 * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
+                + (0.05 * OnsetPulseEnvelope(ctx));
+            double halfHeight = plot.Height * 0.48 * ribbonBeat;
 
             AudioFrameData? frame = ctx.Current;
             float[]? waveMin = frame?.WaveMin;
