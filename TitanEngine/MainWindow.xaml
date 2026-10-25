@@ -860,7 +860,7 @@
                         </GroupBox>
 
                         <!-- 2.4 SOUNDBAR (Audio Visualizer) -->
-                        <GroupBox Header="🎵 SOUNDBAR (Audio Visualizer)" Foreground="#4CC3FF" FontSize="13" ToolTip="Dải sóng nhạc phản ứng theo audio, cộng thêm vào MỌI hiệu ứng khác">
+                        <GroupBox Header="🎵 SOUNDBAR (AUDIO VISUALIZER)" Foreground="#4CC3FF" FontSize="13" ToolTip="Dải sóng nhạc phản ứng theo audio, cộng thêm vào MỌI hiệu ứng khác">
                             <StackPanel>
                                 <CheckBox x:Name="chkEnableSoundBar" Content="Bật SOUNDBAR" Foreground="#4CC3FF" IsChecked="False" Margin="0,0,0,8" ToolTip="Thêm dải sóng nhạc phản ứng theo audio vào video" Checked="ChkEnableSoundBar_Changed" Unchecked="ChkEnableSoundBar_Changed"/>
                                 <StackPanel x:Name="pnlSoundBarSettings">
@@ -1099,7 +1099,7 @@
                         </GroupBox>
 
                         <!-- CAPTION SYNC -->
-                        <GroupBox Header="🎙️ CAPTION SYNC (AI Whisper)" Foreground="#4CC3FF" FontSize="13">
+                        <GroupBox Header="🎙️ CAPTION SYNC (AI WHISPER)" Foreground="#4CC3FF" FontSize="13">
                             <StackPanel>
                                 <CheckBox x:Name="chkCaptionSync" Content="🎙️ Tự động tạo phụ đề theo lời Audio" Foreground="#F0F4F8" Margin="0,0,0,8" ToolTip="Dùng AI Whisper nghe audio và tự động chèn phụ đề sync theo từng câu"/>
 
@@ -1219,7 +1219,7 @@
                         </GroupBox>
 
                         <!-- 5. WATERMARK -->
-                        <GroupBox Header="WATERMARK ( Debugging ) " Foreground="#F43F5E" FontSize="13">
+                        <GroupBox Header="WATERMARK ( DEBUGGING ) " Foreground="#F43F5E" FontSize="13">
                             <StackPanel>
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
@@ -1376,8 +1376,10 @@
                                                 </Border.Style>
                                                 <TextBlock Text="API" Foreground="#4CC3FF" FontSize="9" FontWeight="Bold"/>
                                             </Border>
-                                            <TextBlock Text="{Binding StatusDisplay}" Foreground="{Binding StatusColor}" FontWeight="Bold" FontSize="11" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                            <Button Content="?" Width="25" Height="25" Background="#2A1218" Click="BtnDeleteJob_Click" Tag="{Binding Id}"/>
+                                            <Border Background="#12161D" BorderBrush="#232B36" BorderThickness="1" CornerRadius="9" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding StatusDisplay}" Foreground="{Binding StatusColor}" FontWeight="Bold" FontSize="11"/>
+                                            </Border>
+                                            <Button Content="\u2715" Width="25" Height="25" Background="#2A1218" FontSize="10" ToolTip="Remove this job" Click="BtnDeleteJob_Click" Tag="{Binding Id}"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
@@ -1402,10 +1404,29 @@
                     </Grid>
                 </Border>
 
-                <ProgressBar x:Name="pbGlobalProgress" Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="0" Background="#0D1014" Foreground="#4CC3FF" BorderThickness="0" Height="10"/>
+                <ProgressBar x:Name="pbGlobalProgress" Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="0" Background="#0D1014" BorderThickness="0" Height="10">
+                    <ProgressBar.Foreground>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#6FD4FF" Offset="0"/>
+                            <GradientStop Color="#4CC3FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </ProgressBar.Foreground>
+                </ProgressBar>
 
                 <Border Grid.Row="2" Background="#0D1014" CornerRadius="10" BorderBrush="#1E242E" BorderThickness="1">
-                    <TextBox x:Name="txtLogs" Background="Transparent" Foreground="#7EE787" FontFamily="Consolas" FontSize="11" BorderThickness="0" Padding="10" IsReadOnly="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" BorderBrush="#1E242E" BorderThickness="0,0,0,1" Padding="12,6">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="6" Height="6" Fill="#4CC3FF" VerticalAlignment="Center" Margin="0,1,8,0"/>
+                                <TextBlock Text="SYSTEM LOG" FontSize="10" FontWeight="SemiBold" Foreground="#8B95A5"/>
+                            </StackPanel>
+                        </Border>
+                    <TextBox Grid.Row="1" x:Name="txtLogs" Background="Transparent" Foreground="#7EE787" FontFamily="Consolas" FontSize="11" BorderThickness="0" Padding="10" IsReadOnly="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/>
+                    </Grid>
                 </Border>
 
                 <Grid Grid.Row="4">
