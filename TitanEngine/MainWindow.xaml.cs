@@ -12205,7 +12205,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private Brush? _originalStartBtnBackground;
         private Brush? _originalStartBtnBorder;
 
-        private readonly string _appVersion = "v106.0-CAS-UPSCALE";
+        private readonly string _appVersion = "V193 UI+Soundbar Update";
 
         private List<string> _listVideoPaths = new List<string>();
         private List<string> _listAudioPaths = new List<string>();
@@ -12277,7 +12277,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             InitializeComponent();
             JobQueue = new ObservableCollection<RenderJob>();
             lstQueue.ItemsSource = JobQueue;
-            this.Title = $"TITAN ENGINE {_appVersion}";
+            this.Title = $"Titan Engine {_appVersion}";
             this.TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
             this.Loaded += OnSystemLoaded;
             this.Drop += OnWindowDrop;
