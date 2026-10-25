@@ -12181,6 +12181,20 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             base.OnSourceInitialized(e);
             try
             {
+                // Brand the title bar and taskbar with the bundled logo when it ships
+                // next to the exe. Purely cosmetic: a missing file just leaves the
+                // default application icon.
+                string logoPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Content", "Branding", "video-logo.png");
+                if (System.IO.File.Exists(logoPath))
+                    this.Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(logoPath));
+            }
+            catch
+            {
+                // Cosmetic only - never block startup over a missing icon.
+            }
+
+            try
+            {
                 System.IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 int on = 1;
                 DwmSetWindowAttribute(hwnd, 20, ref on, 4);   // DWMWA_USE_IMMERSIVE_DARK_MODE

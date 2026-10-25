@@ -63,6 +63,7 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="#161B22"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#1F4258"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -864,7 +865,13 @@
                             <StackPanel>
                                 <CheckBox x:Name="chkEnableSoundBar" Content="Bật SOUNDBAR" Foreground="#4CC3FF" IsChecked="False" Margin="0,0,0,8" ToolTip="Thêm dải sóng nhạc phản ứng theo audio vào video" Checked="ChkEnableSoundBar_Changed" Unchecked="ChkEnableSoundBar_Changed"/>
                                 <StackPanel x:Name="pnlSoundBarSettings">
-                                    <Border x:Name="brdSoundBarPreview" Height="144" Background="#0A0C10" BorderBrush="#262D38" BorderThickness="1" CornerRadius="4" Margin="0,0,0,8">
+                                    <Border x:Name="brdSoundBarPreview" Height="144" BorderBrush="#262D38" BorderThickness="1" CornerRadius="6" Margin="0,0,0,8">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                <GradientStop Color="#101724" Offset="0"/>
+                                                <GradientStop Color="#090B10" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Border.Background>
                                         <Grid>
                                             <Image x:Name="imgSoundBarPreview" Stretch="Uniform" SnapsToDevicePixels="True"/>
                                             <TextBlock x:Name="txtSoundBarPreviewHint" Text="Chọn kiểu + màu để xem trước" Foreground="#5C6672" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -1357,7 +1364,9 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Id}" FontWeight="Bold" Foreground="#8B95A5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Border Background="#12161D" BorderBrush="#232B36" BorderThickness="1" CornerRadius="6" Padding="8,3" VerticalAlignment="Center" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Id}" FontWeight="Bold" Foreground="#8B95A5" FontSize="11"/>
+                                        </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#F0F4F8" TextTrimming="CharacterEllipsis"/>
                                             <TextBlock Text="{Binding ConfigSummary}" FontSize="10" Foreground="#9AA3B2" Margin="0,4,0,0"/>
