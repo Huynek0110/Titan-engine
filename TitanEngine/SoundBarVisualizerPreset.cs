@@ -205,9 +205,16 @@ namespace TitanEngine
         /// ~0.6 % of the ring's outer radius) - the fixed 1.1 px hairline vanished at the
         /// new 1:1 portrait render.
         /// </item>
+        /// <item>
+        /// r32 (this one): mirror-spectrum threads a SPECTRAL ENVELOPE CURVE through the
+        /// tips of both halves (5-tap smoothed, drawn under the caps) so the figure reads
+        /// as one continuous contour; radial-ring gains a faint OUTER BOUNDARY circle (the
+        /// gauge face the burst measures against) and ripple-rings a POND BOUNDARY (the
+        /// still surface the ripples expand across), framing the quiet passages too.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r31";
+        private const string RendererVersion = "soundbar-r32";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

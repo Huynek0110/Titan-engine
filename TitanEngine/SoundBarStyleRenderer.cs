@@ -850,6 +850,48 @@ namespace TitanEngine
                 }
             }
 
+            // SPECTRAL ENVELOPE CURVE: one smooth line threading the tips (5-tap smoothed,
+            // both halves), drawn UNDER the caps. The reference mirrored analyzers carry it -
+            // it is what makes the two halves read as one continuous contour instead of a
+            // bar field, and it flows where the caps jump.
+            var envelopeTop = new double[barCount];
+            var envelopeBottom = new double[barCount];
+            for (int i = 0; i < barCount; i++)
+            {
+                double sum = 0.0;
+                int n = 0;
+                for (int k = -2; k <= 2; k++)
+                {
+                    int idx = i + k;
+                    if (idx < 0 || idx >= barCount)
+                        continue;
+
+                    sum += ctx.SampleBand(idx, barCount, true);
+                    n++;
+                }
+
+                envelopeTop[i] = midY - ((sum / Math.Max(1, n)) * halfHeight * bounce);
+                envelopeBottom[i] = midY + ((sum / Math.Max(1, n)) * halfHeight * bounce);
+            }
+
+            var envelope = new StreamGeometry();
+            using (StreamGeometryContext envCtx = envelope.Open())
+            {
+                envCtx.BeginFigure(new Point(plot.X + (slot * 0.5), envelopeTop[0]), false, false);
+                for (int i = 1; i < barCount; i++)
+                    envCtx.LineTo(new Point(plot.X + (slot * (i + 0.5)), envelopeTop[i]), true, false);
+
+                envCtx.BeginFigure(new Point(plot.X + (slot * 0.5), envelopeBottom[0]), false, false);
+                for (int i = 1; i < barCount; i++)
+                    envCtx.LineTo(new Point(plot.X + (slot * (i + 0.5)), envelopeBottom[i]), true, false);
+            }
+            if (envelope.CanFreeze)
+                envelope.Freeze();
+            DrawGlowPasses(
+                dc, envelope, Math.Max(1.0, barWidth * 0.16), ctx.Resolved,
+                ctx.GlowIntensity * 0.8, ctx.AlphaFactor * 0.80, PenLineCap.Round,
+                Math.Max(2.5, barWidth * 0.9));
+
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
             DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
         }
@@ -1862,6 +1904,17 @@ namespace TitanEngine
 
             DrawAmbientBloom(dc, ctx, center, outer);
 
+            // OUTER BOUNDARY: a very faint circle at the burst's maximum radius. The AE
+            // polar reference frames draw one - it is the gauge face the bars measure
+            // against, and it makes the figure's extent legible even in a quiet passage.
+            var boundary = new EllipseGeometry(center, outer, outer);
+            if (boundary.CanFreeze)
+                boundary.Freeze();
+            DrawGlowPasses(
+                dc, boundary, Math.Max(0.8, outer * 0.006), ctx.Resolved,
+                ctx.GlowIntensity * 0.35, ctx.AlphaFactor * 0.6, PenLineCap.Round,
+                Math.Max(2.0, outer * 0.03));
+
             // BASELINE CIRCLE: the thin ring every ray stands on. The AE polar reference
             // always carries one - without it the rays float from an invisible circle and
             // the hub reads as disconnected from them.
@@ -2105,6 +2158,17 @@ namespace TitanEngine
             // bloom. The halo is now bounded by RadialHaloExtent(outer) like the other three radial
             // styles, instead of an unbounded thickness * 5.0 that could halo wider than the ring.
             DrawAmbientBloom(dc, ctx, center, outer);
+
+            // POND BOUNDARY: the still surface every ripple expands across. Without it the
+            // ripples expand "to where?" - the faint circle at the outer radius answers the
+            // question and frames the quiet passages too.
+            var pondEdge = new EllipseGeometry(center, outer, outer);
+            if (pondEdge.CanFreeze)
+                pondEdge.Freeze();
+            DrawGlowPasses(
+                dc, pondEdge, Math.Max(0.8, outer * 0.006), ctx.Resolved,
+                ctx.GlowIntensity * 0.30, ctx.AlphaFactor * 0.55, PenLineCap.Round,
+                Math.Max(2.0, outer * 0.03));
 
             for (int i = 0; i < ringRadii.Count; i++)
             {
