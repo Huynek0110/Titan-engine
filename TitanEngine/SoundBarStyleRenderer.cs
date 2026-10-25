@@ -1467,6 +1467,12 @@ namespace TitanEngine
                     // a loud ring from lighting as one solid stripe.
                     double ringEnergy = ctx.SampleBandRange(latticeRing, ringCount, 0, int.MaxValue, true);
 
+                    // EQUATOR ACCENT: the sphere's equatorial latitudes carry a touch more
+                    // energy weight (cos(2*lat) peaks at lat 0), so the middle band reads as
+                    // the sphere's belt - the faint structure the reference sphere shows
+                    // even when the whole spectrum is loud.
+                    ringEnergy = Math.Clamp(ringEnergy * (1.0 + (0.18 * Math.Cos(2.0 * latRad))), 0.0, 1.0);
+
                     // Pole-adjacent rings collapse to a handful of dots; the 0.12 floor keeps a
                     // sparse ring closing each cap instead of an empty hole at the pole.
                     int dotsOnRing = Math.Max(6, (int)Math.Round((2.0 * Math.PI * sphereR * Math.Max(0.12, cosLat)) / ringPitch));

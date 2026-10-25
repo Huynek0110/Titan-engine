@@ -192,16 +192,33 @@ namespace TitanEngine
         /// REFLECTIONS below the baseline - each bar's ghost follows its own height - on
         /// top of the flat floor spill.
         /// </item>
+        /// <item>
+        /// r30 (this one): the overlay now renders at the canvas's own resolution up to a
+        /// 1920 px long edge (was 1280), so the dominant 1080x1920 portrait job composites
+        /// at EXACTLY 1:1 instead of a 1.5x upscale that blurred every hairline the recent
+        /// rounds added - peak caps, LED segment gaps and dust grains come out pixel-crisp
+        /// now. 4K canvases still cap at 1920. The audio-ring sphere also gains a subtle
+        /// equator accent (its belt latitudes carry a touch more energy weight).
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r29";
+        private const string RendererVersion = "soundbar-r30";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
 
         private const int MaxPreviewFrames = 6;
         private const int MinRenderDimension = 320;
-        private const int MaxRenderEdge = 1280;
+        /// <summary>
+        /// Cap on the PNG sequence's long edge. 1920: the dominant output canvas
+        /// (1080x1920 portrait) renders its overlay at EXACTLY 1:1 - the 1280 cap upscaled
+        /// every frame 1.5x, which blurred precisely the hairline furniture the later
+        /// renderer rounds added (1.4 px peak caps, 1.5 px LED segment gaps, 1.3 px dust
+        /// grains). 4K canvases still cap here, and the cost is bounded: raster + PNG
+        /// encode happen once per cache key, and the yuva blend scales with pixels but
+        /// stays inside the measured budget.
+        /// </summary>
+        private const int MaxRenderEdge = 1920;
 
         private static readonly SoundBarStyleInfo[] Styles = BuildStyles();
 
@@ -594,7 +611,7 @@ namespace TitanEngine
         /// <paramref name="canvasWidth"/> / <paramref name="canvasHeight"/> MUST be the OUTPUT canvas
         /// size, NOT <see cref="SoundBarGeneratedOverlay.Width"/> / <see cref="SoundBarGeneratedOverlay.Height"/>.
         /// The generated sequence is rasterised by <see cref="ResolveRenderSize"/> at a long edge of at
-        /// most <see cref="MaxRenderEdge"/> (1280) px, and neither <c>overlay</c> nor the looped image
+        /// most <see cref="MaxRenderEdge"/> (1920) px, and neither <c>overlay</c> nor the looped image
         /// input scales its second operand, so without the explicit scale chain below the soundbar was
         /// composited 1:1 into the top-left corner: 44 % of a 1920x1080 frame, 11 % of a 4K one. This
         /// is the same <c>scale=...:force_original_aspect_ratio=increase,crop=...,setsar=1</c> chain
