@@ -791,6 +791,7 @@ namespace TitanEngine
 
             DrawColumns(dc, ctx, columns, Math.Max(0.6, barWidth * 0.34), PenLineCap.Round);
             DrawPeakCaps(dc, ctx, caps, Math.Max(1.4, barWidth * 0.22));
+            DrawGlossyReflection(dc, ctx, columns, plot.Bottom);
             DrawBaselineLine(dc, ctx, plot.Bottom, plot);
             DrawFloorSpill(dc, ctx, plot.Bottom, plot.Width, plot.X);
         }
@@ -897,6 +898,7 @@ namespace TitanEngine
             // PillBars' cap is a detached MINI PILL (fat stroke), not a hairline - the iOS
             // equalizer look the style references.
             DrawPeakCaps(dc, ctx, caps, Math.Max(2.0, barWidth * 0.42));
+            DrawGlossyReflection(dc, ctx, columns, baseY);
             DrawBaselineLine(dc, ctx, baseY, plot);
 
             // Inner filament: a thin hot line up the centre of every capsule - a neon TUBE
@@ -1563,6 +1565,40 @@ namespace TitanEngine
                         core.Freeze();
                     dc.DrawGeometry(CreateBrush(WithAlpha(ctx.Resolved.Core, batches.CoreAlphas[b])), null, core);
                 }
+
+                // AMBIENT DUST: the reference frames carry stray particles drifting around
+                // the sphere, not just inside it. A sparse field orbits between the ring and
+                // the plot's edge - each grain on its own WHOLE-turn orbit (hash-seeded
+                // radius, phase and speed from the integer set {1, 2} turns/loop), so the
+                // loop wrap is seamless by construction. Pure functions of the frame index:
+                // no state, no seam pop.
+                const int DustGrains = 26;
+                double dustSpin = ctx.Time * 360.0;
+                var dust = new StreamGeometry();
+                using (StreamGeometryContext dustCtx = dust.Open())
+                {
+                    for (int grain = 0; grain < DustGrains; grain++)
+                    {
+                        double slot0 = DotJitter(grain, 977);
+                        double slot1 = DotJitter(grain, 131);
+                        double slot2 = DotJitter(grain, 733);
+
+                        double radius = baseRadius * (1.06 + (0.55 * slot0));
+                        if (radius > outer * 0.97)
+                            radius = outer * 0.97;
+
+                        int turns = slot1 > 0.5 ? 2 : 1;
+                        double direction = (grain & 1) == 0 ? 1.0 : -1.0;
+                        double angle = (slot2 * 360.0) + (dustSpin * turns * direction);
+                        Point position = PointOnCircle(center, radius, angle);
+                        AddEllipseFigure(dustCtx, position, 1.1, 1.1);
+                    }
+                }
+                if (dust.CanFreeze)
+                    dust.Freeze();
+                double dustAlpha = Math.Min(1.0, 0.42 * ctx.AlphaFactor * (1.0 + (0.35 * pulse)));
+                dc.DrawGeometry(null, CreatePen(
+                    CreateBrush(WithAlpha(ctx.Resolved.Glow, dustAlpha)), 1.3, PenLineCap.Round), dust);
             }
             finally
             {
@@ -1909,13 +1945,13 @@ namespace TitanEngine
                 // therefore seamless only when the total sweep is an integer multiple of 360 deg,
                 // which makes frame N-1 congruent to frame 0 by construction. The original rates
                 // (0.35 -> 126 deg, -0.26 -> -93.6 deg) are not integer turns and visibly snapped at
-                // the wrap. They are snapped to the nearest integer turn at or above the intended
-                // speed: +1 turn forward for even rings, -1 turn backward for odd rings. Equal
-                // magnitudes in opposite directions keep the counter-rotation visually distinct.
-                // -0.5 turn was rejected for the odd rings because it leaves the ring 180 deg rotated
-                // at the wrap, which is still a snap.
+                // the wrap. One turn per 5 s loop read as almost static next to the reference
+                // counter-rotators; with only 2-4 rings there is angular room, so they run at
+                // 2 turns/loop (still integers - the seam guarantee is untouched), dropping back
+                // to 1 for the 5-6 ring layouts where the rings are thin and fast reads as noise.
                 double direction = (ring % 2 == 0) ? 1.0 : -1.0;
-                double rotation = ctx.Time * 360.0 * direction;
+                double turns = ringCount <= 4 ? 2.0 : 1.0;
+                double rotation = ctx.Time * 360.0 * direction * turns;
 
                 var tipRadii = new double[barCount];
                 var angles = new double[barCount];
@@ -2184,6 +2220,21 @@ namespace TitanEngine
             double thickness = Math.Clamp((outer - inner) * 0.014, floorPx, floorPx * 3.0);
 
             DrawRadialRays(dc, ctx, rays, thickness, PenLineCap.Flat, RadialHaloExtent(outer), coreAlways: true);
+
+            // TIP DOTS: a bright pin at the end of every spoke. Flat-capped rays alone end
+            // invisibly on loud bands; the pins make the burst's silhouette legible at a
+            // glance, the way the reference minimal spokes catch the light at their tips.
+            var tips = new StreamGeometry();
+            using (StreamGeometryContext tipCtx = tips.Open())
+            {
+                for (int i = 0; i < rays.Count; i++)
+                {
+                    AddEllipseFigure(tipCtx, new Point(rays[i].X1, rays[i].Y1), thickness * 1.15, thickness * 1.15);
+                }
+            }
+            if (tips.CanFreeze)
+                tips.Freeze();
+            dc.DrawGeometry(CreateBrush(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)), null, tips);
         }
 
         // ------------------------------------------------------------------
@@ -2614,8 +2665,13 @@ namespace TitanEngine
                 }
             }
 
+            // ONSET FLASH: the whole star field lifts briefly with the beat (the same
+            // shared pulse envelope), so a kick reads as the sky glittering brighter rather
+            // than only new stars popping.
+            double starFlash = 1.0 + (0.45 * OnsetPulseEnvelope(ctx));
+
             double maxStarRadius = Math.Max(2.0, plot.Height * 0.07);
-            Brush starBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, ctx.AlphaFactor));
+            Brush starBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, Math.Min(1.0, ctx.AlphaFactor * starFlash)));
 
             for (int i = 0; i < live.Count; i++)
             {
@@ -2632,7 +2688,7 @@ namespace TitanEngine
 
                 RadialGradientBrush glow = CreateRadialGlowBrush(
                     star.Peak > 0.66f ? ctx.Resolved.Accent : ctx.Resolved.Glow,
-                    0.85 * fade * ctx.AlphaFactor,
+                    Math.Min(1.0, 0.85 * fade * ctx.AlphaFactor * starFlash),
                     center,
                     Math.Max(2.0, radius * 2.6));
 
@@ -2817,6 +2873,64 @@ namespace TitanEngine
                 brush.Freeze();
 
             dc.DrawRectangle(brush, null, new Rect(plotLeft, baselineY, plotWidth, stripHeight));
+        }
+
+        /// <summary>
+        /// The glossy-floor REFLECTION: each bar throws a bar-shaped ghost below the
+        /// baseline, tall bars throwing tall ghosts (capped), all sharing one vertical
+        /// gradient that fades to nothing. This is the LimePulse "glossy floor reflecting the
+        /// bars" - the flat floor spill alone reads as ambient light, the shaped reflection
+        /// reads as a polished surface. One geometry, one brush.
+        /// </summary>
+        private static void DrawGlossyReflection(
+            DrawingContext dc,
+            FrameContext ctx,
+            List<ColumnSpec> columns,
+            double baseY)
+        {
+            if (ctx.AlphaFactor <= 0.002)
+                return;
+
+            double maxReflection = Math.Max(6.0, ctx.Plot.Height * 0.22);
+            var reflection = new StreamGeometry();
+            bool any = false;
+            using (StreamGeometryContext rCtx = reflection.Open())
+            {
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    ColumnSpec column = columns[i];
+                    double height = Math.Min(column.Height, maxReflection);
+                    if (height < 3.0)
+                        continue;
+
+                    double left = column.CenterX - (column.Width * 0.5);
+                    double top = baseY + 1.5;
+                    double bottom = top + (height * 0.45);
+                    rCtx.BeginFigure(new Point(left, top), true, true);
+                    rCtx.LineTo(new Point(left + column.Width, top), true, true);
+                    rCtx.LineTo(new Point(left + column.Width, bottom), true, true);
+                    rCtx.LineTo(new Point(left, bottom), true, true);
+                    any = true;
+                }
+            }
+
+            if (!any)
+                return;
+            if (reflection.CanFreeze)
+                reflection.Freeze();
+
+            double fade = Math.Min(1.0, 0.20 * ctx.AlphaFactor);
+            var brush = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.Absolute,
+                StartPoint = new Point(0, baseY),
+                EndPoint = new Point(0, baseY + (maxReflection * 0.45))
+            };
+            brush.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, fade), 0.0));
+            brush.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, 0.0), 1.0));
+            if (brush.CanFreeze)
+                brush.Freeze();
+            dc.DrawGeometry(brush, null, reflection);
         }
 
         /// <summary>

@@ -180,9 +180,21 @@ namespace TitanEngine
         /// separator circle per tier; ripple-rings carries an echo front behind every ring.
         /// The bar family gains a baseline line and pill-bars a hot inner filament.
         /// </item>
+        /// <item>
+        /// r29 (this one): four more rounds. audio-ring carries an AMBIENT DUST field -
+        /// 26 stray grains orbiting between the ring and the plot edge on whole-turn
+        /// orbits (hash-seeded radius/phase/speed), the loose particles the reference
+        /// frames show around the sphere. spoke-lines pins a bright tip dot on every
+        /// spoke. peak-stars lifts the whole field (bodies AND glows) with the shared
+        /// onset pulse - a kick glitters the sky. dual-rings counter-rotates at 2 turns
+        /// per loop for the 2-4 ring layouts (still integer turns, so the seam guarantee
+        /// holds; 5-6 ring layouts keep 1). neon-bars and pill-bars throw shaped GLOSSY
+        /// REFLECTIONS below the baseline - each bar's ghost follows its own height - on
+        /// top of the flat floor spill.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r28";
+        private const string RendererVersion = "soundbar-r29";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
