@@ -435,6 +435,7 @@ namespace TitanEngine
                     FrameCount = frames.Length,
                     AudioFilePath = rawPath,
                     AudioFingerprint = BuildFingerprintHex(ComputeFingerprint(samples)),
+                    SourcePath = inputPath,
                     Frames = frames
                 };
             }
@@ -447,6 +448,232 @@ namespace TitanEngine
                 onLog?.Invoke($"[SOUNDBAR-ANALYSIS-ERROR] {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Finds the stretches of the render timeline where the chosen audio source is actually
+        /// audible, for gating the looping soundbar overlay.
+        ///
+        /// WHY THIS EXISTS. The overlay is a short loop (5-6 s by design) that ffmpeg repeats for
+        /// the whole render. On a video whose music starts at 0:18, the analyser's auto loop-start
+        /// scan deliberately picks a loud window from the body of the track - so the loop is full
+        /// of music and dances from 0:00, over sixteen seconds of true digital silence. Measured on
+        /// a real 3:24 render, frames 2 s and 7 s were pixel-identical (PSNR 50.5 dB) while the
+        /// audio was -91 dBFS. The analyser's per-frame audibility gate cannot help: it sees the
+        /// loud loop window, not the silent timeline.
+        ///
+        /// This method therefore runs <c>silencedetect</c> over the real source and returns the
+        /// complement as half-open intervals in OUTPUT seconds. The caller turns them into an
+        /// <c>overlay=enable=</c> expression, so the figure is simply not composited where there is
+        /// nothing to visualise. Short musical gaps are ignored (<see cref="TimelineSilenceMinSeconds"/>)
+        /// to avoid blinking on every breath.
+        ///
+        /// Returns <c>null</c> when the scan cannot run - a missing ffmpeg, an unreadable stream,
+        /// an unknown duration - so a failure degrades to the previous always-on behaviour rather
+        /// than silently hiding the soundbar.
+        /// </summary>
+        /// <param name="audioPath">The file the analyser listened to (<see cref="AudioAnalysisResult.SourcePath"/>).</param>
+        /// <param name="outputDurationSeconds">Length of the rendered timeline, in seconds.</param>
+        /// <param name="sourceToOutputScale">
+        /// Output seconds per source second: 1.0 at normal speed, 0.5 for a 2x slow-motion render.
+        /// The detected source timestamps are multiplied by this to land on the render timeline.
+        /// </param>
+        public static async Task<List<AudioInterval>?> AnalyzeAudibleIntervalsAsync(
+            string audioPath,
+            double outputDurationSeconds,
+            double sourceToOutputScale,
+            Action<string>? onLog,
+            CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath))
+                return null;
+
+            if (token.IsCancellationRequested)
+                return null;
+
+            if (!(outputDurationSeconds > 0.01))
+                return null;
+
+            string? ffmpegPath = ResolveFfmpegPath();
+            if (string.IsNullOrEmpty(ffmpegPath))
+                return null;
+
+            try
+            {
+                var inv = CultureInfo.InvariantCulture;
+                double scale = sourceToOutputScale > 1e-6 ? sourceToOutputScale : 1.0;
+                double sourceLimit = outputDurationSeconds / scale;
+
+                // -t before -i bounds the input read; the render is never longer than the audio.
+                string filter = string.Format(
+                    inv,
+                    "silencedetect=noise={0:0.###}dB:d={1:0.###}",
+                    TimelineSilenceDb,
+                    TimelineSilenceMinSeconds);
+                string arguments = string.Format(
+                    inv,
+                    "-hide_banner -nostats -t {0:0.###} -i \"{1}\" -vn -map 0:a:0 -af \"{2}\" -f null NUL",
+                    sourceLimit,
+                    audioPath,
+                    filter);
+
+                (int exitCode, string stderr, bool canceled) =
+                    await RunFfmpegCaptureAsync(ffmpegPath, arguments, token).ConfigureAwait(false);
+
+                if (canceled || token.IsCancellationRequested)
+                    return null;
+
+                if (exitCode != 0)
+                {
+                    onLog?.Invoke($"[SOUNDBAR] Timeline silence scan failed (exit {exitCode}); the overlay stays always-on.");
+                    return null;
+                }
+
+                var silences = ParseSilenceIntervals(stderr, sourceLimit);
+                var audible = ComplementIntervals(silences, sourceLimit);
+
+                var gated = new List<AudioInterval>(audible.Count);
+                foreach (AudioInterval stretch in audible)
+                {
+                    // A rounding tail (the source length and the detected end differ by a few
+                    // samples) is not audio; padding it would create a phantom 0.2 s flash at the
+                    // very end of the render. Only stretches that really contain audio get padded.
+                    if (stretch.End - stretch.Start < 0.05)
+                        continue;
+
+                    double start = Math.Clamp((stretch.Start * scale) - TimelineAudiblePadSeconds, 0.0, outputDurationSeconds);
+                    double end = Math.Clamp((stretch.End * scale) + TimelineAudiblePadSeconds, 0.0, outputDurationSeconds);
+                    if (end - start < 0.01)
+                        continue;
+
+                    if (gated.Count > 0 && start - gated[gated.Count - 1].End <= TimelineAudibleMergeSeconds)
+                    {
+                        gated[gated.Count - 1].End = Math.Max(gated[gated.Count - 1].End, end);
+                    }
+                    else
+                    {
+                        gated.Add(new AudioInterval { Start = start, End = end });
+                    }
+                }
+
+                // One stretch covering the whole render means there is nothing to gate. Return the
+                // canonical form so the caller can skip building an enable expression entirely.
+                if (gated.Count == 1 && gated[0].Start <= 0.001 && gated[0].End >= outputDurationSeconds - 0.001)
+                {
+                    onLog?.Invoke(string.Format(
+                        inv,
+                        "[SOUNDBAR] Timeline audibility: continuous audio for {0:0.##}s - no overlay gate needed.",
+                        outputDurationSeconds));
+                    return new List<AudioInterval> { new AudioInterval { Start = 0.0, End = outputDurationSeconds } };
+                }
+
+                if (gated.Count == 0)
+                {
+                    onLog?.Invoke("[SOUNDBAR] Timeline audibility: no audible stretch found - the overlay will be hidden for the whole render.");
+                }
+                else
+                {
+                    onLog?.Invoke(string.Format(
+                        inv,
+                        "[SOUNDBAR] Timeline audibility: {0} audible stretch(es), {1:0.##}s..{2:0.##}s of {3:0.##}s; the overlay is hidden outside them.",
+                        gated.Count,
+                        gated[0].Start,
+                        gated[gated.Count - 1].End,
+                        outputDurationSeconds));
+                }
+
+                return gated;
+            }
+            catch (Exception ex)
+            {
+                onLog?.Invoke($"[SOUNDBAR] Timeline silence scan error: {ex.Message}; the overlay stays always-on.");
+                return null;
+            }
+        }
+
+        /// <summary>Parses ffmpeg's <c>silencedetect</c> stderr into source-time intervals.</summary>
+        private static List<AudioInterval> ParseSilenceIntervals(string stderr, double sourceLimit)
+        {
+            var silences = new List<AudioInterval>();
+            double? openStart = null;
+
+            if (string.IsNullOrEmpty(stderr))
+                return silences;
+
+            foreach (string rawLine in stderr.Split('\n'))
+            {
+                string line = rawLine.Trim();
+                if (line.Length == 0)
+                    continue;
+
+                const string startTag = "silence_start:";
+                const string endTag = "silence_end:";
+
+                int index = line.IndexOf(startTag, StringComparison.Ordinal);
+                if (index >= 0)
+                {
+                    if (TryParseGateTimestamp(line, index + startTag.Length, out double started))
+                        openStart = started;
+                    continue;
+                }
+
+                index = line.IndexOf(endTag, StringComparison.Ordinal);
+                if (index >= 0 && TryParseGateTimestamp(line, index + endTag.Length, out double ended))
+                {
+                    double started = openStart ?? 0.0;
+                    double start = Math.Clamp(started, 0.0, sourceLimit);
+                    double end = Math.Clamp(ended, 0.0, sourceLimit);
+                    if (end > start)
+                        silences.Add(new AudioInterval { Start = start, End = end });
+                    openStart = null;
+                }
+            }
+
+            // A file that ends while still silent never emits silence_end.
+            if (openStart.HasValue)
+            {
+                double start = Math.Clamp(openStart.Value, 0.0, sourceLimit);
+                if (sourceLimit > start)
+                    silences.Add(new AudioInterval { Start = start, End = sourceLimit });
+            }
+
+            return silences;
+        }
+
+        /// <summary>Returns <c>[0, limit]</c> minus the supplied silence intervals.</summary>
+        private static List<AudioInterval> ComplementIntervals(List<AudioInterval> silences, double limit)
+        {
+            var audible = new List<AudioInterval>();
+            double cursor = 0.0;
+
+            foreach (AudioInterval silence in silences.OrderBy(s => s.Start))
+            {
+                double start = Math.Clamp(silence.Start, 0.0, limit);
+                double end = Math.Clamp(silence.End, 0.0, limit);
+                if (start > cursor + 1e-6)
+                    audible.Add(new AudioInterval { Start = cursor, End = start });
+                cursor = Math.Max(cursor, end);
+            }
+
+            if (cursor < limit - 1e-6)
+                audible.Add(new AudioInterval { Start = cursor, End = limit });
+
+            return audible;
+        }
+
+        /// <summary>Reads the first <c>number</c> after a <c>silence_start:</c> / <c>silence_end:</c> tag.</summary>
+        private static bool TryParseGateTimestamp(string line, int valueStart, out double value)
+        {
+            value = 0.0;
+            if (valueStart < 0 || valueStart >= line.Length)
+                return false;
+
+            string tail = line.Substring(valueStart).Trim();
+            int bar = tail.IndexOf('|');
+            if (bar >= 0)
+                tail = tail.Substring(0, bar).Trim();
+
+            return double.TryParse(tail, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
         /// <summary>
@@ -870,6 +1097,28 @@ namespace TitanEngine
         /// cost more than the scan saves.
         /// </summary>
         private const double MaxAutoScanSeconds = 120.0;
+
+        /// <summary>
+        /// Absolute level at or below which a stretch of the render timeline counts as silent.
+        /// Matches <c>AudibleFloorDb</c> so the two stages agree on what "nothing is playing" means.
+        /// </summary>
+        private const double TimelineSilenceDb = -48.0;
+
+        /// <summary>
+        /// A gap shorter than this is a musical pause (a drum fill, a breath), not silence. Gating
+        /// on those would blink the figure off for half a beat every few bars.
+        /// </summary>
+        private const double TimelineSilenceMinSeconds = 1.0;
+
+        /// <summary>
+        /// The overlay is allowed to appear this much before the measured audio start and to stay
+        /// this much after it ends, so a fade-in does not clip the first attack and a reverb tail
+        /// is not cut dead.
+        /// </summary>
+        private const double TimelineAudiblePadSeconds = 0.2;
+
+        /// <summary>Audible stretches separated by less than this are merged into one gate.</summary>
+        private const double TimelineAudibleMergeSeconds = 0.5;
 
         /// <summary>
         /// How strongly a candidate window's END level is allowed to disagree with its START level,

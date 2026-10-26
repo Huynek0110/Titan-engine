@@ -1799,6 +1799,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 bool soundBarLayerActive = false;
                 AudioAnalysisResult? soundBarAnalysis = null;
                 SoundBarGeneratedOverlay? soundBarOverlay = null;
+                List<AudioInterval>? soundBarAudibleIntervals = null;
 
                 bool hasSourceAudio = await HasAudioStreamAsync(videoToEncode);
                 if (hasExternalAudio && hasSourceAudio)
@@ -2510,6 +2511,40 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 tempTemplateArtifacts.Add(soundBarAnalysis.AudioFilePath);
                                 onLog($"[SOUNDBAR] Decoded PCM registered for cleanup: {soundBarAnalysis.AudioFilePath}");
                             }
+
+                            // ───────────────────────────────────────────────────────────
+                            // TIMELINE AUDIBILITY GATE
+                            //
+                            // The analyser deliberately picks a LOUD window for the loop (otherwise
+                            // frame 0 is a fade-in and every repeat drops to a flat line). That is
+                            // right for the loop's own shape and wrong for the render: a video whose
+                            // music starts at 0:18 showed the loud loop dancing over 18 s of true
+                            // digital silence - measured on a real output, frames at 2 s and 7 s were
+                            // pixel-identical while the audio was -91 dBFS. The analyser's own
+                            // audibility gate cannot see this because it only ever looks at the loud
+                            // window, never at the timeline.
+                            //
+                            // So scan the FULL source once and tell ffmpeg to composite the overlay
+                            // only where that source is actually audible. The scan is best-effort:
+                            // null means "could not measure" and keeps the old always-on behaviour.
+                            // ───────────────────────────────────────────────────────────
+                            double videoAudioSpeed = Math.Clamp(job.SourceAudioSpeed, 0.10, 8.0);
+                            if (Math.Abs(normalizedSpeed - 1.0) > 0.0001 && job.SlowMotionAudio)
+                                videoAudioSpeed = Math.Clamp(videoAudioSpeed * normalizedSpeed, 0.10, 8.0);
+
+                            double externalAudioSpeed = Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
+                            bool gateFollowsVideo = ResolveFullPathSafe(soundBarAnalysis.SourcePath).Equals(
+                                ResolveFullPathSafe(videoToEncode),
+                                StringComparison.OrdinalIgnoreCase);
+                            double soundBarSourceSpeed = gateFollowsVideo ? videoAudioSpeed : externalAudioSpeed;
+                            double soundBarSourceToOutputScale = 1.0 / Math.Max(0.10, soundBarSourceSpeed);
+
+                            soundBarAudibleIntervals = await AudioSpectrumAnalyzer.AnalyzeAudibleIntervalsAsync(
+                                soundBarAnalysis.SourcePath,
+                                estimatedOutputDuration,
+                                soundBarSourceToOutputScale,
+                                onLog,
+                                token);
 
                             // Every clamp below is the DOCUMENTED contract range, and each one is the
                             // range the renderer actually consumes. Anything wider advertised values
@@ -3303,6 +3338,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     if (!soundBarLayerActive || soundBarOverlay == null)
                         return string.Empty;
 
+                    if (soundBarAudibleIntervals != null && soundBarAudibleIntervals.Count == 0)
+                    {
+                        soundBarLayerActive = false;
+                        onLog("[SOUNDBAR] The render timeline has no audible audio - soundbar layer skipped.");
+                        return string.Empty;
+                    }
+
                     try
                     {
                         // The render sequence is capped at MaxRenderEdge (1280 px), and `overlay` does
@@ -3313,6 +3355,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         // is the bug. Matches the scale chain the raster-overlay siblings already use
                         // (RainOverlayPreset, DreamyDotOverlay2Preset).
                         var soundBarCanvas = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
+                        string soundBarEnableExpression = SoundBarVisualizerPreset.BuildOverlayEnableExpression(
+                            soundBarAudibleIntervals,
+                            estimatedOutputDuration);
+                        if (!string.IsNullOrWhiteSpace(soundBarEnableExpression))
+                        {
+                            onLog($"[SOUNDBAR] Timeline gate active: overlay composited only inside {soundBarAudibleIntervals!.Count} audible stretch(es); silent stretches stay untouched.");
+                        }
+
                         string graph = SoundBarVisualizerPreset.BuildSingleClipGraph(
                             baseInputLabel,
                             baseVideoFilters,
@@ -3323,7 +3373,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             soundBarCanvas.CanvasHeight,
                             estimatedOutputDuration,
                             outputLabel,
-                            onLog);
+                            onLog,
+                            soundBarEnableExpression);
 
                         onLog($"[SOUNDBAR] Layer composited from input #{soundBarInputIndex} -> [{outputLabel}] at canvas {soundBarCanvas.CanvasWidth}x{soundBarCanvas.CanvasHeight}");
                         return graph;

@@ -255,9 +255,19 @@ namespace TitanEngine
         /// attenuated passages freeze. Onsets are suppressed below half audibility, and the
         /// pill block only breathes while there is audio to breathe with.
         /// </item>
+        /// <item>
+        /// r38: TIMELINE GATE. The loop is now composited only where the render's own audio is
+        /// actually audible. r37 stopped the analyser from drawing attenuated content, but the
+        /// analyser only ever sees the loud loop window chosen by the auto scan - on a real
+        /// 3:24 render the music started at 0:18 and the loop danced over sixteen seconds of
+        /// digital silence (frames 2 s and 7 s pixel-identical, audio -91 dBFS). A full-source
+        /// silencedetect pass (-48 dBFS, 1 s minimum) now yields overlay=enable intervals;
+        /// short musical gaps are ignored, and a failed scan degrades to the old always-on
+        /// behaviour. The cached PNG pixels are unchanged; the gate lives in the composite.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r37";
+        private const string RendererVersion = "soundbar-r38";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;
@@ -715,6 +725,40 @@ namespace TitanEngine
         /// live caller was ever at risk.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// Builds the ffmpeg <c>overlay=...:enable=</c> expression for the audible stretches of the
+        /// render timeline. Returns an empty string when the overlay should stay on for the whole
+        /// render (no intervals, or one interval that already covers all of it), which keeps the
+        /// always-on path bit-identical to the graph before this gate existed.
+        /// </summary>
+        public static string BuildOverlayEnableExpression(
+            IReadOnlyList<AudioInterval>? audibleIntervals,
+            double outputDurationSeconds)
+        {
+            if (audibleIntervals == null || audibleIntervals.Count == 0)
+                return string.Empty;
+
+            var inv = CultureInfo.InvariantCulture;
+            double duration = Math.Max(0.0, outputDurationSeconds);
+
+            if (audibleIntervals.Count == 1)
+            {
+                AudioInterval only = audibleIntervals[0];
+                if (only.Start <= 0.001 && only.End >= duration - 0.001)
+                    return string.Empty;
+            }
+
+            var parts = new List<string>(audibleIntervals.Count);
+            foreach (AudioInterval interval in audibleIntervals)
+            {
+                double start = Math.Max(0.0, interval.Start);
+                double end = Math.Max(start, interval.End);
+                parts.Add("between(t," + start.ToString("0.###", inv) + "," + end.ToString("0.###", inv) + ")");
+            }
+
+            return string.Join("+", parts);
+        }
+
         public static string BuildSingleClipGraph(
             string baseInputLabel,
             string baseVideoFilters,
@@ -725,7 +769,8 @@ namespace TitanEngine
             int canvasHeight,
             double outputDurationSeconds,
             string outputLabel,
-            Action<string> onLog)
+            Action<string> onLog,
+            string? overlayEnableExpression = null)
         {
             var inv = CultureInfo.InvariantCulture;
             string safeBaseInput = string.IsNullOrWhiteSpace(baseInputLabel) ? "[0:v]" : baseInputLabel;
@@ -750,11 +795,15 @@ namespace TitanEngine
                 $"setsar=1," +
                 $"trim=duration={duration}[soundbaroverlay]";
 
+            string enableOption = string.IsNullOrWhiteSpace(overlayEnableExpression)
+                ? string.Empty
+                : $":enable='{overlayEnableExpression}'";
+
             // format=yuv420 is what keeps the base out of a packed-RGB conversion. format=auto would
             // pick the overlay's format instead, which is exactly the regression this method removed.
-            string mergeChain = $"[soundbarbase][soundbaroverlay]overlay=shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]";
+            string mergeChain = $"[soundbarbase][soundbaroverlay]overlay=shortest=0:eof_action=repeat:format=yuv420{enableOption}[{safeOutput}]";
 
-            onLog?.Invoke($"[SOUNDBAR] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}, canvas={safeWidth}x{safeHeight}, blend=yuv420 (base=yuv420p, overlay=yuva420p)");
+            onLog?.Invoke($"[SOUNDBAR] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}, canvas={safeWidth}x{safeHeight}, blend=yuv420 (base=yuv420p, overlay=yuva420p){(string.IsNullOrWhiteSpace(enableOption) ? string.Empty : ", timeline-gated")}");
             return $"{baseChain};{overlayChain};{mergeChain}";
         }
 

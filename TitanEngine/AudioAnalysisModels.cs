@@ -157,7 +157,31 @@ namespace TitanEngine
         /// <summary>SHA-256 of the decoded PCM, so the PNG cache never serves another track's bars.</summary>
         public string AudioFingerprint { get; set; } = string.Empty;
 
+        /// <summary>
+        /// The file the analyser actually listened to - the source video's own stream, the
+        /// external track, or Audio 1 / Audio 2. The render needs this because the visual loop
+        /// must be hidden where <em>that</em> stream is silent on the output timeline, and each
+        /// of those sources can carry a different playback speed.
+        /// </summary>
+        public string SourcePath { get; set; } = string.Empty;
+
         public AudioFrameData[] Frames { get; set; } = Array.Empty<AudioFrameData>();
+    }
+
+    /// <summary>
+    /// A half-open stretch of the render timeline, in seconds: <c>[Start, End)</c>.
+    /// <para>
+    /// The soundbar loop is a short decorative sequence, not a per-frame analysis of the whole
+    /// video. It is therefore composited only inside the stretches where the render's audio is
+    /// actually audible; silent lead-ins and breakdowns leave the base video untouched instead
+    /// of showing a loud loop over nothing.
+    /// </para>
+    /// </summary>
+    public sealed class AudioInterval
+    {
+        public double Start { get; set; }
+        public double End { get; set; }
+        public double Duration => Math.Max(0.0, End - Start);
     }
 
     /// <summary>Cache manifest written next to a generated PNG sequence.</summary>
