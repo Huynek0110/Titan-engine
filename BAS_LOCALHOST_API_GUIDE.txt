@@ -742,7 +742,7 @@ Position / size (percent of the output frame):
 - soundBarHeightPercent: 0.02 - 1.0 (default 0.26)
 
 Audio source:
-- soundBarAudioSource: "auto" (default) | "external" | "video"
+- soundBarAudioSource: "auto" (default) | "external" | "video" | "audio1" (listen ONLY to Audio 1) | "audio2" (listen ONLY to Audio 2 - point the visualiser at a voice-over/overlay track; falls back to auto when the track is missing)
   auto     = prefer the external audio track, fall back to the video's own audio
   external = only the external audio track
   video    = only the source video's own audio track

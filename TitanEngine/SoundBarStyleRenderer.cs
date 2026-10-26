@@ -511,6 +511,19 @@ namespace TitanEngine
         private const double BarBassBounceFraction = 0.04;
 
         /// <summary>
+        /// The SUSTAINED-CONTENT swell, answered by the mid bands (150-2000 Hz - the vocal
+        /// range). Beat machinery (punch, pulse, kick) only fires on drum transients, so a
+        /// sung passage barely moved the figure; this term lifts it gently while a voice or
+        /// melody carries energy. Small on purpose - vocals ADD to the motion, they do not
+        /// take it over.
+        /// </summary>
+        private const double MidSwellFraction = 0.03;
+
+        /// <summary>Normalised mid-band level (the vocal range) for the swell term.</summary>
+        private static double MidLevel(FrameContext ctx)
+            => Math.Clamp((ctx.Current?.Mid ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+
+        /// <summary>
         /// The linear bar styles' onset PUNCH, on top of the bass breathe: every beat
         /// stretches the whole row's reach by this fraction for ~0.3 s (same envelope the
         /// polar family uses), which is the "bars bounce on the kick" behaviour the
@@ -766,6 +779,7 @@ namespace TitanEngine
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             double bounce = 1.0
                 + (BarBassBounceFraction * bass)
+                + (MidSwellFraction * MidLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             for (int i = 0; i < barCount; i++)
@@ -817,6 +831,7 @@ namespace TitanEngine
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             double bounce = 1.0
                 + (BarBassBounceFraction * bass)
+                + (MidSwellFraction * MidLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             // The mirror axis: mirrored visualizers read as ONE figure when a thin bright
@@ -927,7 +942,7 @@ namespace TitanEngine
             {
                 float value = ctx.SampleBand(i, barCount, true);
                 double span = plot.Height * breathe
-                    * (1.0 + (BarBeatPunchFraction * pillPunch));
+                    * (1.0 + (BarBeatPunchFraction * pillPunch) + (MidSwellFraction * MidLevel(ctx)));
                 double reach = Math.Max(MinimumReach(span), value * span);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
 
@@ -991,6 +1006,7 @@ namespace TitanEngine
             double columnsBass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             double columnsBounce = 1.0
                 + (BarBassBounceFraction * columnsBass)
+                + (MidSwellFraction * MidLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
             for (int i = 0; i < barCount; i++)
             {
@@ -1181,6 +1197,7 @@ namespace TitanEngine
             // kick, then settling. Same shared envelope as the bar family.
             double dotBeat = 1.0
                 + (BarBassBounceFraction * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
+                + (MidSwellFraction * MidLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             var lit = new StreamGeometry[litGroupCount];
@@ -1364,6 +1381,7 @@ namespace TitanEngine
             double bass = Math.Clamp((frame?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             double breathe = 1.0
                 + (AudioRingBassBreatheFraction * bass)
+                + (MidSwellFraction * MidLevel(ctx))
                 + (AudioRingPulseKickFraction * pulse);
 
             double baseRadius = outer * AudioRingBaseFraction * breathe;
@@ -1732,6 +1750,7 @@ namespace TitanEngine
             double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             return 1.0
                 + (RadialBassBreatheFraction * bass)
+                + (MidSwellFraction * MidLevel(ctx))
                 + (RadialPulseKickFraction * OnsetPulseEnvelope(ctx));
         }
 
@@ -2345,6 +2364,7 @@ namespace TitanEngine
             // (same shared envelope), on top of following the raw waveform envelope.
             double ribbonBeat = 1.0
                 + (0.05 * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
+                + (MidSwellFraction * MidLevel(ctx))
                 + (0.05 * OnsetPulseEnvelope(ctx));
             double halfHeight = plot.Height * 0.48 * ribbonBeat;
 

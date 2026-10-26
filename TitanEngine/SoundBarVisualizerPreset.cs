@@ -226,9 +226,15 @@ namespace TitanEngine
         /// flares ~35 % brighter and ~25 % wider on a hit and settles between beats - the
         /// Pulse Halo behaviour of the reference halo templates.
         /// </item>
+        /// <item>
+        /// r35 (this one): the SUSTAINED-CONTENT swell. Beat machinery only fired on drum
+        /// transients, so sung passages barely moved the figure. Every beat-coupled style
+        /// now also answers the MID bands (150-2000 Hz, the vocal range) with a gentle
+        /// 3 % lift - vocals add to the motion without taking it over.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r34";
+        private const string RendererVersion = "soundbar-r35";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

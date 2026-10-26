@@ -264,7 +264,9 @@ namespace TitanEngine
             int frameRate,
             string tempRoot,
             Action<string> onLog,
-            CancellationToken token)
+            CancellationToken token,
+            string? audio1Path = null,
+            string? audio2Path = null)
         {
             // Declared outside the try on purpose: a 5 s slice is about 2.6 MB of .raw, and every
             // path out of this method that has produced it must be able to delete it, including
@@ -278,7 +280,7 @@ namespace TitanEngine
                 if (token.IsCancellationRequested)
                     return null;
 
-                string? inputPath = ResolveInputPath(sourceVideoPath, externalAudioPath, audioSource, onLog);
+                string? inputPath = ResolveInputPath(sourceVideoPath, externalAudioPath, audioSource, onLog, audio1Path, audio2Path);
                 if (string.IsNullOrEmpty(inputPath))
                     return null;
 
@@ -609,12 +611,40 @@ namespace TitanEngine
             string sourceVideoPath,
             string? externalAudioPath,
             SoundBarAudioSource audioSource,
-            Action<string>? onLog)
+            Action<string>? onLog,
+            string? audio1Path = null,
+            string? audio2Path = null)
         {
             string? external = string.IsNullOrWhiteSpace(externalAudioPath) ? null : externalAudioPath.Trim();
             string? video = string.IsNullOrWhiteSpace(sourceVideoPath) ? null : sourceVideoPath.Trim();
+            string? audio1 = string.IsNullOrWhiteSpace(audio1Path) ? null : audio1Path.Trim();
+            string? audio2 = string.IsNullOrWhiteSpace(audio2Path) ? null : audio2Path.Trim();
             bool hasExternal = external != null && File.Exists(external);
             bool hasVideo = video != null && File.Exists(video);
+            bool hasAudio1 = audio1 != null && File.Exists(audio1);
+            bool hasAudio2 = audio2 != null && File.Exists(audio2);
+
+            if (audioSource == SoundBarAudioSource.Audio1)
+            {
+                if (hasAudio1)
+                {
+                    onLog?.Invoke($"[SOUNDBAR] Audio source: AUDIO 1 track '{audio1}'");
+                    return audio1;
+                }
+
+                onLog?.Invoke("[SOUNDBAR] Audio 1 requested but the track is missing - falling back to the external/auto source.");
+            }
+
+            if (audioSource == SoundBarAudioSource.Audio2)
+            {
+                if (hasAudio2)
+                {
+                    onLog?.Invoke($"[SOUNDBAR] Audio source: AUDIO 2 track '{audio2}' (the visualiser now follows this track only)");
+                    return audio2;
+                }
+
+                onLog?.Invoke("[SOUNDBAR] Audio 2 requested but the track is missing - falling back to the external/auto source.");
+            }
 
             if (audioSource == SoundBarAudioSource.Video)
             {

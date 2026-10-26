@@ -2448,6 +2448,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         {
                             "external" => SoundBarAudioSource.External,
                             "video" => SoundBarAudioSource.Video,
+                            "audio1" => SoundBarAudioSource.Audio1,
+                            "audio2" => SoundBarAudioSource.Audio2,
                             _ => SoundBarAudioSource.Auto
                         };
 
@@ -2484,7 +2486,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             30,
                             soundBarPcmDir,
                             onLog,
-                            token);
+                            token,
+                            job.AudioPath,
+                            job.SecondaryAudioPath);
 
                         if (soundBarAnalysis == null)
                         {
@@ -14151,6 +14155,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             {
                 cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Tự động (ưu tiên audio ngoài)", Tag = "auto" });
                 cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Chỉ audio ngoài", Tag = "external" });
+                cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Audio 1 - nghe riêng track 1", Tag = "audio1" });
+                cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Audio 2 - nghe riêng track 2 (vocal)", Tag = "audio2" });
                 cmbSoundBarAudioSource.Items.Add(new ComboBoxItem { Content = "Chỉ audio trong video", Tag = "video" });
                 cmbSoundBarAudioSource.SelectedIndex = 0;
             }
@@ -20238,7 +20244,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             return raw.Trim().ToLowerInvariant() switch
             {
-                "external" or "ext" or "audio1" or "track1" => "external",
+                "external" or "ext" => "external",
+                "audio1" or "track1" or "a1" => "audio1",
+                "audio2" or "track2" or "a2" or "voice" or "vocal" => "audio2",
                 "video" or "source" or "internal" or "original" => "video",
                 _ => "auto"
             };

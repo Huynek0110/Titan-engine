@@ -70,6 +70,12 @@
 - Thumbnail cover-art: file scratch phải nằm trong `TitanEngineTemp`, không cạnh output (đã sửa —
   file `.thumb.jpg` sót cạnh MP4 từng là bug user báo).
 
+## 5b. r35 — chọn nguồn audio + vocal swell (2026-10-25)
+
+- **SoundBarAudioSource thêm `Audio1` / `Audio2`** (enum: `AudioAnalysisModels.cs`; token API `audio1`/`audio2`/`voice`/`vocal`/`a1`/`a2` qua `NormalizeSoundBarAudioSource`). Resolve tại `ResolveInputPath` trong `AudioSpectrumAnalyzer` — `AnalyzeAsync` nhận thêm `audio1Path`/`audio2Path` (optional, cuối signature). Thiếu track → log WARN + fallback external/auto (soundbar không bao giờ làm chết render). UI combo `cmbSoundBarAudioSource` có 2 mục mới. LƯU Ý LỊCH SỬ: token "audio1" trước r35 bị nuốt vào "external" (track TRỘN) — đó là lý do user không bao giờ nghe được riêng track vocal.
+- **Vocal swell**: mọi style beat-coupled cộng thêm `MidSwellFraction (0.03) × MidLevel(ctx)` — dải Mid của analyser = 150–2000 Hz = đúng dải giọng. Beat cũ (kick/punch/onset) chỉ bắt transient trống; swell này bắt nội dung sustained (hát, melody). Áp ở: AudioRing breathe, RadialBeatScale, bounce của Neon/Mirror/Dense/Pill/DotMatrix, ribbonBeat. Bump `soundbar-r35`.
+- Verify: e2e thật với job 2 track (Audio1=bass 55Hz, Audio2=vocal 330+660Hz), source=audio2 → log "Audio source: AUDIO 2 track ... (the visualiser now follows this track only)", render exit 0, decode sạch.
+
 ## 6. Tầng việc kế tiếp (feature mới, cần user duyệt — không phải polish)
 
 - Palette riêng per-style hoặc auto-palette theo cover art.

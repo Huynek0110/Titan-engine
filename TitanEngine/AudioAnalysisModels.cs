@@ -35,10 +35,17 @@ namespace TitanEngine
     {
         /// <summary>External audio when present, otherwise the source video's own audio stream.</summary>
         Auto = 0,
-        /// <summary>Force the external audio file (falls back to Auto if missing).</summary>
+        /// <summary>Force the external audio file (falls back to Auto if missing). When BOTH
+        /// external tracks exist this is the MIXED track - use Audio1/Audio2 to target one.</summary>
         External = 1,
         /// <summary>Force the source video's own audio stream.</summary>
-        Video = 2
+        Video = 2,
+        /// <summary>Listen ONLY to Audio 1 (the primary track). Falls back to Auto if missing.</summary>
+        Audio1 = 3,
+        /// <summary>Listen ONLY to Audio 2 (the overlay track) - the mode that makes the
+        /// visualiser follow a voice-over while the music plays underneath. Falls back to
+        /// Auto if Audio 2 is missing.</summary>
+        Audio2 = 4
     }
 
     public sealed class SoundBarStyleInfo
