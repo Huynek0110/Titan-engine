@@ -232,9 +232,21 @@ namespace TitanEngine
         /// now also answers the MID bands (150-2000 Hz, the vocal range) with a gentle
         /// 3 % lift - vocals add to the motion without taking it over.
         /// </item>
+        /// <item>
+        /// r36: the VOCAL CATCH feature, measured on a real model-separated vocal stem.
+        /// r35's mid-band swell is frame-RELATIVE, so it reads "mid loudness", not "voice":
+        /// corr(Mid, vocal stem) = 0.20 with a 0.05 discrimination gap between drop and
+        /// sung passages. The analyzer now decodes mid/side (voice ≈ mid − side in
+        /// 300-3400 Hz), normalises it against the LOOP'S OWN vocal percentiles into a
+        /// 0..1 <c>AudioFrameData.Voice</c> field, and every style answer it in its own
+        /// figure language: bars/wave-ribbon/dot-matrix grow 10 % taller, the radial
+        /// family scales 10 %, ripple-rings push toward the pond edge 8 %, the meter
+        /// column lifts its reading 10 %, and the star field brightens 30 %. Mid swell
+        /// stays at 3 % - it answers melody, Voice answers singing.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r35";
+        private const string RendererVersion = "soundbar-r36";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

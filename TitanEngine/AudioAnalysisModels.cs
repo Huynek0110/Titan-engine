@@ -123,6 +123,14 @@ namespace TitanEngine
         public float Bass { get; set; }
         public float Mid { get; set; }
         public float Treble { get; set; }
+        /// <summary>
+        /// Vocal-catch feature, 0..1. Center-extracted energy in 300-3400 Hz (mid magnitude minus
+        /// side magnitude, so instruments panned away from the centre are rejected), mapped against
+        /// the loop's own p15/p95 vocal statistics and smoothed with a fast attack / slow release
+        /// envelope. Already normalised to the loop; the renderer must NOT multiply it by
+        /// Sensitivity (that would double-scale it - see VoiceSwellFraction in the renderer).
+        /// </summary>
+        public float Voice { get; set; }
         /// <summary>True on this frame when the onset detector fired.</summary>
         public bool Onset { get; set; }
     }

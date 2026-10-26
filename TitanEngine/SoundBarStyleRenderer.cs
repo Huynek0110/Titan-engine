@@ -524,6 +524,34 @@ namespace TitanEngine
             => Math.Clamp((ctx.Current?.Mid ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
 
         /// <summary>
+        /// The VOICE term proper (the vocal-catch feature r36 added to the analyzer): a
+        /// centre-extracted 300-3400 Hz energy that instruments panned away from the middle do
+        /// not register in, normalised against the LOOP'S OWN vocal statistics - so a sung
+        /// passage reads high while drop sections read low, which the frame-relative Mid term
+        /// cannot express (measured corr(Mid, vocal stem) = 0.20 baseline). Sits on top of the
+        /// melody swell at a visible-but-not-domineering 10 %.
+        /// </summary>
+        private const double VoiceSwellFraction = 0.10;
+
+        /// <summary>
+        /// Normalised vocal-catch level. NOTE: deliberately NOT multiplied by Sensitivity -
+        /// the feature is already loop-normalised in the analyzer, so scaling it again would
+        /// double-scale it (the analyzer can regenerate it at a different internal gain).
+        /// </summary>
+        private static double VoiceLevel(FrameContext ctx)
+            => Math.Clamp(ctx.Current?.Voice ?? 0f, 0.0, 1.0);
+
+        /// <summary>
+        /// Per-style vocal nudges for the five styles that CANNOT reuse the shared bounce
+        /// multiplier (they have no per-bar reach to grow). Each is expressed in the style's own
+        /// figure language instead of one global constant, so a sung passage reshapes each style
+        /// the way that style already responds to bass.
+        /// </summary>
+        private const double VoiceRippleReachFraction = 0.08;
+        private const double VoiceCenterColumnFraction = 0.10;
+        private const double VoiceStarFlashFraction = 0.30;
+
+        /// <summary>
         /// The linear bar styles' onset PUNCH, on top of the bass breathe: every beat
         /// stretches the whole row's reach by this fraction for ~0.3 s (same envelope the
         /// polar family uses), which is the "bars bounce on the kick" behaviour the
@@ -780,6 +808,7 @@ namespace TitanEngine
             double bounce = 1.0
                 + (BarBassBounceFraction * bass)
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             for (int i = 0; i < barCount; i++)
@@ -832,6 +861,7 @@ namespace TitanEngine
             double bounce = 1.0
                 + (BarBassBounceFraction * bass)
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             // The mirror axis: mirrored visualizers read as ONE figure when a thin bright
@@ -942,7 +972,8 @@ namespace TitanEngine
             {
                 float value = ctx.SampleBand(i, barCount, true);
                 double span = plot.Height * breathe
-                    * (1.0 + (BarBeatPunchFraction * pillPunch) + (MidSwellFraction * MidLevel(ctx)));
+                    * (1.0 + (BarBeatPunchFraction * pillPunch) + (MidSwellFraction * MidLevel(ctx))
+                    + (VoiceSwellFraction * VoiceLevel(ctx)));
                 double reach = Math.Max(MinimumReach(span), value * span);
                 columns.Add(new ColumnSpec(plot.X + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
 
@@ -1007,6 +1038,7 @@ namespace TitanEngine
             double columnsBounce = 1.0
                 + (BarBassBounceFraction * columnsBass)
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
             for (int i = 0; i < barCount; i++)
             {
@@ -1198,6 +1230,7 @@ namespace TitanEngine
             double dotBeat = 1.0
                 + (BarBassBounceFraction * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
 
             var lit = new StreamGeometry[litGroupCount];
@@ -1378,10 +1411,11 @@ namespace TitanEngine
             // factor so they move as one object. Bass (enveloped, slow) carries the breath; the
             // onset pulse carries the hit. The old version had bass only at half the depth and
             // no onset path at all, which is why the figure never visibly moved.
-            double bass = Math.Clamp((frame?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
+            double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
             double breathe = 1.0
                 + (AudioRingBassBreatheFraction * bass)
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (AudioRingPulseKickFraction * pulse);
 
             double baseRadius = outer * AudioRingBaseFraction * breathe;
@@ -1751,6 +1785,7 @@ namespace TitanEngine
             return 1.0
                 + (RadialBassBreatheFraction * bass)
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (RadialPulseKickFraction * OnsetPulseEnvelope(ctx));
         }
 
@@ -2145,7 +2180,10 @@ namespace TitanEngine
 
                     double t = Math.Clamp(age / (double)lifetime, 0.0, 1.0);
                     double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
-                    double radius = inner + ((outer - inner) * eased);
+                    // Voice nudge: a sung passage pushes live ripples closer to the pond edge.
+                    // Grown figures are clamped to `outer` on read, so over-push is safe.
+                    double voiceReach = eased * (1.0 + (VoiceRippleReachFraction * VoiceLevel(ctx)));
+                    double radius = inner + ((outer - inner) * voiceReach);
                     double fade = Math.Pow(1.0 - t, 1.6) * (0.35 + (0.65 * ripple.Energy));
 
                     // Drop fully-faded ripples HERE rather than letting them survive the count check
@@ -2365,6 +2403,7 @@ namespace TitanEngine
             double ribbonBeat = 1.0
                 + (0.05 * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
                 + (MidSwellFraction * MidLevel(ctx))
+                + (VoiceSwellFraction * VoiceLevel(ctx))
                 + (0.05 * OnsetPulseEnvelope(ctx));
             double halfHeight = plot.Height * 0.48 * ribbonBeat;
 
@@ -2564,7 +2603,12 @@ namespace TitanEngine
 
             double centerX = plot.X + (plot.Width * 0.5);
             double thickness = Math.Clamp(plot.Height * 0.10, 2.0, Math.Max(2.0, plot.Width * 0.30));
-            double rms = CenterColumnLevel(ctx.Current?.Rms ?? 0f);
+            // Voice nudge: a meter is honest about loudness only, so the vocal feature lifts the
+            // READING (not the width) while a voice carries the frame - the meter "hears" singing
+            // over the mix, which raw RMS cannot express (measured corr(Rms, stem) = 0.04).
+            double rms = Math.Clamp(
+                CenterColumnLevel(ctx.Current?.Rms ?? 0f) + (VoiceCenterColumnFraction * VoiceLevel(ctx)),
+                0.0, 1.0);
 
             // Peak hold: exponential decay over the previous 24 analysed frames.
             float rawHold = Math.Clamp(ctx.Current?.Peak ?? 0f, 0f, 1f);
@@ -2796,8 +2840,12 @@ namespace TitanEngine
 
             // ONSET FLASH: the whole star field lifts briefly with the beat (the same
             // shared pulse envelope), so a kick reads as the sky glittering brighter rather
-            // than only new stars popping.
-            double starFlash = 1.0 + (0.45 * OnsetPulseEnvelope(ctx));
+            // than only new stars popping. The vocal-catch term is the quieter, SUSTAINED
+            // sibling: brightness instead of geometry, so singing reads as the field being
+            // lit without reshaping star positions.
+            double starFlash = 1.0
+                + (0.45 * OnsetPulseEnvelope(ctx))
+                + (VoiceStarFlashFraction * VoiceLevel(ctx));
 
             double maxStarRadius = Math.Max(2.0, plot.Height * 0.07);
             Brush starBrush = CreateBrush(WithAlpha(ctx.Resolved.Core, Math.Min(1.0, ctx.AlphaFactor * starFlash)));

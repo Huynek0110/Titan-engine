@@ -226,6 +226,47 @@ namespace TitanEngine
         private const float BassHighHz = 150f;
         private const float MidHighHz = 2000f;
 
+        /// <summary>
+        /// Vocal-catch band edges, in Hz, chosen by the harness sweep (three 12 s windows of a
+        /// real track, scores correlated against a model-separated vocal stem). 350 Hz keeps
+        /// snare body and low guitar / synth fundamentals out of the feature; 3050 Hz covers
+        /// the sung formant core without picking up the bright air band the instrumental
+        /// arranges. The wider 300-3400 tested, and measured worse: mean level during
+        /// instrumental-only frames stayed ~0.06 higher at identical correlations - the lower
+        /// floor energy was not voice and the map never recovered it.
+        /// </summary>
+        private const float VoiceLowHz = 350f;
+        private const float VoiceHighHz = 3050f;
+
+        /// <summary>Vocal envelope: attack reaches a syllable in ~ 60 ms; release 0.20 s was
+        /// picked over the 0.40 s the handoff originally suggested because the sweep measured
+        /// the slow release smearing the feature across intra-phrase gaps: instrumental-frame
+        /// mean voice fell from 0.45 to 0.33 at equal correlation and equal vocal-frame mean.
+        /// Unsymmetric on purpose - see the onset detector comment about why a symmetric
+        /// smoother hides leading edges.</summary>
+        private const double VoiceAttackTau = 0.06;
+        private const double VoiceReleaseTau = 0.20;
+
+        /// <summary>
+        /// Minimum p15..p95 spread of the loop's vocal-energy statistic, in dB, below which the
+        /// feature is declared "no voice in this loop" and pinned to zero. A silent loop or an
+        /// instrumental-only stem still has spread from dither and reverb tails, but a real
+        /// vocal passage spans tens of dB.
+        /// </summary>
+        private const double VoiceStatsMinSpreadDb = 0.5;
+
+        /// <summary>
+        /// Loop-relative percentile anchors of the vocal-energy statistic, chosen by the harness
+        /// sweep across three windows: p15 pinned the map's floor inside the instrumental noise
+        /// bed (mean voice during instrumental-only frames measured 0.62) because a pop mix is
+        /// roughly 30-45 % instrumental per window. Anchoring the floor at the 40th percentile -
+        /// "the quieter END of singing", not "the middle of noise" - maps instrumental frames
+        /// into the knee at ~0.3 while keeping sung frames above 0.55, on all three windows,
+        /// with the highest envelope correlation of the grid that satisfies both.
+        /// </summary>
+        private const double VoiceStatsLowPercentile = 0.40;
+        private const double VoiceStatsHighPercentile = 0.95;
+
         /// <summary>Longest ffmpeg stderr fragment echoed into the log.</summary>
         private const int MaxFfmpegStderrLogChars = 1200;
 
@@ -239,8 +280,8 @@ namespace TitanEngine
         private const double MaxFrameRate = 120.0;
 
         /// <summary>
-        /// Resolves the audio input, decodes <c>[start, start + loop)</c> to mono PCM with ffmpeg and
-        /// analyses it frame by frame.
+        /// Resolves the audio input, decodes <c>[start, start + loop)</c> to mid/side PCM with
+        /// ffmpeg and analyses it frame by frame.
         /// </summary>
         /// <param name="sourceVideoPath">Source video; also used as the fallback audio source.</param>
         /// <param name="externalAudioPath">Optional user-supplied audio track. May be null or missing.</param>
@@ -304,7 +345,7 @@ namespace TitanEngine
 
                 // Frame 0 is the first thing the viewer sees each time the loop repeats, so the
                 // window has to start where the music is actually playing. A start of 0 means auto.
-                (float[]? decodedSamples, int sampleRate, double start) = await DecodeLoopWindowAsync(
+                (float[]? decodedSamples, float[]? decodedSide, int sampleRate, double start) = await DecodeLoopWindowAsync(
                     ffmpegPath, inputPath, rawPath, startSeconds, loop, onLog, token).ConfigureAwait(false);
 
                 if (decodedSamples == null)
@@ -349,6 +390,7 @@ namespace TitanEngine
 
                 AudioFrameData[]? frames = AnalyzeFrames(
                     samples,
+                    decodedSide,
                     sampleRate,
                     frameCount,
                     fps,
@@ -477,6 +519,125 @@ namespace TitanEngine
             catch (Exception)
             {
                 return Array.Empty<float>();
+            }
+        }
+
+        /// <summary>
+        /// Streams a raw little-endian signed 16-bit <b>stereo</b> PCM file into the mid/side
+        /// pair the analyzer needs for vocal catching. The decode pipeline (
+        /// <see cref="BuildDecodeArguments"/>) has already converted the channels, so this method
+        /// only de-interleaves: channel 0 is mid, channel 1 is side, both scaled to -1..1.
+        /// </summary>
+        /// <param name="rawPath">Path to the interleaved s16le file written by ffmpeg.</param>
+        /// <param name="sampleRate">
+        /// Receives <see cref="DefaultSampleRate"/> - raw s16le carries no rate. Must stay in
+        /// sync with the <c>-ar</c> in <see cref="BuildDecodeArguments"/>.
+        /// </param>
+        /// <returns>
+        /// Two arrays of equal length (the PCM frame count), or two empty arrays when the path is
+        /// missing, unreadable or does not hold at least one whole frame. A trailing partial frame
+        /// is dropped.
+        /// </returns>
+        public static (float[] Mid, float[] Side) ReadRawS16StereoMidSide(string rawPath, out int sampleRate)
+        {
+            sampleRate = DefaultSampleRate;
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(rawPath) || !File.Exists(rawPath))
+                    return (Array.Empty<float>(), Array.Empty<float>());
+
+                using var stream = new FileStream(rawPath, FileMode.Open, FileAccess.Read, FileShare.Read, PcmReadBufferSize, useAsync: false);
+                long byteLength = stream.Length;
+                int frameCount = (int)Math.Min(int.MaxValue / 2, byteLength / 4);
+                if (frameCount <= 0)
+                    return (Array.Empty<float>(), Array.Empty<float>());
+
+                var mid = new float[frameCount];
+                var side = new float[frameCount];
+                var buffer = new byte[PcmReadBufferSize];
+                var pendingBytes = new byte[3];
+                int pendingCount = 0;
+                int written = 0;
+                // Declared once, not inside the read loop: CA2014 (stack growth per iteration).
+                Span<byte> pendingFrame = stackalloc byte[4];
+
+                while (written < frameCount)
+                {
+                    int wanted = Math.Min(buffer.Length, (frameCount - written) * 4);
+                    int read = 0;
+                    while (read < wanted)
+                    {
+                        int chunk = stream.Read(buffer, read, wanted - read);
+                        if (chunk <= 0) break;
+                        read += chunk;
+                    }
+
+                    if (read <= 0)
+                        break;
+
+                    int offset = 0;
+                    if (pendingCount > 0)
+                    {
+                        // Up to three leftover bytes from the previous chunk complete this frame.
+                        int need = 4 - pendingCount;
+                        if (read < need)
+                        {
+                            // Not enough yet (only reachable near EOF); stash and read again.
+                            for (int i = 0; i < read; i++)
+                                pendingBytes[pendingCount + i] = buffer[i];
+                            pendingCount += read;
+                            continue;
+                        }
+
+                        Span<byte> frame = pendingFrame;
+                        for (int i = 0; i < pendingCount; i++)
+                            frame[i] = pendingBytes[i];
+                        for (int i = 0; i < need; i++)
+                            frame[pendingCount + i] = buffer[i];
+
+                        mid[written] = BinaryPrimitives.ReadInt16LittleEndian(frame.Slice(0, 2)) * (1f / 32768f);
+                        side[written] = BinaryPrimitives.ReadInt16LittleEndian(frame.Slice(2, 2)) * (1f / 32768f);
+                        written++;
+                        offset = need;
+                        pendingCount = 0;
+                    }
+
+                    int usable = read - offset;
+                    int wholeFrames = usable / 4;
+                    if (wholeFrames > 0)
+                    {
+                        ReadOnlySpan<byte> chunkSpan = buffer.AsSpan(offset, wholeFrames * 4);
+                        for (int f = 0; f < wholeFrames; f++)
+                        {
+                            ReadOnlySpan<byte> quad = chunkSpan.Slice(f * 4, 4);
+                            mid[written + f] = BinaryPrimitives.ReadInt16LittleEndian(quad.Slice(0, 2)) * (1f / 32768f);
+                            side[written + f] = BinaryPrimitives.ReadInt16LittleEndian(quad.Slice(2, 2)) * (1f / 32768f);
+                        }
+
+                        written += wholeFrames;
+                    }
+
+                    int leftover = usable - (wholeFrames * 4);
+                    if (leftover > 0)
+                    {
+                        for (int i = 0; i < leftover; i++)
+                            pendingBytes[i] = buffer[offset + (wholeFrames * 4) + i];
+                        pendingCount = leftover;
+                    }
+                }
+
+                if (written < frameCount)
+                {
+                    Array.Resize(ref mid, written);
+                    Array.Resize(ref side, written);
+                }
+
+                return (mid, side);
+            }
+            catch (Exception)
+            {
+                return (Array.Empty<float>(), Array.Empty<float>());
             }
         }
 
@@ -729,7 +890,7 @@ namespace TitanEngine
         /// <paramref name="requestedStartSeconds"/> unchanged when the scan cannot run, so a missing
         /// ffprobe or an unreadable stream degrades to the old behaviour rather than failing the job.
         /// </summary>
-private static async Task<(float[]? Samples, int SampleRate, double Start)> DecodeLoopWindowAsync(
+private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRate, double Start)> DecodeLoopWindowAsync(
             string ffmpegPath,
             string inputPath,
             string rawPath,
@@ -748,25 +909,25 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
                 {
                     TryDeleteFile(rawPath);
                     onLog?.Invoke("[SOUNDBAR] Audio decode cancelled.");
-                    return (null, 0, 0.0);
+                    return (null, null, 0, 0.0);
                 }
 
                 if (directExit != 0)
                 {
                     onLog?.Invoke($"[SOUNDBAR] ffmpeg audio decode failed (exit {directExit}): {TruncateForLog(directErr)}");
                     TryDeleteFile(rawPath);
-                    return (null, 0, 0.0);
+                    return (null, null, 0, 0.0);
                 }
 
-                float[] direct = ReadRawS16MonoToFloat(rawPath, out int directRate);
+                (float[] direct, float[] directSide) = ReadRawS16StereoMidSide(rawPath, out int directRate);
                 if (direct.Length == 0)
                 {
                     onLog?.Invoke("[SOUNDBAR] ffmpeg produced no audio data; the source probably has no audio stream.");
                     TryDeleteFile(rawPath);
-                    return (null, 0, 0.0);
+                    return (null, null, 0, 0.0);
                 }
 
-                return (direct, directRate, requestedStartSeconds);
+                return (direct, directSide, directRate, requestedStartSeconds);
             }
 
             // AUTO. Decode a bounded prefix ONCE through the same proven decode path, measure it here
@@ -783,15 +944,16 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             {
                 TryDeleteFile(rawPath);
                 onLog?.Invoke("[SOUNDBAR] Audio decode cancelled.");
-                return (null, 0, 0.0);
+                return (null, null, 0, 0.0);
             }
 
             float[] prefix;
+            float[] prefixSide;
             int rate;
 
             if (scanExit == 0 && File.Exists(rawPath) && new FileInfo(rawPath).Length > 0L)
             {
-                prefix = ReadRawS16MonoToFloat(rawPath, out rate);
+                (prefix, prefixSide) = ReadRawS16StereoMidSide(rawPath, out rate);
             }
             else
             {
@@ -806,24 +968,24 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
                 {
                     TryDeleteFile(rawPath);
                     onLog?.Invoke("[SOUNDBAR] Audio decode cancelled.");
-                    return (null, 0, 0.0);
+                    return (null, null, 0, 0.0);
                 }
 
                 if (retryExit != 0)
                 {
                     onLog?.Invoke($"[SOUNDBAR] ffmpeg audio decode failed (exit {retryExit}): {TruncateForLog(retryErr)}");
                     TryDeleteFile(rawPath);
-                    return (null, 0, 0.0);
+                    return (null, null, 0, 0.0);
                 }
 
-                prefix = ReadRawS16MonoToFloat(rawPath, out rate);
+                (prefix, prefixSide) = ReadRawS16StereoMidSide(rawPath, out rate);
             }
 
             if (prefix.Length == 0)
             {
                 onLog?.Invoke("[SOUNDBAR] ffmpeg produced no audio data; the source probably has no audio stream.");
                 TryDeleteFile(rawPath);
-                return (null, 0, 0.0);
+                return (null, null, 0, 0.0);
             }
 
             List<double> levels = ComputePerSecondRmsDb(prefix, rate);
@@ -836,11 +998,16 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             if (length <= 0)
             {
                 TryDeleteFile(rawPath);
-                return (null, 0, 0.0);
+                return (null, null, 0, 0.0);
             }
 
             float[] window = new float[length];
+            float[] windowSide = (prefixSide.Length == prefix.Length)
+                ? new float[length]
+                : Array.Empty<float>();
             Array.Copy(prefix, from, window, 0, length);
+            if (windowSide.Length > 0)
+                Array.Copy(prefixSide, from, windowSide, 0, length);
 
             if (best > 0.0)
             {
@@ -856,7 +1023,7 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             }
 
             TryDeleteFile(rawPath);
-            return (window, rate, best);
+            return (window, windowSide, rate, best);
         }
 
         /// <summary>
@@ -933,7 +1100,23 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
         {
             string start = Math.Max(0.0, startSeconds).ToString("0.###", CultureInfo.InvariantCulture);
             string length = Math.Max(MinLoopSeconds, Math.Min(loopSeconds, MaxLoopSeconds)).ToString("0.###", CultureInfo.InvariantCulture);
-            return $"-y -ss {start} -i \"{inputPath}\" -t {length} -vn -map 0:a:0 -ac 1 -ar 22050 -c:a pcm_s16le -f s16le \"{rawPath}\"";
+
+            // Mid/side decode for vocal catching. The pan filter rewrites the stereo image as
+            // c0 = mid = 0.5L + 0.5R (EXACTLY the coefficients of the legacy `-ac 1` downmix, so
+            // bands/RMS/waveform/onsets stay bit-identical to the mono pipeline) and
+            // c1 = side = 0.5L - 0.5R, which carries what modern masters spread away from the
+            // centre. Vocals sit in the centre, so voice ≈ mid − side; without the side channel
+            // that subtraction is impossible and every "vocal" feature is just mid-band loudness.
+            // aformat FIRST is mandatory: a mono input has no c1 and pan alone fails the graph.
+            // After the mono→stereo upmix both channels are identical, so side = 0 and the voice
+            // feature degrades to plain band energy - the correct behaviour for a mono source
+            // AND for an all-vocals stem (whole file is voice → side is silence there anyway).
+            // Verified against the shipped ffmpeg on stereo, mono and 5.1 inputs.
+            const string midSideFilter = "aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0-0.5*c1";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "-y -ss {0} -i \"{1}\" -t {2} -vn -map 0:a:0 -af \"{3}\" -ac 2 -ar {4} -c:a pcm_s16le -f s16le \"{5}\"",
+                start, inputPath, length, midSideFilter, DefaultSampleRate, rawPath);
         }
 
         /// <summary>
@@ -1048,6 +1231,7 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
         /// <returns>The analysed frames, or null when the call was cancelled.</returns>
         private static AudioFrameData[]? AnalyzeFrames(
             float[] samples,
+            float[]? sideSamples,
             int sampleRate,
             int frameCount,
             double frameRate,
@@ -1110,6 +1294,52 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             // FIX 1: the detector's EMA is seconds-based, so dt has to reach its constructor.
             var onsetDetector = new OnsetDetector(binCount, dt);
 
+            // VOCAL CATCH, statistics pre-pass. The vocal feature has to be normalised against the
+            // STATISTICS OF THE WHOLE LOOP (quartiles of its own dB level), not against the frame
+            // peak the way the bands are: "the singer is louder than the loop's other content" is
+            // the discrimination the visualiser needs, and a per-frame anchor throws that away.
+            // That anchor needs the full loop's levels before any frame can be mapped, so the
+            // levels are collected here in one bounded pre-pass (one FFT pair per frame - about
+            // +25 ms for a 5 s loop - all scratch, nothing retained), and the main two-pass
+            // envelope loop below just reads the precomputed per-frame dB. The envelope still
+            // runs on BOTH warm-up passes, exactly like the bands' envelope and the onset
+            // detector, because it is recursive state and frame 0 must continue frame N-1.
+            //
+            // The side array is exactly as long as the mid array (same decode), and wrap-around
+            // reads assume that; a mismatched length is treated as "no side channel", which
+            // degrades the feature to plain 300-3400 Hz band energy - the right answer for a
+            // mono source, where side really is silence anyway.
+            bool hasSide = sideSamples != null && sideSamples.Length == samples.Length;
+            if (!hasSide && sideSamples is { Length: > 0 })
+                onLog?.Invoke("[SOUNDBAR] Side channel length mismatch; vocal catch falls back to band energy.");
+
+            double[] voiceDecibelsRaw = CollectVoiceDecibels(
+                samples, hasSide ? sideSamples : Array.Empty<float>(),
+                sampleRate, frameCount, frameRate, fftSize,
+                VoiceLowHz, VoiceHighHz, token);
+            if (token.IsCancellationRequested)
+                return null;
+
+            // Percentiles over the exact dB values the envelope loop will read back, so the
+            // mapping seen during warm-up pass 2 equals the mapping computed here.
+            double[] sortedVoiceDb = new double[frameCount];
+            Array.Copy(voiceDecibelsRaw, sortedVoiceDb, frameCount);
+            Array.Sort(sortedVoiceDb);
+            int lowIndex = Math.Clamp((int)((double)VoiceStatsLowPercentile * (frameCount - 1)), 0, frameCount - 1);
+            int highIndex = Math.Clamp((int)Math.Ceiling((double)VoiceStatsHighPercentile * (frameCount - 1)), 0, frameCount - 1);
+            double voicePercentileLow = frameCount > 0 ? sortedVoiceDb[lowIndex] : 0.0;
+            double voicePercentileHigh = frameCount > 0 ? sortedVoiceDb[highIndex] : 0.0;
+            double voiceSpread = voicePercentileHigh - voicePercentileLow;
+            bool voiceTrackable = voiceSpread >= VoiceStatsMinSpreadDb;
+            onLog?.Invoke(string.Format(
+                CultureInfo.InvariantCulture,
+                "[SOUNDBAR] Vocal catch floor(p40)={0:0.##} dB, ceiling(p95)={1:0.##} dB (spread {2:0.##} dB, {3}); {4}.",
+                voicePercentileLow,
+                voicePercentileHigh,
+                voiceSpread,
+                voiceTrackable ? "trackable" : "pinned off",
+                hasSide ? "mid/side channels present" : "mono source, band-energy fallback"));
+
             var frames = new AudioFrameData[frameCount];
             var previousBands = new float[bandCount];
             var bands = new float[bandCount];
@@ -1120,6 +1350,7 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             var bandDecibels = new double[bandCount];
             float previousRms = 0f;
             float previousPeak = 0f;
+            float previousVoice = 0f;
 
             // The attack/release envelope and the onset detector are recursive, so their state at
             // frame 0 depends on what came BEFORE it. Starting from silence makes frame 0 read as a
@@ -1340,6 +1571,29 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
                 previousRms = rms;
                 previousPeak = smoothedPeak;
 
+                // VOCAL CATCH: read the pre-pass dB for this frame, map it against the loop's own
+                // p15/p95 and push it through the vocal envelope. The read/decide happens on both
+                // warm-up passes (recursive state - see the long comment above the pass loop);
+                // only the STORE below is gated on keepResults, exactly like every other envelope.
+                // A silent frame drops the target to zero AND resets the envelope state to match
+                // how the band envelope resets in its silence branch, so the next frame attacks
+                // from rest instead of blending with a stale level.
+                float rawVoice;
+                if (frameGate <= 0.0 || !voiceTrackable)
+                {
+                    rawVoice = 0f;
+                    previousVoice = 0f;
+                }
+                else
+                {
+                    rawVoice = (float)Math.Clamp(
+                        (voiceDecibelsRaw[frame] - voicePercentileLow) / Math.Max(1e-9, voiceSpread),
+                        0.0, 1.0);
+                }
+
+                float voice = EnvelopeStep(previousVoice, rawVoice, dt, VoiceAttackTau, VoiceReleaseTau);
+                previousVoice = voice;
+
                 // The onset detector must run on BOTH passes, even though only the second pass's
                 // results are kept. Its state (_previousMagnitudes, the running flux mean and the
                 // refractory timer) is recursive, exactly like the RMS envelope above, so
@@ -1364,6 +1618,7 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
                     Bass = MeanRange(bands, bandLow, bandHigh, bandTotal, bassLo, bassHi),
                     Mid = MeanRange(bands, bandLow, bandHigh, bandTotal, bassHi, midHi),
                     Treble = MeanRange(bands, bandLow, bandHigh, bandTotal, midHi, binCount),
+                    Voice = voice,
                     // FIX 1: the frame's RMS gates the fire, so silence cannot produce onsets. It is
                     // rawRms, not the smoothed envelope: an envelope follower lags its target by
                     // design, so gating on it would judge the leading edge of a transient by the
@@ -1374,6 +1629,104 @@ private static async Task<(float[]? Samples, int SampleRate, double Start)> Deco
             }
 
             return frames;
+        }
+
+        /// <summary>
+        /// Collects the raw per-frame vocal-energy level, in dB, for the whole loop, in one
+        /// bounded pre-pass. For every frame the SAME window the band path uses (frame_start round
+        /// to <c>frame * sampleRate / frameRate</c>, length <paramref name="fftSize"/>, wrap-around
+        /// reads via <see cref="ReadSample"/>) is FFT'd on the mid channel and, when present, on
+        /// the side channel; the bin range <c>[voiceLowHz, voiceHighHz)</c> is reduced with
+        /// <c>mean(max(0, mid − side))</c>, the classic centre-extraction estimate, and converted
+        /// to dBFS exactly like <see cref="BandMagnitudeEpsilon"/>-anchored band levels.
+        ///
+        /// Return values feed the p15/p95 map in <see cref="AnalyzeFrames"/>; the array itself is
+        /// read back by the envelope loop, so the values the percentiles were computed over are
+        /// the values that get mapped.
+        /// </summary>
+        private static double[] CollectVoiceDecibels(
+            float[] samples,
+            float[]? sideSamples,
+            int sampleRate,
+            int frameCount,
+            double frameRate,
+            int fftSize,
+            double voiceLowHz,
+            double voiceHighHz,
+            CancellationToken token)
+        {
+            var decibels = new double[frameCount];
+            if (frameCount <= 0)
+                return decibels;
+
+            int binCount = fftSize / 2 + 1;
+            var fft = new Radix2Fft(fftSize);
+            float[] window = BuildHannWindow(fftSize);
+            double magnitudeScale = 2.0 / WindowSum(window);
+            var midReal = new float[fftSize];
+            var midImaginary = new float[fftSize];
+            var sideReal = new float[fftSize];
+            var sideImaginary = new float[fftSize];
+
+            int voiceBinLo = FrequencyToBin((float)voiceLowHz, sampleRate, fftSize, binCount);
+            int voiceBinHi = FrequencyToBin((float)voiceHighHz, sampleRate, fftSize, binCount);
+            if (voiceBinHi <= voiceBinLo)
+                voiceBinHi = Math.Min(binCount, voiceBinLo + 1);
+
+            bool hasSide = sideSamples is { Length: > 0 } && sideSamples.Length == samples.Length;
+            float[] sideOrNull = hasSide ? sideSamples! : Array.Empty<float>();
+
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                if (token.IsCancellationRequested)
+                    return decibels;
+
+                long frameStart = (long)Math.Round(frame * (double)sampleRate / frameRate);
+
+                for (int k = 0; k < fftSize; k++)
+                {
+                    midReal[k] = ReadSample(samples, frameStart + k) * window[k];
+                    midImaginary[k] = 0f;
+                }
+
+                fft.Forward(midReal, midImaginary);
+
+                if (hasSide)
+                {
+                    for (int k = 0; k < fftSize; k++)
+                    {
+                        sideReal[k] = ReadSample(sideOrNull, frameStart + k) * window[k];
+                        sideImaginary[k] = 0f;
+                    }
+
+                    fft.Forward(sideReal, sideImaginary);
+                }
+                else
+                {
+                    Array.Clear(sideReal, 0, sideReal.Length);
+                    Array.Clear(sideImaginary, 0, sideImaginary.Length);
+                }
+
+                double sumVoice = 0.0;
+                for (int k = voiceBinLo; k < voiceBinHi; k++)
+                {
+                    double midMag = Math.Sqrt((midReal[k] * midReal[k]) + (midImaginary[k] * midImaginary[k]));
+                    double sideMag = hasSide
+                        ? Math.Sqrt((sideReal[k] * sideReal[k]) + (sideImaginary[k] * sideImaginary[k]))
+                        : 0.0;
+
+                    // The subtraction can go negative when decorrelation noise misplaces energy
+                    // into side; the centre-voice estimate is the NON-NEGATIVE remainder only.
+                    double voiceMagnitude = midMag - sideMag;
+                    if (voiceMagnitude > 0.0)
+                        sumVoice += voiceMagnitude;
+                }
+
+                double voiceMean = sumVoice / Math.Max(1, voiceBinHi - voiceBinLo);
+                decibels[frame] = 20.0 * Math.Log10(voiceMean + BandMagnitudeEpsilon);
+            }
+
+            return decibels;
         }
 
         /// <summary>
