@@ -244,9 +244,20 @@ namespace TitanEngine
         /// column lifts its reading 10 %, and the star field brightens 30 %. Mid swell
         /// stays at 3 % - it answers melody, Voice answers singing.
         /// </item>
+        /// <item>
+        /// r37: ABSOLUTE AUDIBILITY. r36's vocal catch was measured against the frame's own
+        /// normalisation, which made any content above the -80 dB silence gate map to
+        /// near-full bars - a -50 dBFS room tone danced exactly like a chorus, and pill-bars'
+        /// time-driven breathing pumped on true silence. Every mapped value (bands, bass /
+        /// mid / treble, RMS, peak, voice) is now multiplied by an absolute fade measured from
+        /// frame RMS: off at -48 dBFS, full at -38 dBFS. The quietest 1 % of a real mastered
+        /// track sits at -35 dBFS RMS, so audible material is untouched while dither, hiss and
+        /// attenuated passages freeze. Onsets are suppressed below half audibility, and the
+        /// pill block only breathes while there is audio to breathe with.
+        /// </item>
         /// </list>
         /// </summary>
-        private const string RendererVersion = "soundbar-r36";
+        private const string RendererVersion = "soundbar-r37";
 
         private const int CacheKeyHexLength = 24;
         private const int PreviewKeyHexLength = 12;

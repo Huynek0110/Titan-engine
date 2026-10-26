@@ -961,8 +961,15 @@ namespace TitanEngine
             // legible under the halo while still reading as a dense row.
             double barWidth = ClampSafe(slot * 0.72, 1.5, slot * 0.98);
 
-            // Slow breathing so the block never looks frozen between beats.
-            double breathe = 0.93 + (0.07 * Math.Sin(ctx.Time * Math.PI * 2.0));
+            // Slow breathing so the block never looks frozen between beats - but only while there
+            // is audio to breathe with. On a mastered mix the RMS envelope sits far above the
+            // -48 dBFS threshold, so presence = 1 and the motion is the original 0.93 +/- 0.07;
+            // as the passage fades toward silence presence falls to 0 and the block settles to a
+            // still 1.0. Without this, the pill gently pumped on TRUE silence because the sine is
+            // time-driven, not audio-driven (measured: 4.4 % ink swing on a flat-zero loop).
+            double audioPresence = Math.Clamp((ctx.Current?.Rms ?? 0f) / 0.004, 0.0, 1.0);
+            double breathe = 0.93 + (0.07 * (1.0 - audioPresence))
+                + (0.07 * audioPresence * Math.Sin(ctx.Time * Math.PI * 2.0));
             double pillPunch = OnsetPulseEnvelope(ctx);
             double baseY = plot.Bottom - (plot.Height * 0.04 * (1.0 - breathe));
 

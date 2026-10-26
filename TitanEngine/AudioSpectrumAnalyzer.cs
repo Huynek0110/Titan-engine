@@ -213,6 +213,20 @@ namespace TitanEngine
         /// </summary>
         private const double BandFrameFadeDb = 8.0;
 
+        /// <summary>
+        /// Absolute audibility gate. The band mapping normalises EVERY frame against its own
+        /// loudest band, which is right for the plot's shape but wrong for liveness: a -50 dBFS
+        /// passage is inaudible in the mix yet maps to the same near-full bars as a mastered
+        /// chorus, so hiss and room tone dance exactly like music. This gate multiplies all
+        /// mapped values by a fade anchored to the frame's absolute RMS, so near-silence stills
+        /// the figure. Measured anchors on a real track (12 s window, 1%..5% of frames at
+        /// -34.8..-30.4 dBFS RMS) versus a music passage attenuated to inaudibility (-52 dBFS
+        /// RMS): -48 dB (off) .. -38 dB (full) leaves every audible moment at full gain while
+        /// room tone and dither are frozen.
+        /// </summary>
+        private const double AudibleFloorDb = -48.0;
+        private const double AudibleFadeDb = 10.0;
+
         /// <summary>Upper spectral edge, in Hz, used by the spectral-flux onset detector.</summary>
         private const double OnsetFluxMaxHz = 5000.0;
 
@@ -1495,6 +1509,25 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
 
                 double frameGate = Math.Clamp((framePeakDb - BandFrameSilenceDb) / BandFrameFadeDb, 0.0, 1.0);
 
+                // ABSOLUTE AUDIBILITY. Computed from the raw time-domain level (not from the band
+                // statistic) because RMS in dBFS has a known calibration: 20*log10 of the same
+                // linear value the renderer already treats as loudness. The band mapping below is
+                // frame-relative and would otherwise map a -50 dBFS room tone to near-full bars.
+                double sumSquaresForGate = 0.0;
+                float peakForGate = 0f;
+                for (long s = frameStart; s < windowEnd; s++)
+                {
+                    float value = ReadSample(samples, s);
+                    sumSquaresForGate += value * value;
+                    float absolute = Math.Abs(value);
+                    if (absolute > peakForGate) peakForGate = absolute;
+                }
+
+                float rawRms = Math.Clamp((float)Math.Sqrt(sumSquaresForGate / span), 0f, 1f);
+                float rawPeak = Math.Clamp(peakForGate, 0f, 1f);
+                double rmsDb = 20.0 * Math.Log10(Math.Max(1e-9, rawRms));
+                double audibility = Math.Clamp((rmsDb - AudibleFloorDb) / AudibleFadeDb, 0.0, 1.0);
+
                 if (frameGate <= 0.0)
                 {
                     // Genuine silence: emit exact zeros and drop the envelope state with them, so a
@@ -1538,7 +1571,7 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
                         // did was crush the quiet end a second time: at 1.8 a band that mapped to
                         // 0.50 read 0.29, one that mapped to 0.30 read 0.11, and anything inside
                         // the knee was raised to the 1.8 power after already being squared.
-                        float rawBand = (float)Math.Clamp(frameGate * mapped, 0.0, 1.0);
+                        float rawBand = (float)Math.Clamp(frameGate * audibility * mapped, 0.0, 1.0);
 
                         bands[b] = EnvelopeStep(previousBands[b], rawBand, dt, DefaultAttackTau, DefaultReleaseTau);
                         previousBands[b] = bands[b];
@@ -1554,20 +1587,10 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
                 }
 
                 // Loudness: RMS and peak over the same window as the bands, smoothed identically.
-                double sumSquares = 0.0;
-                float peak = 0f;
-                for (long s = frameStart; s < windowEnd; s++)
-                {
-                    float value = ReadSample(samples, s);
-                    sumSquares += value * value;
-                    float absolute = Math.Abs(value);
-                    if (absolute > peak) peak = absolute;
-                }
-
-                float rawRms = Math.Clamp((float)Math.Sqrt(sumSquares / span), 0f, 1f);
-                float rawPeak = Math.Clamp(peak, 0f, 1f);
-                float rms = EnvelopeStep(previousRms, rawRms, dt, DefaultAttackTau, DefaultReleaseTau);
-                float smoothedPeak = EnvelopeStep(previousPeak, rawPeak, dt, DefaultAttackTau, DefaultReleaseTau);
+                // rawRms/rawPeak were computed above for the audibility gate; here they are scaled
+                // by that same gate so the meter column and peak-hold freeze with the bars.
+                float rms = EnvelopeStep(previousRms, rawRms * (float)audibility, dt, DefaultAttackTau, DefaultReleaseTau);
+                float smoothedPeak = EnvelopeStep(previousPeak, rawPeak * (float)audibility, dt, DefaultAttackTau, DefaultReleaseTau);
                 previousRms = rms;
                 previousPeak = smoothedPeak;
 
@@ -1579,7 +1602,7 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
                 // how the band envelope resets in its silence branch, so the next frame attacks
                 // from rest instead of blending with a stale level.
                 float rawVoice;
-                if (frameGate <= 0.0 || !voiceTrackable)
+                if (frameGate <= 0.0 || audibility <= 0.0 || !voiceTrackable)
                 {
                     rawVoice = 0f;
                     previousVoice = 0f;
@@ -1587,7 +1610,7 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
                 else
                 {
                     rawVoice = (float)Math.Clamp(
-                        (voiceDecibelsRaw[frame] - voicePercentileLow) / Math.Max(1e-9, voiceSpread),
+                        ((voiceDecibelsRaw[frame] - voicePercentileLow) / Math.Max(1e-9, voiceSpread)) * audibility,
                         0.0, 1.0);
                 }
 
@@ -1601,7 +1624,7 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
                 // seen a single bin - which silently defeated the loop-seam fix for every
                 // onset-driven style (ripple-rings, peak-stars, dot-matrix). Gate the STORE, not
                 // the processing.
-                bool fired = onsetDetector.Process(magnitudes, fluxBinLimit, rawRms);
+                bool fired = onsetDetector.Process(magnitudes, fluxBinLimit, rawRms) && audibility >= 0.5;
 
                 if (!keepResults)
                     continue;
