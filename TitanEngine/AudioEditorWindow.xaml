@@ -10,16 +10,16 @@
         MinWidth="980"
         MinHeight="680"
         WindowStartupLocation="CenterOwner"
-        Background="#0E0E12"
-        Foreground="White">
+        Background="#0A0C10"
+        Foreground="#F0F4F8">
 
     <Window.Resources>
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#2B2B33"/>
-            <Setter Property="Foreground" Value="#E8E8E8"/>
+            <Setter Property="Background" Value="#171B23"/>
+            <Setter Property="Foreground" Value="#F0F4F8"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="10,7"/>
-            <Setter Property="BorderBrush" Value="#3A3A44"/>
+            <Setter Property="BorderBrush" Value="#2A3340"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
@@ -36,7 +36,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Cursor" Value="Hand"/>
-                                <Setter TargetName="border" Property="Background" Value="#3A3A46"/>
+                                <Setter TargetName="border" Property="Background" Value="#202836"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -44,26 +44,26 @@
             </Setter>
         </Style>
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#121218"/>
-            <Setter Property="Foreground" Value="#00FFD5"/>
-            <Setter Property="BorderBrush" Value="#3A3A44"/>
+            <Setter Property="Background" Value="#161B22"/>
+            <Setter Property="Foreground" Value="#4CC3FF"/>
+            <Setter Property="BorderBrush" Value="#2A3340"/>
             <Setter Property="Padding" Value="8,6"/>
         </Style>
         <Style TargetType="GroupBox">
-            <Setter Property="Background" Value="#16161D"/>
-            <Setter Property="BorderBrush" Value="#30303A"/>
-            <Setter Property="Foreground" Value="#D7D7FF"/>
+            <Setter Property="Background" Value="#11141A"/>
+            <Setter Property="BorderBrush" Value="#1E242E"/>
+            <Setter Property="Foreground" Value="#8B95A5"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
             <Setter Property="Padding" Value="12"/>
         </Style>
         <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="#111116"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="RowBackground" Value="#15151B"/>
-            <Setter Property="AlternatingRowBackground" Value="#101014"/>
+            <Setter Property="Background" Value="#11141A"/>
+            <Setter Property="Foreground" Value="#F0F4F8"/>
+            <Setter Property="RowBackground" Value="#161B22"/>
+            <Setter Property="AlternatingRowBackground" Value="#11141A"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
             <Setter Property="HeadersVisibility" Value="Column"/>
-            <Setter Property="BorderBrush" Value="#30303A"/>
+            <Setter Property="BorderBrush" Value="#1E242E"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
     </Window.Resources>
@@ -78,8 +78,8 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="AUDIO EDITOR" FontSize="24" FontWeight="Black" Foreground="#FFD166"/>
-            <TextBlock x:Name="txtAudioMeta" Text="No audio loaded" Foreground="#9A9AA5" FontSize="12" Margin="0,4,0,0"/>
+            <TextBlock Text="AUDIO EDITOR" FontSize="24" FontWeight="Black" Foreground="#4CC3FF"/>
+            <TextBlock x:Name="txtAudioMeta" Text="No audio loaded" Foreground="#8B95A5" FontSize="12" Margin="0,4,0,0"/>
         </StackPanel>
 
         <GroupBox Grid.Row="1" Header="PREVIEW">
@@ -90,9 +90,9 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0" Background="#09090C" BorderBrush="#30303A" BorderThickness="1" CornerRadius="4" Padding="8">
+                <Border Grid.Row="0" Background="#0D1014" BorderBrush="#1E242E" BorderThickness="1" CornerRadius="4" Padding="8">
                     <Canvas x:Name="cvsTimeline"
-                            Background="#0B0B10"
+                            Background="#0D1014"
                             Height="64"
                             VerticalAlignment="Center"
                             MouseLeftButtonDown="cvsTimeline_MouseLeftButtonDown"/>
@@ -104,9 +104,9 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="txtCurrentTime" Text="00:00:00.000" Foreground="#FFD166" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBlock x:Name="txtCurrentTime" Text="00:00:00.000" Foreground="#4CC3FF" VerticalAlignment="Center" Margin="0,0,10,0"/>
                     <Slider x:Name="sldPlayback" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="sldPlayback_ValueChanged"/>
-                    <TextBlock x:Name="txtTotalTime" Grid.Column="2" Text="00:00:00.000" Foreground="#8CCBFF" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <TextBlock x:Name="txtTotalTime" Grid.Column="2" Text="00:00:00.000" Foreground="#4CC3FF" VerticalAlignment="Center" Margin="10,0,0,0"/>
                 </Grid>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
@@ -126,22 +126,22 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Margin="0,0,12,0">
-                    <TextBlock Text="Start" Foreground="#8CCBFF" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBlock Text="Start" Foreground="#4CC3FF" FontSize="11" Margin="0,0,0,4"/>
                     <TextBox x:Name="txtRangeStart" Text="00:00:00"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,12,0">
-                    <TextBlock Text="End" Foreground="#8CCBFF" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBlock Text="End" Foreground="#4CC3FF" FontSize="11" Margin="0,0,0,4"/>
                     <TextBox x:Name="txtRangeEnd" Text="00:00:05"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
                     <Button x:Name="btnSetStartCurrent" Content="Set Start = Current" Click="btnSetStartCurrent_Click"/>
                     <Button x:Name="btnSetEndCurrent" Content="Set End = Current" Click="btnSetEndCurrent_Click"/>
-                    <Button x:Name="btnAddSegment" Content="Add Segment" Background="#006699" BorderBrush="#00AAFF" Click="btnAddSegment_Click"/>
+                    <Button x:Name="btnAddSegment" Content="Add Segment" Background="#1F4258" BorderBrush="#4CC3FF" Click="btnAddSegment_Click"/>
                 </StackPanel>
             </Grid>
         </GroupBox>
 
-        <TabControl x:Name="tabMode" Grid.Row="3" Background="#0E0E12" BorderBrush="#30303A">
+        <TabControl x:Name="tabMode" Grid.Row="3" Background="#0A0C10" BorderBrush="#1E242E">
             <TabItem Header="Single Trim">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
@@ -149,15 +149,15 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Text="Use one range to keep only a single part of the audio. This is useful when you want audio from 15s to 20s only." Foreground="#AFAFC0" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <TextBlock Text="Use one range to keep only a single part of the audio. This is useful when you want audio from 15s to 20s only." Foreground="#8B95A5" TextWrapping="Wrap" Margin="0,0,0,10"/>
                     <StackPanel Grid.Row="1" Orientation="Horizontal">
-                        <Button Content="Apply Single Trim" Background="#4A3D7A" BorderBrush="#9B84EC" Click="btnApplySingleTrim_Click"/>
+                        <Button Content="Apply Single Trim" Background="#241E38" BorderBrush="#8B7CF6" Click="btnApplySingleTrim_Click"/>
                         <Button Content="Clear Cuts" Click="btnClearCuts_Click"/>
                     </StackPanel>
-                    <Border Grid.Row="2" Margin="0,10,0,0" Background="#101016" BorderBrush="#30303A" BorderThickness="1" Padding="10">
+                    <Border Grid.Row="2" Margin="0,10,0,0" Background="#11141A" BorderBrush="#1E242E" BorderThickness="1" Padding="10">
                         <StackPanel>
-                            <TextBlock Text="Single trim result will be stored as one cut segment." Foreground="#7D7D8A" FontSize="11"/>
-                            <TextBlock Text="Tip: use the current range box above and click Apply Single Trim." Foreground="#7D7D8A" FontSize="11" Margin="0,4,0,0"/>
+                            <TextBlock Text="Single trim result will be stored as one cut segment." Foreground="#5C6672" FontSize="11"/>
+                            <TextBlock Text="Tip: use the current range box above and click Apply Single Trim." Foreground="#5C6672" FontSize="11" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -196,11 +196,11 @@
             <TextBlock x:Name="txtHelp"
                        DockPanel.Dock="Left"
                        Text="Segments are sorted and concatenated in render order."
-                       Foreground="#7D7D8A"
+                       Foreground="#5C6672"
                        VerticalAlignment="Center"/>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button Content="Cancel" Width="120" Click="btnCancel_Click"/>
-                <Button Content="Save Audio Edit" Width="160" Background="#1A7F5A" BorderBrush="#2CBD7F" Click="btnSave_Click"/>
+                <Button Content="Save Audio Edit" Width="160" Background="#149E44" BorderBrush="#7EE787" Click="btnSave_Click"/>
             </StackPanel>
         </DockPanel>
     </Grid>
