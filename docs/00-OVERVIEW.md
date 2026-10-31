@@ -181,4 +181,7 @@ TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 - Header comment trong `MainWindow.xaml.cs` vẫn ghi **V106** — đã lệch, chỉ là comment lịch sử,
   đừng dùng làm nguồn sự thật.
 - Soundbar renderer: **`soundbar-r38`**.
-- Nhánh `master`; tại thời điểm viết tài liệu này, `r36`–`r38` đã commit nhưng **chưa push**.
+- Nhánh `master`; toàn bộ r22–r38 đã push. Vòng lặp tự động (autonomous loop) chạy trên nhánh
+  `autonomous/continuous-improvements-*` với backup tại `backup/pre-autonomous-improvements-*`,
+  log từng iteration ở [`AUTONOMOUS_ENGINEERING_LOG.md`](AUTONOMOUS_ENGINEERING_LOG.md).
+- Crash log (unhandled exception): `%TEMP%\TitanEngine\crash.log` (tối đa 2 MB, tự rotate).

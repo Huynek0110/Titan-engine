@@ -79,4 +79,16 @@
 - **Files:** `TitanEngine/AudioEditorWindow.xaml.cs` (2 khối catch).
 - **Protected-core impact:** không — cửa sổ phụ, diagnostics thuần.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `8a12b57` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 7 — 2026-10-31
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `docs/00-OVERVIEW.md` §10 còn ghi "r36–r38 đã commit nhưng chưa push" — đã push từ lâu; và thiếu pointer tới engineering log + crash.log vừa có.
+- **CODE:** cập nhật §10: toàn bộ r22–r38 đã push, ghi convention nhánh autonomous/backup + link `AUTONOMOUS_ENGINEERING_LOG.md`, và vị trí `crash.log`. Docs-only.
+- **Files:** `docs/00-OVERVIEW.md`.
+- **Protected-core impact:** không.
+- **TEST:** không cần build (chỉ markdown); `git diff` xác nhận chỉ đổi chữ trong §10.
 - **Commit/push:** (điền hash sau khi push)
