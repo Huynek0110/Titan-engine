@@ -49,7 +49,10 @@ namespace TitanEngine
                 return;
             }
 
-            SelectedPort = txtPort.Text;
+            // Store the PARSED value, not the raw text: int.TryParse accepts surrounding
+            // whitespace and a sign (" 5555 "), which would pass validation but produce an
+            // invalid HttpListener prefix ("http://localhost: 5555/") downstream.
+            SelectedPort = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
             DialogResult = true;
             Close();
         }
