@@ -108,8 +108,11 @@ namespace TitanEngine
             {
                 _player.Close();
             }
-            catch
+            catch (Exception ex)
             {
+                // Closing an already-closed MediaElement throws; that is expected on shutdown,
+                // but keep it visible in the debugger instead of vanishing silently.
+                System.Diagnostics.Debug.WriteLine("[AUDIO-EDITOR] player.Close() failed: " + ex.Message);
             }
 
             Segments.CollectionChanged -= Segments_CollectionChanged;
@@ -366,8 +369,11 @@ namespace TitanEngine
             {
                 _player.Position = TimeSpan.FromSeconds(clamped);
             }
-            catch
+            catch (Exception ex)
             {
+                // MediaElement rejects seeks while no media is loaded / during a pending open;
+                // the slider + time label below still update, so only log the swallowed failure.
+                System.Diagnostics.Debug.WriteLine("[AUDIO-EDITOR] seek to " + clamped.ToString("0.###") + "s failed: " + ex.Message);
             }
 
             txtCurrentTime.Text = AudioEditHelpers.FormatTime(clamped);

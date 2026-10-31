@@ -67,4 +67,16 @@
 - **Files:** `TitanEngine/App.xaml.cs`.
 - **Protected-core impact:** không — chỉ diagnostics lúc startup.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (app khởi động bình thường với handler mới).
+- **Commit/push:** `fb73c44` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 6 — 2026-10-31
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `AudioEditorWindow.xaml.cs` có 2 `catch` rỗng nuốt exception của MediaElement (`:111` `_player.Close()` lúc đóng cửa sổ, `:369` `_player.Position = …` lúc seek) — lỗi bị im lặng, không có dấu vết cả khi debug.
+- **CODE:** cả hai đổi thành `catch (Exception ex)` + `Debug.WriteLine("[AUDIO-EDITOR] …" + ex.Message)` kèm comment giải thích vì sao nuốt là đúng (hành vi không đổi — vẫn nuốt, chỉ thêm dấu vết).
+- **Files:** `TitanEngine/AudioEditorWindow.xaml.cs` (2 khối catch).
+- **Protected-core impact:** không — cửa sổ phụ, diagnostics thuần.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
