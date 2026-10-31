@@ -55,4 +55,16 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (+5 resources, 27 dòng body đổi màu).
 - **Protected-core impact:** không; layout/geometry/handler không đổi.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (XAML hợp lệ, mọi StaticResource resolve).
+- **Commit/push:** `c6a280b` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 5 — 2026-10-31
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `App.xaml.cs` rỗng — app không có handler nào cho unhandled exception, nên crash toàn bộ chỉ để lại cửa sổ Windows generic, không có evidence trong máy. (Đây là diagnostics/startup — vùng cho phép; không đụng core.)
+- **CODE:** override `OnStartup`, móc `DispatcherUnhandledException` ghi `%TEMP%\TitanEngine\crash.log` (UTF-8 không BOM, rotate khi > 2 MB). `e.Handled` cố tình để false → hành vi crash mặc định giữ nguyên 100%, chỉ thêm log. Toàn bộ phần ghi log bọc try/catch để logger không bao giờ che exception gốc.
+- **Files:** `TitanEngine/App.xaml.cs`.
+- **Protected-core impact:** không — chỉ diagnostics lúc startup.
+- **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (app khởi động bình thường với handler mới).
 - **Commit/push:** (điền hash sau khi push)
