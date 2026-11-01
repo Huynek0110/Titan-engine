@@ -395,7 +395,16 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (1 handler).
 - **Protected-core impact:** không — chỉ UI guard; không đổi logic render/queue.
 - **TEST:** build Release **0/0**.
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `d405c5d` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 34 — 2026-11-01 (second e2e regression pass — no code change)
+
+- **Path:** REVIEW → TEST
+- **TEST:** e2e lần 2 với style khác (`e2e neon-bars` qua harness `%TEMP%\SbSphere` trên Debug DLL mới nhất): render **21.1 s OK**, output exists; `ffmpeg -v error -i out -f null -` → **0 lỗi decode**. Pipeline ổn định trên nhiều style sau 33 iteration đổi UI.
+- **Files:** không đổi code.
+- **Commit/push:** chỉ commit log này.
 
 ---
 
