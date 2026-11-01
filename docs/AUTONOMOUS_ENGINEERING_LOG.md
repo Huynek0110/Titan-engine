@@ -243,7 +243,16 @@
 - **Files:** `docs/00-OVERVIEW.md`.
 - **Protected-core impact:** không.
 - **TEST:** markdown only; build vẫn 0/0 từ It19.
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `8469897` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 21 — 2026-11-01 (e2e regression verification — no code change)
+
+- **Path:** REVIEW → TEST
+- **REVIEW/TEST:** Sau 20 iteration đổi UI (constructor, browse handlers, LogSystem, PreviewKeyDown, AppSettings), chạy e2e thật qua `%TEMP%\SbSphere` (`dotnet SbSphere.dll e2e` — job 1 ảnh + nhạc + soundbar audio-ring, đúng ca image-fast-path): render **23.1 s, exit OK**, output `Titan_thumb.mp4` exists. Validate: ffprobe = h264 1080×1920 + AAC + mjpeg cover, duration **12.000 s** đúng; `ffmpeg -v error -i out -f null -` → **0 dòng lỗi** (full decode sạch). Kết luận: pipeline không bị ảnh hưởng bởi các thay đổi UI.
+- **Files:** không đổi code.
+- **Commit/push:** chỉ commit log này.
 
 ---
 
