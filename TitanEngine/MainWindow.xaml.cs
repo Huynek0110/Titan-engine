@@ -13672,6 +13672,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             (sender as UIElement)?.ReleaseMouseCapture();
         }
 
+        /// <summary>Same guard as the watermark drag: end the crop drag if capture is lost mid-drag.</summary>
+        private void BdrCropFrame_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            _isCropDragging = false;
+        }
+
         private void CropHandle_DragDelta(object sender, DragDeltaEventArgs e)
         {
             if (sender is not Thumb handle || bdrCropFrame == null || cvsCropPreview == null)

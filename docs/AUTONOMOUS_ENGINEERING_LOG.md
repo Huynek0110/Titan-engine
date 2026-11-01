@@ -336,6 +336,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method nhỏ).
 - **Protected-core impact:** không — chỉ UI interaction.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `5db9c19` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 29 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Quét hết các chỗ `CaptureMouse`: cùng bug như It28 ở khung crop (`BdrCropFrame_MouseDown/Move/Up`, cờ `_isCropDragging` không reset khi mất capture). Còn `_isDraggingTimeline` trong AudioEditorWindow là dead state (không bao giờ set true — slider dùng `_isUpdatingSlider`), để nguyên vì vô hại.
+- **CODE:** wire `LostMouseCapture="BdrCropFrame_LostMouseCapture"` lên `bdrCropFrame` + handler reset cờ, y hệt It28.
+- **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

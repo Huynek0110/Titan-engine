@@ -1506,7 +1506,8 @@
                                         Cursor="SizeAll"
                                         MouseLeftButtonDown="BdrCropFrame_MouseDown"
                                         MouseMove="BdrCropFrame_MouseMove"
-                                        MouseLeftButtonUp="BdrCropFrame_MouseUp">
+                                        MouseLeftButtonUp="BdrCropFrame_MouseUp"
+                                        LostMouseCapture="BdrCropFrame_LostMouseCapture">
                                     <Grid>
                                         <Border Margin="8" BorderBrush="#66FFFFFF" BorderThickness="1"/>
                                         <TextBlock Text="CROP AREA" Foreground="#CCFFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"/>
