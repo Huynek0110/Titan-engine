@@ -312,6 +312,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (3 attribute).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `52b575d` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 27 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Nút ✕ xoá job trong queue có tooltip "Remove this job" nhưng không nhắc phím Delete (It17/26).
+- **CODE:** tooltip thành "Remove this job (Del)". 1 attribute.
+- **Files:** `TitanEngine/MainWindow.xaml`.
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

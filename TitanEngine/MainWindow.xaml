@@ -1394,7 +1394,7 @@
                                             <Border Background="{StaticResource DropdownBrush}" BorderBrush="{StaticResource TrackBrush}" BorderThickness="1" CornerRadius="9" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding StatusDisplay}" Foreground="{Binding StatusColor}" FontWeight="Bold" FontSize="11"/>
                                             </Border>
-                                            <Button Content="\u2715" Width="25" Height="25" Background="#2A1218" FontSize="10" ToolTip="Remove this job" Click="BtnDeleteJob_Click" Tag="{Binding Id}"/>
+                                            <Button Content="\u2715" Width="25" Height="25" Background="#2A1218" FontSize="10" ToolTip="Remove this job (Del)" Click="BtnDeleteJob_Click" Tag="{Binding Id}"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
