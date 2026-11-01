@@ -163,4 +163,29 @@
 - **Files:** `setup_titan.ps1`.
 - **Protected-core impact:** không — dev-workflow script.
 - **TEST:** dry-run logic trong PowerShell → `RESOLVED_BIN=...\TitanEngine\TitanEngine\bin\Debug\net8.0-windows`, `CSPROJ_FOUND=True`. Build cả Release và Debug đều **0/0** (đủ chuẩn AGENTS.md cả 2 config).
+- **Commit/push:** `59f4bc9` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 14 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE (docs) → TEST
+- **REVIEW:** Theo §8 của loop phải có **prioritized backlog** trong log này — hiện chưa có. Đồng thời rà soát các chỗ còn lại: API đã validate input (400 khi thiếu/không tồn tại inputFile, outer catch trả 500 gọn), gitignore đã đủ (`tmp_*`, `bin/`, `obj/`, `.vs/`), docs 10/20/30 đều current tới r38.
+- **CODE:** thêm mục **BACKLOG** vào cuối file này — các việc còn lại + lý do chưa làm (cần user quyết định / protected core / việc lớn).
+- **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
+- **Protected-core impact:** không.
+- **TEST:** không cần build (chỉ markdown); build Release+Debug vẫn 0/0 (đã chạy ở It13).
 - **Commit/push:** (điền hash sau khi push)
+
+---
+
+## BACKLOG (ưu tiên từ cao xuống thấp — theo evidence, không làm lại cái đã xong)
+
+1. **[cần user quyết định]** Gộp 2 bản `BAS_LOCALHOST_API_GUIDE.txt` (root bản cũ lệch vs bản được đóng gói trong `TitanEngine/`). Mỗi bản có phần riêng — cần user chọn giữ gì. Xem `docs/30-API.md` §mục 6.
+2. **[protected core — cần authorization rõ]** Mọi thay đổi render pipeline / soundbar / effect / API core: `MainWindow.xaml.cs` (EngineCore), `SoundBar*`, `AudioSpectrumAnalyzer.cs`, `EffectRecipe*`, overlay presets. Hiện tại không có issue mở ở các vùng này.
+3. **[việc lớn, không gấp]** Tách `MainWindow.xaml.cs` ~18.2k dòng thành nhiều file theo vùng (UI / queue / API / EngineCore). Rủi ro cao, cần kế hoạch riêng.
+4. **[cần user duyệt vì là feature mới]** Per-style palettes, animated preview trong UI picker, loop window >6 s (hiện cap 180 frame = 6 s).
+5. **[đã xong ở It8]** Log console unbounded growth — đã cap 3000 dòng.
+6. **[đã xong It3]** Port dialog whitespace → invalid HttpListener prefix — đã normalize.
+7. **[đã xong It5]** Không có crash log → đã có `%TEMP%\TitanEngine\crash.log`.
+8. Cache PNG `%TEMP%\TitanEngine\soundbar_cache` — vùng protected (soundbar), để nguyên trừ khi user yêu cầu.
