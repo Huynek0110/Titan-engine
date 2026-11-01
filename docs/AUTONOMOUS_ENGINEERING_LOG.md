@@ -642,6 +642,16 @@
 
 ---
 
+## ITERATION 58 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** `AGENTS.md` nói "tài liệu nằm trong 5 file" và bảng đọc chưa có engineering log (mới từ vòng tự động) → thêm dòng vào bảng + đổi 5→6.
+- **Files:** `AGENTS.md`.
+- **TEST:** docs only.
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.

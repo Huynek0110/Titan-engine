@@ -1,7 +1,7 @@
 # AGENTS.md — TitanEngine
 
 Repo này là một **WPF video editor / render engine** (.NET 8, Windows) dùng FFmpeg CLI.
-Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn sắp làm — không đọc hết.
+Toàn bộ tài liệu nằm trong 6 file; đọc đúng file theo việc bạn sắp làm — không đọc hết.
 
 ## Đọc gì trước
 
@@ -11,6 +11,7 @@ Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn 
 | Pipeline render, filter chain, audio, encoder, bitrate, overlay, upscale | [`docs/10-RENDER-PIPELINE.md`](docs/10-RENDER-PIPELINE.md) |
 | Soundbar / visualizer / audio analysis / vocal catch / timeline gate | [`docs/20-SOUNDBAR.md`](docs/20-SOUNDBAR.md) |
 | HTTP API, request/response fields | [`docs/30-API.md`](docs/30-API.md) |
+| Lịch sử vòng lặp tự động (autonomous loop), backlog việc còn lại | [`docs/AUTONOMOUS_ENGINEERING_LOG.md`](docs/AUTONOMOUS_ENGINEERING_LOG.md) |
 | Quy trình làm việc, verify, git, bẫy | file này |
 
 ## Luật cứng
