@@ -300,6 +300,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (2 dòng trong khối trim của `LogSystem`).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `b4a0652` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 26 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** It17 thêm phím tắt nhưng không có gì cho người dùng biết (3 nút chính không tooltip) → tính năng "vô hình".
+- **CODE:** thêm `ToolTip` vào `btnBrowseVideo` ("Ctrl+O"), `btnAddJob` ("Ctrl+B"), `btnStart` ("Ctrl+Enter", nhắc nhở nhấn lần nữa để stop). Chỉ thêm text tooltip trên control đã có — không đổi layout.
+- **Files:** `TitanEngine/MainWindow.xaml` (3 attribute).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

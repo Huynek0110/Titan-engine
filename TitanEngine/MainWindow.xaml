@@ -456,7 +456,7 @@
                                         <ColumnDefinition Width="50"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox x:Name="txtVideoPath" Grid.Column="0" IsReadOnly="True" Text="Drop Video/Image Here..." FontStyle="Italic" Opacity="0.5"/>
-                                    <Button x:Name="btnBrowseVideo" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseVideo_Click"/>
+                                    <Button x:Name="btnBrowseVideo" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseVideo_Click" ToolTip="Browse source video/image (Ctrl+O)"/>
                                 </Grid>
 
                                 <CheckBox x:Name="chkMergeVideos" Content="Merge Videos Into One Output (Concat)" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,-5,0,5" Checked="MergeOptionChanged" Unchecked="MergeOptionChanged"/>
@@ -549,7 +549,7 @@
                         </GroupBox>
 
                         <!-- BUTTON ADD TO QUEUE -->
-                        <Button x:Name="btnAddJob" Height="50" Click="BtnAddJob_Click" Margin="0,0,0,10">
+                        <Button x:Name="btnAddJob" Height="50" Click="BtnAddJob_Click" Margin="0,0,0,10" ToolTip="Add current settings as a job to the queue (Ctrl+B)">
                             <Button.Background>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                     <GradientStop Color="#3B82F6" Offset="0"/>
@@ -1451,7 +1451,7 @@
                         <ColumnDefinition Width="150"/>
                     </Grid.ColumnDefinitions>
                     <Button x:Name="btnClear" Content="CLEAR" Grid.Column="0" Margin="0,0,15,0" Background="#1A202A" Click="BtnClear_Click"/>
-                    <Button x:Name="btnStart" Grid.Column="1" Margin="0,0,15,0" Click="BtnStartBatch_Click">
+                    <Button x:Name="btnStart" Grid.Column="1" Margin="0,0,15,0" Click="BtnStartBatch_Click" ToolTip="Start rendering the queue; press again to stop (Ctrl+Enter)">
                         <Button.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                 <GradientStop Color="#22C55E" Offset="0"/>
