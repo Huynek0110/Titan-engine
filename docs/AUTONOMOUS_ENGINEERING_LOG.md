@@ -756,6 +756,17 @@
 
 ---
 
+## STOP REPORT (lần 2 — user gõ "build sau đó STOP AUTONOMOUS LOOP") — 2026-11-01
+
+- **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD là commit này, push + verify; tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
+- **Tổng iteration:** 70 (It1–It70). Build cuối: Release **0 warn / 0 err** + Debug **0/0**; smoke-launch Release exe → `APP_RUNNING_OK`. E2E render thật 3 lần (audio-ring 23.1 s, neon-bars 21.1 s, template 23.6 s) đều ffprobe đúng + full-decode 0 lỗi; harness 13 soundbar preview `ALL-STYLE-OK 13`.
+- **Nhóm thay đổi:** UI palette thống nhất toàn app; phím tắt; settings cá nhân (folder/port); crash.log; log console cap + marker; các fix thật (port whitespace, output-name sanitize, clamp bitrate/resolution/duration/font-size/color cho UI+API, drag capture, orphan ffmpeg khi đóng app, CLEAR guard, drop feedback, setup script); docs current + backlog.
+- **Protected core không đụng:** render pipeline, soundbar, effect, API core.
+- **Còn mở (cần bạn quyết định — xem BACKLOG):** gộp 2 API guide (evidence ở It45); `usesVoice` trong presets API; HOST API tự bật lúc boot đúng/sai; wildcard CORS; tách MainWindow.xaml.cs; feature mới (per-style palette, animated preview, loop >6 s).
+- **Không còn gì chưa push.**
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
