@@ -176,6 +176,8 @@ TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 - Không có unit test; kiểm chứng bằng build + render thật + decode lại output.
 - **Phím tắt**: `Ctrl+O` mở source, `Ctrl+B` thêm job vào queue, `Ctrl+Enter` bắt đầu render,
   `Delete` xoá job đang chọn trong queue (không hoạt động khi đang gõ trong ô nhập liệu).
+- **Cài đặt cá nhân**: thư mục source/output dùng gần nhất được lưu ở
+  `%APPDATA%\TitanEngine\settings.json` (mở app lại sẽ tự khôi phục; xoá file để về mặc định).
 
 ## 10. Trạng thái phiên bản
 

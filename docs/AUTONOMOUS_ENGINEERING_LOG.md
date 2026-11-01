@@ -232,6 +232,17 @@
 - **Files:** `TitanEngine/AppSettings.cs` (mới), `TitanEngine/MainWindow.xaml.cs` (+~12 dòng ở 3 chỗ).
 - **Protected-core impact:** không — chỉ UI preference.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (không tạo settings.json cho tới khi user chọn folder — đúng thiết kế).
+- **Commit/push:** `833c819` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 20 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** It19 thêm persistence nhưng docs chưa ghi → thêm 1 bullet vào `docs/00-OVERVIEW.md` §9 về `%APPDATA%\TitanEngine\settings.json`.
+- **Files:** `docs/00-OVERVIEW.md`.
+- **Protected-core impact:** không.
+- **TEST:** markdown only; build vẫn 0/0 từ It19.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
