@@ -16057,7 +16057,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 if (txtImageTimelineDuration != null &&
                     TryParseFlexibleDouble(txtImageTimelineDuration.Text, out double parsedImageTimelineDuration))
                 {
-                    imageTimelineDurationSeconds = Math.Max(0.0, parsedImageTimelineDuration);
+                    // Clamp to a sane ceiling: 999999 s would otherwise make ffmpeg render for days.
+                    imageTimelineDurationSeconds = Math.Clamp(Math.Max(0.0, parsedImageTimelineDuration), 0.0, 3600.0);
                 }
 
                 var job = new RenderJob
@@ -16558,7 +16559,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 double imageTimelineDurationSeconds = 0.0;
                 if (txtImageTimelineDuration != null &&
                     TryParseFlexibleDouble(txtImageTimelineDuration.Text, out double parsedImageTimelineDuration))
-                    imageTimelineDurationSeconds = Math.Max(0.0, parsedImageTimelineDuration);
+                    imageTimelineDurationSeconds = Math.Clamp(Math.Max(0.0, parsedImageTimelineDuration), 0.0, 3600.0);
 
                 var job = new RenderJob
                 {
@@ -18117,10 +18118,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     GetFeatureBool(request, "slowMotionAudio", "syncAudio") ??
                     true;
 
-                double imageTimelineDurationSeconds = Math.Max(0.0,
+                double imageTimelineDurationSeconds = Math.Clamp(Math.Max(0.0,
                     request.ImageTimelineDurationSeconds ??
                     GetFeatureDouble(request, "imageTimelineDurationSeconds", "imageTimelineDuration", "imageDurationSeconds", "slideshowDuration", "slideDuration") ??
-                    0.0);
+                    0.0), 0.0, 3600.0);
 
                 double videoVolume = Math.Clamp(
                     request.VideoVolume ??

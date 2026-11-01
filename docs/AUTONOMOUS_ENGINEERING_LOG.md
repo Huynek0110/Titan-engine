@@ -447,15 +447,28 @@
 - **Files:** `docs/30-API.md`.
 - **Protected-core impact:** không.
 - **TEST:** build Release + Debug 0/0 (chạy ở checkpoint dừng).
-- **Commit/push:** `d87cb83` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+- **Commit/push:** `79a1f4b` (stop report) — branch synced; loop resumed per user's "start AUTONOMOUS LOOP"
 
 ---
 
-## STOP REPORT — 2026-11-01 (user gõ STOP AUTONOMOUS LOOP lần 2)
+## ITERATION 39 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Các ô số khác đều đã clamp (fade 0–60, crop zoom 0–90, volume 0–2, bitrate, resolution). Còn sót: `Image Timeline Duration` chỉ `Math.Max(0, …)` — nhập `999999` giây thì ffmpeg render nhiều ngày. (`ResolveImageTimelineSegmentDuration` chỉ chặn dưới.)
+- **CODE:** clamp thêm trần **3600 s** ở cả 2 chỗ parse UI (:16057, :16560) và 1 chỗ API (:18120).
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (3 chỗ).
+- **Protected-core impact:** không — validate input lúc tạo job; 0 (mặc định) không đổi.
+- **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
+## STOP REPORT (lần 1) — 2026-11-01
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83`, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
 - **Tổng kết:** 38 iteration (It1–It38). Build Release + Debug đều **0 warn / 0 err** ở checkpoint cuối; smoke-launch exe OK; 2 lần e2e render thật (audio-ring 23.1 s, neon-bars 21.1 s) với ffprobe đúng và full-decode 0 lỗi.
 - **Không còn gì chưa push.** Vấn đề mở cần bạn quyết định nằm ở BACKLOG (mục 1: gộp 2 API guide; mục 2: protected core; mục 3: tách MainWindow.xaml.cs; mục 4: feature mới; mục 9: `usesVoice` trong presets API; mục 10: HOST API tự bật lúc boot có đúng ý không).
+- **Loop đã được resume lại theo lệnh "start AUTONOMOUS LOOP" — xem It39 trở đi.**
 
 ---
 
