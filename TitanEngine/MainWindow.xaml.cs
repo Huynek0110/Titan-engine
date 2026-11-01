@@ -13090,6 +13090,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 else if (IsAudioSourcePath(f)) auds.Add(f);
             }
 
+            if (vids.Count == 0 && auds.Count == 0)
+                LogSystem("[INPUT] Dropped item(s) not recognized as media - drop video/image/audio files.");
             if (vids.Count > 0)
             {
                 _listVideoPaths = vids;

@@ -538,6 +538,18 @@
 - **REVIEW/CODE:** File map trong `docs/00-OVERVIEW.md` chưa có `AppSettings.cs` (mới từ It19) và chưa nhắc crash.log ở `App.xaml.cs` → thêm 1 dòng vào bảng + ghi chú crash log.
 - **Files:** `docs/00-OVERVIEW.md`.
 - **TEST:** docs only.
+- **Commit/push:** `4f7b822` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 48 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `OnWindowDrop` im lặng hoàn toàn khi thả thứ không phải media (ví dụ thả thư mục) — user không biết tại sao không có gì xảy ra.
+- **CODE:** +1 dòng log `[INPUT] Dropped item(s) not recognized…` khi không nhận được file nào. Chỉ thêm log, không đổi hành vi drop.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
