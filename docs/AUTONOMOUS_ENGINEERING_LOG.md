@@ -447,7 +447,15 @@
 - **Files:** `docs/30-API.md`.
 - **Protected-core impact:** không.
 - **TEST:** build Release + Debug 0/0 (chạy ở checkpoint dừng).
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `d87cb83` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## STOP REPORT — 2026-11-01 (user gõ STOP AUTONOMOUS LOOP lần 2)
+
+- **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83`, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
+- **Tổng kết:** 38 iteration (It1–It38). Build Release + Debug đều **0 warn / 0 err** ở checkpoint cuối; smoke-launch exe OK; 2 lần e2e render thật (audio-ring 23.1 s, neon-bars 21.1 s) với ffprobe đúng và full-decode 0 lỗi.
+- **Không còn gì chưa push.** Vấn đề mở cần bạn quyết định nằm ở BACKLOG (mục 1: gộp 2 API guide; mục 2: protected core; mục 3: tách MainWindow.xaml.cs; mục 4: feature mới; mục 9: `usesVoice` trong presets API; mục 10: HOST API tự bật lúc boot có đúng ý không).
 
 ---
 
