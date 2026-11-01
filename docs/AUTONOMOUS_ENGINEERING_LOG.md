@@ -700,7 +700,15 @@
 
 - **Path:** REVIEW/INVESTIGATION → TEST
 - **TEST:** build Release **0/0**; branch sync origin (`42cea9f`), tree sạch; 64 commit so với master. Vùng an toàn đã quét hết — vòng sau tiếp tục rà, chỉ đổi khi có bằng chứng thật.
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `ccdfb39` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 65 — 2026-11-01 (soundbar regression check via harness)
+
+- **Path:** REVIEW → TEST
+- **TEST:** harness `%TEMP%\SbSphere` mode `all v65` trên Debug DLL mới nhất → **`ALL-STYLE-OK 13`**, contact sheet ghi ra `out\v65\sheet_all_v65.jpg`. Renderer 13 style không bị ảnh hưởng bởi các thay đổi UI/XAML của vòng lặp.
+- **Commit/push:** chỉ log.
 
 ---
 
