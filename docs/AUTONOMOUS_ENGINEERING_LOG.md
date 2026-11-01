@@ -175,6 +175,18 @@
 - **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
 - **Protected-core impact:** không.
 - **TEST:** không cần build (chỉ markdown); build Release+Debug vẫn 0/0 (đã chạy ở It13).
+- **Commit/push:** `96af2e9` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 15 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Quét lại body `MainWindow.xaml` phát hiện còn inline `<Style>` trong body dùng `Setter Property="…" Value="#hex"` — các vòng trước chỉ match attribute trực tiếp (`Background="#…"`), nên dạng Setter bị sót. Trong số đó 2 màu có sẵn brush resource (`#232B36`, `#4CC3FF` trong job-card border); phần còn lại (#171B23, #202836, #E8EEF5…) là màu nội bộ của style không có resource — cố tình giữ nguyên để không nở thêm token cho quelques dòng.
+- **CODE:** perl thứ tự đúng, chỉ từ sau `</Window.Resources>` (dòng 418), bao cả dạng `Property="X" Value="#hex"` với map palette đã có. Kết quả: đúng 2 dòng đổi (job card border + trigger), các màu không có resource giữ nguyên.
+- **Files:** `TitanEngine/MainWindow.xaml` (2 dòng).
+- **Protected-core impact:** không; layout không đổi.
+- **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (mọi StaticResource resolve).
 - **Commit/push:** (điền hash sau khi push)
 
 ---

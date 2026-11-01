@@ -1353,11 +1353,11 @@
                                 <Border Background="#151A21" Margin="0,0,0,8" CornerRadius="8" Padding="11">
                                     <Border.Style>
                                         <Style TargetType="Border">
-                                            <Setter Property="BorderBrush" Value="#232B36"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource TrackBrush}"/>
                                             <Setter Property="BorderThickness" Value="1"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsApiJob}" Value="True">
-                                                    <Setter Property="BorderBrush" Value="#4CC3FF"/>
+                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                                                     <Setter Property="BorderThickness" Value="2"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
