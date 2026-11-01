@@ -21,10 +21,12 @@ namespace TitanEngine
         {
             public string? LastSourceFolder { get; set; }
             public string? LastOutputFolder { get; set; }
+            public string? LastApiPort { get; set; }
         }
 
         public static string? LastSourceFolder { get; private set; }
         public static string? LastOutputFolder { get; private set; }
+        public static string? LastApiPort { get; private set; }
 
         public static void Load()
         {
@@ -37,12 +39,14 @@ namespace TitanEngine
                     File.ReadAllText(SettingsFilePath));
                 LastSourceFolder = ValidFolder(dto?.LastSourceFolder) ? dto!.LastSourceFolder : null;
                 LastOutputFolder = ValidFolder(dto?.LastOutputFolder) ? dto!.LastOutputFolder : null;
+                LastApiPort = ValidPort(dto?.LastApiPort) ? dto!.LastApiPort : null;
             }
             catch
             {
                 // Corrupt or unreadable settings must never block startup - just use defaults.
                 LastSourceFolder = null;
                 LastOutputFolder = null;
+                LastApiPort = null;
             }
         }
 
@@ -79,8 +83,29 @@ namespace TitanEngine
             }
         }
 
+        /// <summary>Remembers the last chosen host-API port and saves.</summary>
+        public static void RememberApiPort(string? port)
+        {
+            try
+            {
+                if (ValidPort(port))
+                {
+                    LastApiPort = port;
+                    Save();
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private static bool ValidFolder(string? folder)
             => !string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder);
+
+        private static bool ValidPort(string? port)
+            => !string.IsNullOrWhiteSpace(port)
+               && int.TryParse(port, out int p)
+               && p >= 1 && p <= 65535;
 
         private static void Save()
         {
@@ -93,7 +118,8 @@ namespace TitanEngine
                 var dto = new SettingsDto
                 {
                     LastSourceFolder = LastSourceFolder,
-                    LastOutputFolder = LastOutputFolder
+                    LastOutputFolder = LastOutputFolder,
+                    LastApiPort = LastApiPort
                 };
                 File.WriteAllText(SettingsFilePath,
                     JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true }));

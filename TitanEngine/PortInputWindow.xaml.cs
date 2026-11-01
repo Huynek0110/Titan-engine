@@ -49,6 +49,8 @@ namespace TitanEngine
         public PortInputWindow()
         {
             InitializeComponent();
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastApiPort))
+                txtPort.Text = AppSettings.LastApiPort;
             UpdatePreview();
         }
 
@@ -88,6 +90,7 @@ namespace TitanEngine
             // whitespace and a sign (" 5555 "), which would pass validation but produce an
             // invalid HttpListener prefix ("http://localhost: 5555/") downstream.
             SelectedPort = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            AppSettings.RememberApiPort(SelectedPort);
             DialogResult = true;
             Close();
         }

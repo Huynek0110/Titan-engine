@@ -12388,6 +12388,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             // Restore the last used folders (best-effort; defaults stay when nothing valid is stored).
             AppSettings.Load();
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastApiPort))
+                LocalApiPrefix = $"http://127.0.0.1:{AppSettings.LastApiPort}/";
             if (!string.IsNullOrWhiteSpace(AppSettings.LastOutputFolder) && Directory.Exists(AppSettings.LastOutputFolder))
             {
                 _customOutputFolder = AppSettings.LastOutputFolder;

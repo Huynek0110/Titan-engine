@@ -360,6 +360,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (1 khối).
 - **Protected-core impact:** không — chỉ validation tên file ở UI glue; tên hợp lệ không đổi byte nào.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `443646e` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 31 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Cùng mạch với It19/22/23 — port của HOST API (`PortInputWindow`) không được nhớ giữa các lần chạy, mỗi lần bật HOST phải gõ lại 5555.
+- **CODE:** `AppSettings` thêm `LastApiPort` (validate 1-65535 lúc load, lưu vào settings.json); `PortInputWindow` khởi tạo ô port từ `LastApiPort` và `RememberApiPort` khi OK; `MainWindow` constructor set `LocalApiPrefix` từ `LastApiPort` nếu có.
+- **Files:** `TitanEngine/AppSettings.cs`, `TitanEngine/PortInputWindow.xaml.cs`, `TitanEngine/MainWindow.xaml.cs` (mỗi file vài dòng).
+- **Protected-core impact:** không — chỉ UI preference; prefix mặc định vẫn 5555 khi chưa có setting.
+- **TEST:** build Release **0/0** + Debug **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
