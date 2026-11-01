@@ -16078,7 +16078,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     TargetWidth = targetW,
                     TargetHeight = targetH,
                     Framerate = (cmbFps.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "Original",
-                    CustomBitrate = txtCustomBitrate.Text?.Trim() ?? "5000",
+                    CustomBitrate = SanitizeCustomBitrate(txtCustomBitrate.Text),
                     VideoTrimStart = txtTrimStart.Text?.Trim() ?? "00:00:00",
                     VideoTrimDuration = txtTrimDuration.Text?.Trim() ?? "",
                     SplitDurationSeconds = double.TryParse(txtSplitDuration.Text?.Trim(), out double splitSec) ? splitSec : 0.0,
@@ -16370,6 +16370,18 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
         }
 
+        /// <summary>
+        /// Validates the custom bitrate box (kbps). The encoder side only does long.TryParse and
+        /// silently keeps the previous value on garbage, and a negative/huge number would produce
+        /// an invalid -b:v. Clamp here at job-creation time: 100..200000 kbps, else the 5000 default.
+        /// </summary>
+        private static string SanitizeCustomBitrate(string? text)
+        {
+            if (long.TryParse(text?.Trim(), out long kbps) && kbps >= 100 && kbps <= 200000)
+                return kbps.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return "5000";
+        }
+
         private async void BtnRandomCombos_Click(object sender, RoutedEventArgs e)
         {
             if (_listVideoPaths == null || _listVideoPaths.Count == 0)
@@ -16564,7 +16576,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     TargetWidth = targetW,
                     TargetHeight = targetH,
                     Framerate = (cmbFps.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "Original",
-                    CustomBitrate = txtCustomBitrate.Text?.Trim() ?? "5000",
+                    CustomBitrate = SanitizeCustomBitrate(txtCustomBitrate.Text),
                     VideoTrimStart = txtTrimStart.Text?.Trim() ?? "00:00:00",
                     VideoTrimDuration = txtTrimDuration.Text?.Trim() ?? "",
                     SplitDurationSeconds = double.TryParse(txtSplitDuration.Text?.Trim(), out double splitSec) ? splitSec : 0.0,
@@ -18059,10 +18071,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     GetFeatureString(request, "framerate", "fps")
                 ) ?? "Original");
 
-                string customBitrate = (FirstNonEmpty(
+                string customBitrate = SanitizeCustomBitrate(FirstNonEmpty(
                     request.CustomBitrate,
                     GetFeatureString(request, "customBitrate", "targetBitrate", "kbps")
-                ) ?? "5000").Trim();
+                ));
 
                 string upscaleMode = NormalizeUpscaleModeName(FirstNonEmpty(
                     request.UpscaleMode,

@@ -404,7 +404,19 @@
 - **Path:** REVIEW → TEST
 - **TEST:** e2e lần 2 với style khác (`e2e neon-bars` qua harness `%TEMP%\SbSphere` trên Debug DLL mới nhất): render **21.1 s OK**, output exists; `ffmpeg -v error -i out -f null -` → **0 lỗi decode**. Pipeline ổn định trên nhiều style sau 33 iteration đổi UI.
 - **Files:** không đổi code.
-- **Commit/push:** chỉ commit log này.
+- **Commit/push:** `9830574` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 35 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Ô Custom Bitrate nhận raw vào `job.CustomBitrate` (UI :16081/:16579, API :18074). Phía encoder chỉ `long.TryParse` rồi giữ nguyên giá trị trước nếu parse fail, và số âm/lớn sẽ thành `-b:v` lỗi → render fail muộn. (Phát hiện thêm: `/api/soundbar/presets` không có cờ `usesVoice` dù r36 mọi style đều ăn Voice — nhưng đó là vùng protected soundbar nên chỉ ghi vào BACKLOG, không sửa.)
+- **CODE:** helper mới `SanitizeCustomBitrate` (parse + clamp 100..200000 kbps, sai thì về mặc định "5000"), áp ở cả 2 chỗ UI và 1 chỗ API. Encoder không đụng.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (+helper, 3 call site).
+- **Protected-core impact:** không — chỉ validate input ở lớp UI/API; encoder giữ nguyên.
+- **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** (điền hash sau khi push)
 
 ---
 
