@@ -209,6 +209,17 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method ~40 dòng).
 - **Protected-core impact:** không — chỉ UI input.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (XAML parse OK, handler wired).
+- **Commit/push:** `02acbbc` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 18 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** It17 thêm phím tắt nhưng docs chưa ghi → thêm mục "Phím tắt" vào `docs/00-OVERVIEW.md` §9 (Ctrl+O / Ctrl+B / Ctrl+Enter / Delete + ghi chú không hoạt động khi đang gõ trong ô nhập).
+- **Files:** `docs/00-OVERVIEW.md`.
+- **Protected-core impact:** không.
+- **TEST:** không cần build (markdown); build vẫn 0/0 từ It17.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

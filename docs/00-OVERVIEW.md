@@ -174,6 +174,8 @@ TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 - **Đóng app trước khi build** — nếu không sẽ gặp `MSB3026/MSB3027` (file exe bị khoá).
 - Output UI mode mặc định: `Titan_Output/`.
 - Không có unit test; kiểm chứng bằng build + render thật + decode lại output.
+- **Phím tắt**: `Ctrl+O` mở source, `Ctrl+B` thêm job vào queue, `Ctrl+Enter` bắt đầu render,
+  `Delete` xoá job đang chọn trong queue (không hoạt động khi đang gõ trong ô nhập liệu).
 
 ## 10. Trạng thái phiên bản
 
