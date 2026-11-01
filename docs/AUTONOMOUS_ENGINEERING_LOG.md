@@ -383,6 +383,18 @@
 - **Files:** `docs/00-OVERVIEW.md`.
 - **Protected-core impact:** không.
 - **TEST:** markdown only.
+- **Commit/push:** `4c3843b` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 33 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Nút CLEAR xoá queue vô điều kiện (`BtnClear_Click` = `JobQueue.Clear()`) — đang chạy batch mà bấm CLEAR thì job đang render biến mất khỏi UI nhưng vẫn chạy ngầm → dễ nhầm là đã huỷ. (Bản thân không crash vì vòng render iterate trên snapshot `pending`.)
+- **CODE:** khi `_isBatchRunning` và queue không rỗng thì hỏi confirm Yes/No, có gợi ý dùng STOP RENDER để huỷ đúng cách. Khi không chạy thì giữ nguyên hành vi cũ (xoá ngay, không hỏi).
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (1 handler).
+- **Protected-core impact:** không — chỉ UI guard; không đổi logic render/queue.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

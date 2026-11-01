@@ -16730,6 +16730,18 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private void BtnClear_Click(object sender, RoutedEventArgs e)
         {
+            if (_isBatchRunning && JobQueue.Count > 0)
+            {
+                // Clearing mid-render makes running jobs vanish from the UI while they still run.
+                // Ask first; cancelling is the START/STOP button's job.
+                var result = MessageBox.Show(
+                    "A batch is currently running. Clear the queue anyway? (Use STOP RENDER to cancel the running batch.)",
+                    "Clear queue",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (result != MessageBoxResult.Yes)
+                    return;
+            }
             JobQueue.Clear();
         }
 
