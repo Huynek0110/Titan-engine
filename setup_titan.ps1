@@ -5,10 +5,15 @@
 
 Write-Host ">>> DANG KHOI DONG TITAN SETUP..." -ForegroundColor Cyan
 
-# 1. Xác định đường dẫn Project (Nơi chứa file .csproj)
-# Script này giả định bạn để nó cùng cấp với file .sln
+# 1. Xác định đường dẫn Project (thư mục chứa file .csproj — script nằm ở root của repo)
 $projectPath = Get-Location
-$binPath = Join-Path $projectPath "TitanEngineV60\bin\Debug\net8.0-windows"
+$csproj = Get-ChildItem -Path $projectPath -Recurse -Filter "TitanEngine.csproj" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($csproj) {
+    $binPath = Join-Path $csproj.DirectoryName "bin\Debug\net8.0-windows"
+} else {
+    # fallback: layout chuẩn của repo (script ở root, project ở TitanEngine\)
+    $binPath = Join-Path $projectPath "TitanEngine\bin\Debug\net8.0-windows"
+}
 
 # Tạo thư mục bin nếu chưa có (để tránh lỗi nếu chưa build lần nào)
 if (-not (Test-Path $binPath)) {

@@ -151,4 +151,16 @@
 - **Files:** `TitanEngine/PortInputWindow.xaml`.
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**; grep xác nhận không còn hex cũ nào trong cả 2 file.
+- **Commit/push:** `94445c4` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 13 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `setup_titan.ps1` (script auto-tải ffmpeg) vẫn trỏ `TitanEngineV60\bin\Debug\...` — tên project cũ thời V60; chạy thật sẽ tạo thư mục sai chỗ và chép ffmpeg vào nơi app không bao giờ đọc.
+- **CODE:** resolve động qua `TitanEngine.csproj` (Recurse từ root), fallback về layout chuẩn `TitanEngine\bin\Debug\net8.0-windows`. Không chạy cả script (có tải 30-50MB), chỉ dry-run phần resolve path.
+- **Files:** `setup_titan.ps1`.
+- **Protected-core impact:** không — dev-workflow script.
+- **TEST:** dry-run logic trong PowerShell → `RESOLVED_BIN=...\TitanEngine\TitanEngine\bin\Debug\net8.0-windows`, `CSPROJ_FOUND=True`. Build cả Release và Debug đều **0/0** (đủ chuẩn AGENTS.md cả 2 config).
 - **Commit/push:** (điền hash sau khi push)
