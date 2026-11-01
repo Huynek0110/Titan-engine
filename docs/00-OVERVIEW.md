@@ -41,7 +41,8 @@ Hai chế độ hoạt động:
 | `MainWindow.xaml.cs` | **Trung tâm, ~18 200 dòng.** `EngineCore` (static) + `MainWindow`: render pipeline, FFmpeg command builder, duration sync, audio mix, queue, HTTP API, overlay wiring |
 | `MainWindow.xaml` | Toàn bộ layout UI |
 | `MainWindow.Models.cs` | `RenderJob`, `LocalhostRenderRequest/Response`, `LocalhostQueueJobInfo`, `ApiRenderJobState` |
-| `App.xaml(.cs)` | Entry point, rất mỏng |
+| `AppSettings.cs` | Settings cá nhân (folder/port gần nhất) lưu ở `%APPDATA%\TitanEngine\settings.json` |
+| `App.xaml(.cs)` | Entry point; `App.xaml.cs` còn ghi crash log vào `%TEMP%\TitanEngine\crash.log` |
 
 ### Effect / overlay / template
 

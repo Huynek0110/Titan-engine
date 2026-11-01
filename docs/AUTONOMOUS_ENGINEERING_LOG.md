@@ -528,6 +528,16 @@
 - **REVIEW:** API set `Access-Control-Allow-Origin: *` ở 2 chỗ (:20574, :20618). Listener chỉ bind 127.0.0.1 và HOST mặc định off theo docs, nhưng wildcard CORS + HOST bật = trang web bất kỳ trong trình duyệt có thể gọi API nội bộ (PNA của browser hiện đại chặn phần nào). Vì BAS dashboard có thể cần wildcard → không tự đổi, ghi vào BACKLOG mục 11 kèm đề xuất (chỉ set header khi Origin là localhost, hoặc thêm tuỳ chọn tắt CORS).
 - **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
 - **TEST:** không cần build (docs).
+- **Commit/push:** `447fb4e` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 47 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** File map trong `docs/00-OVERVIEW.md` chưa có `AppSettings.cs` (mới từ It19) và chưa nhắc crash.log ở `App.xaml.cs` → thêm 1 dòng vào bảng + ghi chú crash log.
+- **Files:** `docs/00-OVERVIEW.md`.
+- **TEST:** docs only.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
