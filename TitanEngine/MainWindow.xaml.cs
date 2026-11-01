@@ -1,7 +1,7 @@
 /*******************************************************************************************************
-* TITAN ENGINE V106 - AI UPSCALE REWRITE (CAS ALGORITHM + CUSTOM RESOLUTION FIX)
+* TITAN ENGINE V193 (UI+Soundbar Update) — header lịch sử bên dưới là của V106
 * ---------------------------------------------------------------------------------------------------
-* Major Changes:
+* V106 (lịch sử): AI UPSCALE REWRITE (CAS ALGORITHM + CUSTOM RESOLUTION FIX)
 * 1. Upscale: unsharp ? CAS (Contrast Adaptive Sharpening) + Hardcode Bitrate 25Mbps
 * 2. Resolution: Fix Custom + Vertical (Video D?c) parsing
 * 3. Filter Chain: Strict order [Scale] ? [CAS] ? [FX] ? [Color] ? [Watermark]

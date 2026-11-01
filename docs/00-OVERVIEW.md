@@ -178,8 +178,8 @@ TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 ## 10. Trạng thái phiên bản
 
 - Title bar: **“Titan Engine V193 UI+Soundbar Update”**.
-- Header comment trong `MainWindow.xaml.cs` vẫn ghi **V106** — đã lệch, chỉ là comment lịch sử,
-  đừng dùng làm nguồn sự thật.
+- Header comment trong `MainWindow.xaml.cs` đã được cập nhật lên **V193** (phần V106 giữ lại như
+  ghi chú lịch sử).
 - Soundbar renderer: **`soundbar-r38`**.
 - Nhánh `master`; toàn bộ r22–r38 đã push. Vòng lặp tự động (autonomous loop) chạy trên nhánh
   `autonomous/continuous-improvements-*` với backup tại `backup/pre-autonomous-improvements-*`,

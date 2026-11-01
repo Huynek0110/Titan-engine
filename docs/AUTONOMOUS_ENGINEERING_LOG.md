@@ -115,4 +115,16 @@
 - **Files:** `TitanEngine/AudioEditorWindow.xaml.cs`, `TitanEngine/PortInputWindow.xaml.cs`.
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `56f9727` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 10 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Header comment của `MainWindow.xaml.cs` still said "V106" trong khi app đang ở V193 (docs/00-OVERVIEW.md §10 cũng flag là đã lệch) → dễ gây nhầm lẫn cho agent/human mới đọc.
+- **CODE:** header đổi thành "V193 (UI+Soundbar Update)", phần mô tả V106 giữ nguyên nhưng đánh dấu là lịch sử; dòng tương ứng trong `docs/00-OVERVIEW.md` cập nhật lại. Comment/docs only — zero behavior.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (comment block), `docs/00-OVERVIEW.md`.
+- **Protected-core impact:** không (chỉ comment).
+- **TEST:** build Release **0/0** (comment không ảnh hưởng nhưng build để chắc).
 - **Commit/push:** (điền hash sau khi push)
