@@ -9321,6 +9321,34 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return baseColor + alpha;
         }
 
+        /// <summary>
+        /// Validates a color string for ffmpeg's fontcolor/bordercolor (which reject unknown values
+        /// at filter-parse time, failing the whole render late). Accepts #RGB / #RRGGBB / #AARRGGBB,
+        /// 0x… forms (all with optional @alpha) and plain named colors (letters only - ffmpeg checks
+        /// the name against its own color table). Anything else falls back to white.
+        /// </summary>
+        public static string SanitizeFfmpegColor(string? color)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return "white";
+
+            string trimmed = color.Trim();
+            string basePart = trimmed.Split('@')[0];
+
+            bool hexOk = (basePart.StartsWith("#") && basePart.Length is 4 or 7 or 9
+                          && basePart[1..].All(Uri.IsHexDigit))
+                         || (basePart.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                             && basePart.Length is 5 or 8 or 10
+                             && basePart[2..].All(Uri.IsHexDigit));
+            if (hexOk)
+                return trimmed;
+
+            if (basePart.Length > 0 && basePart.All(char.IsLetter))
+                return trimmed;
+
+            return "white";
+        }
+
         private static string BuildTemplateDrawtext(string text, string xExpr, string yExpr, int fontSize, string fontColor)
         {
             string fontFile = ResolveFfmpegFontFile();
@@ -18395,7 +18423,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 job.TextOverlayFontSize = request.TextOverlayFontSize.HasValue
                     ? Math.Clamp(request.TextOverlayFontSize.Value, 8, 400)
                     : (int?)null;
-                job.TextOverlayColor = request.TextOverlayColor ?? GetFeatureString(request, "textOverlayColor", "textColor");
+                job.TextOverlayColor = EngineCore.SanitizeFfmpegColor(request.TextOverlayColor ?? GetFeatureString(request, "textOverlayColor", "textColor"));
                 job.TextOverlayStyle = request.TextOverlayStyle ?? GetFeatureString(request, "textOverlayStyle", "textStyle", "fontStyle");
                 job.AddQuotes = request.AddQuotes ?? GetFeatureBool(request, "addQuotes", "quotes") ?? true;
                 job.DisableTextScroll = request.DisableTextScroll ?? GetFeatureBool(request, "disableTextScroll", "disableTextAnimation", "staticText", "noScroll") ?? false;

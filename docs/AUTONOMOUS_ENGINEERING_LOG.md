@@ -471,6 +471,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (1 chỗ).
 - **Protected-core impact:** không — validate input; null (mặc định 28) không đổi.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `f6962ae` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 41 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `textOverlayColor` từ API vào thẳng `drawtext fontcolor=` (chỉ qua `NormalizeFfmpegColor` — mới đổi `#`→`0x`, không validate) → chuỗi rác (`banana`, `#12`) làm ffmpeg fail cả render ở parse filter. Glow color đã an toàn (normalize về bộ tên cố định ở :9974).
+- **CODE:** helper `EngineCore.SanitizeFfmpegColor` (chấp nhận #RGB/#RRGGBB/#AARRGGBB, 0x…, tên màu chữ-only, optional @alpha; sai thì về "white"), áp ở chỗ nhận API textOverlayColor. Lần đầu quên: helper nằm trong `EngineCore` còn call site ở `MainWindow` → build lỗi CS0103, đã sửa thành `public static` + qualify `EngineCore.`.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (+helper, 1 call site).
+- **Protected-core impact:** không — validate input; renderer không đổi.
+- **TEST:** build Release **0/0** + Debug **0/0** (sau khi fix lỗi build đầu).
 - **Commit/push:** (điền hash sau khi push)
 
 ---
