@@ -12295,6 +12295,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private bool _isBatchRunning = false;
         private readonly object _logLock = new object();
 
+        // The log TextBox is the only log store, so it grows without bound: every AppendText is
+        // O(current length) and a long verbose render (thousands of ffmpeg lines) bloats memory and
+        // makes the UI thread jank on ScrollToEnd. The view is therefore capped; old lines drop off
+        // the top in one cut every TrimLogViewLines.
+        private const int MaxLogViewLines = 3000;
+        private const int TrimLogViewLines = 1000;
+        private int _logViewLines;
+
         private object? _originalStartBtnContent;
         private Brush? _originalStartBtnBackground;
         private Brush? _originalStartBtnBorder;
@@ -20540,6 +20548,30 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 {
                     string ts = DateTime.Now.ToString("HH:mm:ss");
                     txtLogs.AppendText($"[{ts}] {message}\n");
+                    _logViewLines++;
+
+                    if (_logViewLines > MaxLogViewLines)
+                    {
+                        // Drop the oldest lines in a single cut: replacing Text once per
+                        // TrimLogViewLines is far cheaper than letting the string grow forever.
+                        string text = txtLogs.Text;
+                        int cut = 0;
+                        int dropped = 0;
+                        while (cut < text.Length && dropped < TrimLogViewLines)
+                        {
+                            int nl = text.IndexOf('\n', cut);
+                            if (nl < 0)
+                            {
+                                cut = text.Length;
+                                break;
+                            }
+                            cut = nl + 1;
+                            dropped++;
+                        }
+                        txtLogs.Text = text.Substring(cut);
+                        _logViewLines -= dropped;
+                    }
+
                     txtLogs.ScrollToEnd();
                 }
             });

@@ -91,4 +91,16 @@
 - **Files:** `docs/00-OVERVIEW.md`.
 - **Protected-core impact:** không.
 - **TEST:** không cần build (chỉ markdown); `git diff` xác nhận chỉ đổi chữ trong §10.
+- **Commit/push:** `49f3497` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 8 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `LogSystem` (`MainWindow.xaml.cs:20535`) là nơi duy nhất ghi `txtLogs` (TextBox của log console) và không có giới hạn — mỗi `AppendText` là O(độ dài hiện tại), render dài + ffmpeg verbose → TextBox phình vô hạn, tốn RAM và làm UI thread giật khi `ScrollToEnd`. Đây là UI layer, không phải render core.
+- **CODE:** cap view ở 3000 dòng; khi vượt, cắt một lần 1000 dòng cũ nhất bằng một lần gán `Text` (rẻ hơn nhiều so với để chuỗi lớn mãi). Thêm field `_logViewLines` + 2 const gần `_logLock`. Không đổi nội dung log, không đổi hành vi render.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (1 method + 3 dòng field/const).
+- **Protected-core impact:** không — chỉ log view của UI; pipeline/queue/API không đụng.
+- **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK`.
 - **Commit/push:** (điền hash sau khi push)
