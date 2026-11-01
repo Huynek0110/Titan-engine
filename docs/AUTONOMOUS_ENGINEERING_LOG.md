@@ -436,6 +436,17 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (2 chỗ).
 - **Protected-core impact:** không — validate input ở job-creation; `-1` (Original) không bị đụng vì clamp chỉ khi > 0.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `5a45578` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 38 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** It35/It37 thêm clamp cho `customBitrate` (100–200000 kbps) và `targetWidth/Height` (16–7680) nhưng docs API chưa ghi → thêm ghi chú vào `docs/30-API.md` §3 (output/API fields).
+- **Files:** `docs/30-API.md`.
+- **Protected-core impact:** không.
+- **TEST:** build Release + Debug 0/0 (chạy ở checkpoint dừng).
 - **Commit/push:** (điền hash sau khi push)
 
 ---

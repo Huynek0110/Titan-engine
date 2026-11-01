@@ -122,6 +122,10 @@ hardwareProfile, resolution, framerate, bitrateStrategy, customBitrate
 isApiJob, webhookUrl
 ```
 
+Giới hạn mới áp ở đầu nhận (It35/It37): `customBitrate` clamp **100–200000 kbps** (mặc định `5000`),
+`targetWidth`/`targetHeight` clamp **16–7680** (mặc định giữ `-1` = Original). Giá trị ngoài khoảng
+sẽ về mặc định thay vì làm fail render ở encoder/scale của ffmpeg.
+
 ## 4. Response
 
 `LocalhostRenderResponse`:
