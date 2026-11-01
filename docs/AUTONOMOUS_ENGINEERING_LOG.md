@@ -252,7 +252,19 @@
 - **Path:** REVIEW → TEST
 - **REVIEW/TEST:** Sau 20 iteration đổi UI (constructor, browse handlers, LogSystem, PreviewKeyDown, AppSettings), chạy e2e thật qua `%TEMP%\SbSphere` (`dotnet SbSphere.dll e2e` — job 1 ảnh + nhạc + soundbar audio-ring, đúng ca image-fast-path): render **23.1 s, exit OK**, output `Titan_thumb.mp4` exists. Validate: ffprobe = h264 1080×1920 + AAC + mjpeg cover, duration **12.000 s** đúng; `ffmpeg -v error -i out -f null -` → **0 dòng lỗi** (full decode sạch). Kết luận: pipeline không bị ảnh hưởng bởi các thay đổi UI.
 - **Files:** không đổi code.
-- **Commit/push:** chỉ commit log này.
+- **Commit/push:** `bcfd729` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 22 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** It19 mới áp `LastSourceFolder` cho picker video; các picker còn lại (Audio 1, Audio 2, Watermark) vẫn mở ở mặc định → cùng một tính năng bị thiếu chỗ.
+- **CODE:** thêm `InitialDirectory = AppSettings.LastSourceFolder` + `RememberSourceFolder` vào `BtnBrowseAudio_Click`, `BtnBrowseAudio2_Click`, `BtnBrowseWatermark_Click` — đúng y hệt pattern It19. Không đổi logic chọn file.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (3 handler, +2 dòng mỗi cái).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** (điền hash sau khi push)
 
 ---
 

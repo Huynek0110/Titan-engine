@@ -12702,9 +12702,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private void BtnBrowseAudio_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog { Filter = $"Audio|{AudioSourceFilterPattern}|All|*.*", Multiselect = true };
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastSourceFolder))
+                dlg.InitialDirectory = AppSettings.LastSourceFolder;
             if (dlg.ShowDialog() == true)
             {
                 _listAudioPaths = new List<string>(dlg.FileNames);
+                AppSettings.RememberSourceFolder(dlg.FileName);
                 _audioEditSegments.Clear();
                 txtAudioPath.Text = _listAudioPaths.Count > 1 ? $"<{_listAudioPaths.Count} files>" : System.IO.Path.GetFileName(_listAudioPaths[0]);
                 LogSystem($"[INPUT] {_listAudioPaths.Count} audio(s)");
@@ -12725,10 +12728,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 Filter = $"Audio|{AudioSourceFilterPattern}|All|*.*",
                 Multiselect = false
             };
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastSourceFolder))
+                dlg.InitialDirectory = AppSettings.LastSourceFolder;
 
             if (dlg.ShowDialog() == true)
             {
                 _secondaryAudioPath = dlg.FileName;
+                AppSettings.RememberSourceFolder(dlg.FileName);
                 txtAudioPath2.Text = Path.GetFileName(_secondaryAudioPath);
                 LogSystem($"[INPUT] Audio 2 overlay: {Path.GetFileName(_secondaryAudioPath)}");
             }
@@ -12825,9 +12831,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private void BtnBrowseWatermark_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog { Filter = "Image|*.png;*.jpg;*.jpeg|All|*.*" };
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastSourceFolder))
+                dlg.InitialDirectory = AppSettings.LastSourceFolder;
             if (dlg.ShowDialog() == true)
             {
                 _watermarkPath = dlg.FileName;
+                AppSettings.RememberSourceFolder(dlg.FileName);
                 txtWatermarkPath.Text = System.IO.Path.GetFileName(_watermarkPath);
                 LogSystem($"[WATERMARK] {System.IO.Path.GetFileName(_watermarkPath)}");
 
