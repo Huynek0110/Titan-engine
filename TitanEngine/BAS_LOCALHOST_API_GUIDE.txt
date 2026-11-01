@@ -181,6 +181,10 @@ Audio overlay note:
   "targetHeight": 1280,
   "framerate": "Original",
   "customBitrate": "5000",
+  // server clamp các giá trị số về khoảng an toàn trước khi vào ffmpeg:
+  // customBitrate 100..200000 (kbps, sai thì về "5000"), targetWidth/Height 16..7680,
+  // imageTimelineDurationSeconds 0..3600, textOverlayFontSize 8..400.
+  // textOverlayColor: chấp nhận #RRGGBB / 0x… / tên màu (có thể kèm @alpha), sai thì về "white".
 
   "videoTrimStart": "00:00:00",
   "videoTrimDuration": "",

@@ -661,6 +661,16 @@
 
 ---
 
+## ITERATION 60 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** Các clamp mới (It35/37/39/40) là thay đổi hợp đồng thấy được của API nhưng bản guide được đóng gói (`TitanEngine/BAS_LOCALHOST_API_GUIDE.txt`) chưa ghi → thêm comment vào block ví dụ JSON: customBitrate 100..200000, targetWidth/Height 16..7680, imageTimelineDurationSeconds 0..3600, textOverlayFontSize 8..400, textOverlayColor hợp lệ. Không đụng bản root vì đang chờ bạn quyết định gộp (backlog #1).
+- **Files:** `TitanEngine/BAS_LOCALHOST_API_GUIDE.txt`.
+- **TEST:** docs only; build không đổi (0/0 từ It59).
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
