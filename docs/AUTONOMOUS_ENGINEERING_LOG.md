@@ -550,7 +550,16 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `5b3abb4` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 49 — 2026-11-01 (verification sweep)
+
+- **Path:** REVIEW/INVESTIGATION → TEST
+- **REVIEW:** Đã rà `AudioEditHelpers` (parse/format/segments đều có guard NaN/Infinity + clamp) — chuẩn. Không còn target mới ở các vùng đã quét.
+- **TEST:** build Release **0/0** + Debug **0/0**; smoke-launch Release exe 10 s → `APP_RUNNING_OK`; `git status` sạch, branch sync origin (`5b3abb4`).
+- **Commit/push:** chỉ log.
 
 ---
 
