@@ -197,7 +197,19 @@
 - **REVIEW (đã rà, đều ổn):** API validate input đủ (400 thiếu/không tồn tại, outer catch 500 gọn); `AudioEditModels` dùng TryParse; `.gitignore` đã cover `tmp_*`/`bin`/`obj`/`.vs/`; docs 10/20/30 current tới r38; màu status trong `MainWindow.xaml.cs` (Cyan/LimeGreen/red/green) là semantic, không phải theme drift; `Modelfile*` là file của user, không đụng.
 - **TEST:** build **Debug 0/0** + **Release 0/0**; `git status` sạch, branch đang sync với origin (`e793b9c`).
 - **Kết luận vòng:** phần non-protected an toàn đã được dọn phần lớn (UI palette thống nhất, 2 cửa sổ phụ đồng bộ, crash log, log cap, port fix, setup script, docs). Các mục còn lại nằm trong BACKLOG (cần user quyết định hoặc protected core).
-- **Commit/push:** chỉ commit log này (nếu có) — xem bên dưới.
+- **Commit/push:** `7ee6434` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 17 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** App chưa có phím tắt nào cả (quét `KeyBinding`/`KeyDown` = 0) — vùng "Keyboard shortcuts / Accessibility" được phép đổi theo lệnh. Các handler của nút chính đã có sẵn: `BtnBrowseVideo_Click`, `BtnAddJob_Click`, `BtnStartBatch_Click`, `BtnDeleteJob_Click`.
+- **CODE:** thêm `PreviewKeyDown="Window_PreviewKeyDown"` lên `<Window>` + 1 handler mới trong `MainWindow.xaml.cs` chỉ forward tới các handler đang có: **Ctrl+O** browse video, **Ctrl+B** add job, **Ctrl+Enter** start batch, **Delete** xoá job đang chọn trong `lstQueue`. Guard: khi focus đang ở TextBox/ComboBox thì bỏ qua Delete/Backspace để không cướp phím gõ chữ. Không sửa handler cũ, không đổi layout.
+- **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method ~40 dòng).
+- **Protected-core impact:** không — chỉ UI input.
+- **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (XAML parse OK, handler wired).
+- **Commit/push:** (điền hash sau khi push)
 
 ---
 

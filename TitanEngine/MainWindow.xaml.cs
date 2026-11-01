@@ -16244,6 +16244,51 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
         }
 
+        /// <summary>
+        /// Global keyboard shortcuts (accessibility / power-user workflow). They only forward to the
+        /// EXISTING button handlers, so behavior is identical to clicking the buttons:
+        ///   Ctrl+O      browse source video      Ctrl+B  add job to queue
+        ///   Ctrl+Enter  start batch              Delete  remove the selected queue job
+        /// Plain Delete/Backspace are ignored while a text input has focus, so typing in a
+        /// TextBox/ComboBox is never hijacked.
+        /// </summary>
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            bool inTextInput = Keyboard.FocusedElement is TextBox || Keyboard.FocusedElement is ComboBox;
+
+            if (e.Key == Key.Delete || e.Key == Key.Back)
+            {
+                if (inTextInput)
+                    return;
+
+                if (e.Key == Key.Delete && lstQueue.SelectedItem is RenderJob selectedJob)
+                {
+                    BtnDeleteJob_Click(new Button { DataContext = selectedJob }, new RoutedEventArgs());
+                    e.Handled = true;
+                }
+                return;
+            }
+
+            if (Keyboard.Modifiers != ModifierKeys.Control)
+                return;
+
+            switch (e.Key)
+            {
+                case Key.O:
+                    BtnBrowseVideo_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                    break;
+                case Key.B:
+                    BtnAddJob_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                    break;
+                case Key.Enter:
+                    BtnStartBatch_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                    break;
+            }
+        }
+
         private void MergeOptionChanged(object sender, RoutedEventArgs e)
         {
             UpdateRandomButtonVisibility();
