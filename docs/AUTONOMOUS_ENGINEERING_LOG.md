@@ -276,6 +276,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `a5b60dc` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 24 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** `OnMainWindowClosed` dọn preview loaders + timer + API server nhưng KHÔNG cancel `_cancellationTokenSource` — nếu đang render mà đóng app thì ffmpeg child (không thuộc job object của Windows) có thể sống sót process mồ côi và tiếp tục ghi output. Nút STOP thì có cancel (dòng 16721) nên chỉ thiếu ở chỗ đóng cửa sổ.
+- **CODE:** +1 dòng `try { _cancellationTokenSource?.Cancel(); } catch { }` đầu `OnMainWindowClosed` — token đã được `RunFfmpegCaptureAsync` nghe và kill process khi fire.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng + comment).
+- **Protected-core impact:** không — chỉ shutdown cleanup; hành vi khi đang render vẫn như nút Stop.
+- **TEST:** build Release **0/0** + Debug **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

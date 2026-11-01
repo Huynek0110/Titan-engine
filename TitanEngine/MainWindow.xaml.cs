@@ -16875,6 +16875,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private void OnMainWindowClosed(object? sender, EventArgs e)
         {
+            // If a render is still running when the window closes, cancel its token so the ffmpeg
+            // child process is killed instead of surviving the app as an orphan still writing output.
+            try { _cancellationTokenSource?.Cancel(); } catch { }
             CancelCropPreviewFrameLoading();
             CancelWatermarkPreviewFrameLoading();
             // The soundbar picker render runs on a background STA thread reading a PNG from the
