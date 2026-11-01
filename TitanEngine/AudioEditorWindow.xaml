@@ -10,6 +10,7 @@
         MinWidth="980"
         MinHeight="680"
         WindowStartupLocation="CenterOwner"
+        SnapsToDevicePixels="True" UseLayoutRounding="True"
         Background="#0A0C10"
         Foreground="#F0F4F8">
 

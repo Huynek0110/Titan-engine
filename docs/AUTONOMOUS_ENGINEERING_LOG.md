@@ -619,6 +619,17 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (+2 attribute).
 - **Protected-core impact:** không; visual rendering only.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `6fd4088` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 56 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **CODE:** cùng 2 flag `SnapsToDevicePixels`/`UseLayoutRounding` (It55) cho `AudioEditorWindow` và `PortInputWindow` để đồng nhất độ sắc nét. Chỉ rendering hint, không đổi layout.
+- **Files:** `TitanEngine/AudioEditorWindow.xaml`, `TitanEngine/PortInputWindow.xaml` (+1 dòng mỗi cái).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
