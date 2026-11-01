@@ -7,6 +7,7 @@
         Title="Titan Engine V193 UI+Soundbar Update" Height="920" Width="1280" FontFamily="Segoe UI"
         Foreground="White"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResizeWithGrip"
+        SnapsToDevicePixels="True" UseLayoutRounding="True"
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Background>

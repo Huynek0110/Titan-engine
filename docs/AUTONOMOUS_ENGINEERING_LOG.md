@@ -607,7 +607,19 @@
 - **Path:** REVIEW/INVESTIGATION → TEST
 - **REVIEW:** Không còn target an toàn mới (đã quét: UI palette, cửa sổ phụ, input validation, API intake, queue, shutdown, startup, docs, harness). File lạ "2390" hóa ra là cột size của `ls`, không phải file.
 - **TEST:** build Release **0/0** + Debug **0/0**; branch sync origin (`185e8a1`), tree sạch; **54 commit** trên branch so với master.
-- **Commit/push:** chỉ log.
+- **Commit/push:** `0f98051` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 55 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Main window chưa bật `SnapsToDevicePixels`/`UseLayoutRounding` → đường kẻ 1px và chữ có thể hơi mờ trên màn hình DPI khác 100%.
+- **CODE:** thêm 2 attribute lên `<Window>` — chỉ là rendering hint, không đổi layout/kích thước/controls.
+- **Files:** `TitanEngine/MainWindow.xaml` (+2 attribute).
+- **Protected-core impact:** không; visual rendering only.
+- **TEST:** build Release **0/0**.
+- **Commit/push:** (điền hash sau khi push)
 
 ---
 
