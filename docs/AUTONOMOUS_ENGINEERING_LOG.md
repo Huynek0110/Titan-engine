@@ -483,7 +483,23 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (+helper, 1 call site).
 - **Protected-core impact:** không — validate input; renderer không đổi.
 - **TEST:** build Release **0/0** + Debug **0/0** (sau khi fix lỗi build đầu).
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `56a5d5b` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 42 — 2026-11-01 (review pass — API intake đã đủ chuẩn, không cần đổi)
+
+- **Path:** REVIEW/INVESTIGATION → TEST
+- **REVIEW:** Đã rà hết intake của API: inputFiles/audioFiles/watermarkFile đều existence-check với 400 (:17387, :17631, :17663); `Path.GetFullPath` bọc trong outer try/catch của handler; drawtext text có `EscapeFfmpegDrawtextText` đủ dấu; glow color normalize về bộ cố định; split duration có guard `> 0.01`. Không còn gap rõ ràng ở lớp này.
+- **Commit/push:** chỉ commit log (nếu có thay đổi log).
+
+---
+
+## ITERATION 43 — 2026-11-01 (e2e lần 3: template path)
+
+- **Path:** REVIEW → TEST
+- **TEST:** `e2e template` (audio-ring + "Smooth Zoom In", đúng ca dynamic-scale từng dính NVENC segfault): render **23.6 s OK**; ffprobe = h264 1080×1920 + AAC + mjpeg cover, duration **12.000 s**; `ffmpeg -v error -f null -` → **0 lỗi**. CPU retry path vẫn hoạt động.
+- **Commit/push:** chỉ log.
 
 ---
 
