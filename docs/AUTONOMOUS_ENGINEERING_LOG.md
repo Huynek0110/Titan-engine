@@ -716,6 +716,18 @@
 
 - **Path:** REVIEW/INVESTIGATION → TEST
 - **TEST:** build Release **0/0**; smoke-launch exe → `APP_RUNNING_OK`; branch sync origin (`9948ba2`), tree sạch; 66 commit so với master.
+- **Commit/push:** `c5e38d2` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 67 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Dòng changelog trong app (header `MainWindow.xaml:443`) chỉ liệt kê tính năng cũ, không nhắc phím tắt mới + nhớ thư mục/port (It17/19/31).
+- **CODE:** thêm vào chuỗi changelog: "+ Phím tắt Ctrl+O / Ctrl+B / Ctrl+Enter / Del | + Nhớ thư mục & port đã dùng". Chỉ đổi text của TextBlock đang có — không đổi layout.
+- **Files:** `TitanEngine/MainWindow.xaml` (1 dòng text).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

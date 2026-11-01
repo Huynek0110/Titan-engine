@@ -440,7 +440,7 @@
                     <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
                         <TextBlock Text="TITAN ENGINE" FontSize="25" FontWeight="Bold" Foreground="White"/>
                         <TextBlock FontSize="11" Foreground="{StaticResource AccentBrush}" Opacity="0.8" FontWeight="Bold"><Run Text="V193 UI+Soundbar Update"/></TextBlock>
-                        <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520" Text="Changelog: + Hiệu ứng chữ Text Overlay (từ Caption Sync) | + Hiệu ứng Audio 1 Voice FX | + Thanh cường độ Audio FX | + Lọc file build GitHub | + Không xóa tính năng cũ"/>
+                        <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520" Text="Changelog: + Hiệu ứng chữ Text Overlay (từ Caption Sync) | + Hiệu ứng Audio 1 Voice FX | + Thanh cường độ Audio FX | + Lọc file build GitHub | + Phím tắt Ctrl+O / Ctrl+B / Ctrl+Enter / Del | + Nhớ thư mục &amp; port đã dùng | + Không xóa tính năng cũ"/>
                     </StackPanel>
                 </StackPanel>
 
