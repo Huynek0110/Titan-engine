@@ -518,11 +518,13 @@
 - **REVIEW/CODE:** So sánh 2 bản `BAS_LOCALHOST_API_GUIDE.txt`: root 997 dòng vs packaged 1196 dòng. Kết quả cụ thể (grep theo chủ đề): root có `AUDIO 1 VOICE FX` (2) và `WHISPER` (1) mà packaged thiếu; packaged có `CROSS-CLIP` gấp đôi và mục `AUDIO 1 / AUDIO 2 API` bản chuẩn. Kết luận: không bản nào là superset → ghi evidence vào BACKLOG mục 1 để user quyết định gộp thế nào. Không sửa nội dung guide (cần user chọn giữ gì).
 - **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
 - **TEST:** không cần build (chỉ docs).
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `759d208` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
 
 ---
 
-- **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83`, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
+## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
+
+- **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
 - **Tổng kết:** 38 iteration (It1–It38). Build Release + Debug đều **0 warn / 0 err** ở checkpoint cuối; smoke-launch exe OK; 2 lần e2e render thật (audio-ring 23.1 s, neon-bars 21.1 s) với ffprobe đúng và full-decode 0 lỗi.
 - **Không còn gì chưa push.** Vấn đề mở cần bạn quyết định nằm ở BACKLOG (mục 1: gộp 2 API guide; mục 2: protected core; mục 3: tách MainWindow.xaml.cs; mục 4: feature mới; mục 9: `usesVoice` trong presets API; mục 10: HOST API tự bật lúc boot có đúng ý không).
 - **Loop đã được resume lại theo lệnh "start AUTONOMOUS LOOP" — xem It39 trở đi.**
