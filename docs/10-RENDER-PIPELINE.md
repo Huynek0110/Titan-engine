@@ -334,6 +334,8 @@ lỗi thì log WARN và render tiếp. **Fail-fast cho asset bắt buộc:** rai
 | `[CAPTION-SYNC]` | Whisper |
 | `[SOUNDBAR]` | Soundbar analysis / gate / cache |
 | `[LIGHT-LEAK-BURN]` / `[SNOWFALL]` / `[RAIN]` / `[RGB-POLAROID]` | Overlay generation |
+| `[AUDIO-EDITOR]` / `[AUDIO-EDITOR-ERROR]` | Cửa sổ edit audio |
+| `[API]` / `[API-*]` (vd `API-ERROR`, `API-QUEUE`, `API-WEBHOOK-ERROR`) | Host API: bật/tắt, queue, webhook |
 
 Khi debug: copy `[FFMPEG-CMD]` + `[FFMPEG-FILTER-COMPLEX]` ra chạy tay. Đó là cách nhanh nhất để
 tách lỗi app khỏi lỗi graph.

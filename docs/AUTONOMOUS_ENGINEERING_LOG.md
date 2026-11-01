@@ -563,6 +563,16 @@
 
 ---
 
+## ITERATION 50 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** Bảng log-prefix ở `docs/10-RENDER-PIPELINE.md` §11 thiếu các prefix mà code thật đã phát ra (`[AUDIO-EDITOR]`, `[API-*]`…) → thêm 2 dòng vào bảng. Đã rà flow mở Audio Editor (validate đủ: báo lỗi khi chưa chọn audio, merge preview vào temp, có catch + MessageBox).
+- **Files:** `docs/10-RENDER-PIPELINE.md`.
+- **TEST:** docs only; build đã 0/0 ở It49.
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
