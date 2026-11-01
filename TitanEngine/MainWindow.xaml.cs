@@ -12386,6 +12386,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             this.Closed += OnMainWindowClosed;
             this.AllowDrop = true;
 
+            // Restore the last used folders (best-effort; defaults stay when nothing valid is stored).
+            AppSettings.Load();
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastOutputFolder) && Directory.Exists(AppSettings.LastOutputFolder))
+            {
+                _customOutputFolder = AppSettings.LastOutputFolder;
+                txtOutputDir.Text = new DirectoryInfo(AppSettings.LastOutputFolder).Name;
+            }
+
             // Debounce for "the user stopped typing in the soundbar width/height boxes". Created here
             // rather than lazily so it can never be null in the TextChanged path.
             _soundBarSizeEditCommitTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher);
@@ -12676,9 +12684,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 Filter = SupportedMediaDialogFilter,
                 Multiselect = true
             };
+            if (!string.IsNullOrWhiteSpace(AppSettings.LastSourceFolder))
+                dlg.InitialDirectory = AppSettings.LastSourceFolder;
             if (dlg.ShowDialog() == true)
             {
                 _listVideoPaths = new List<string>(dlg.FileNames);
+                AppSettings.RememberSourceFolder(dlg.FileName);
                 txtVideoPath.Text = _listVideoPaths.Count > 1 ? $"<{_listVideoPaths.Count} files>" : System.IO.Path.GetFileName(_listVideoPaths[0]);
                 int imageCount = _listVideoPaths.Count(IsImageSourcePath);
                 int videoCount = _listVideoPaths.Count - imageCount;
@@ -12844,7 +12855,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private void BtnBrowseOutput_Click(object sender, RoutedEventArgs e)
         {
-            string initialDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string initialDir = !string.IsNullOrWhiteSpace(AppSettings.LastOutputFolder)
+                ? AppSettings.LastOutputFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             OpenFileDialog dlg = new OpenFileDialog
             {
                 Title = "Select Output Folder",
@@ -12861,6 +12874,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 if (!string.IsNullOrEmpty(selectedPath) && Directory.Exists(selectedPath))
                 {
                     _customOutputFolder = selectedPath;
+                    AppSettings.RememberOutputFolder(selectedPath);
                     string folderName = new DirectoryInfo(selectedPath).Name;
                     txtOutputDir.Text = folderName;
                     LogSystem($"[OUTPUT] {selectedPath}");

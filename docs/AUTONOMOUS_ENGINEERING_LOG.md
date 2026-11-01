@@ -220,6 +220,18 @@
 - **Files:** `docs/00-OVERVIEW.md`.
 - **Protected-core impact:** không.
 - **TEST:** không cần build (markdown); build vẫn 0/0 từ It17.
+- **Commit/push:** `6a4a2a2` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 19 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** App chưa lưu gì giữa các lần chạy (quét `AppData/settings/Properties.Settings` = 0) — mỗi lần mở lại phải browse lại từ đầu tới thư mục source/output quen dùng. Vùng "Settings and preferences" được phép đổi.
+- **CODE:** file mới `AppSettings.cs` (JSON ở `%APPDATA%\TitanEngine\settings.json`, mọi I/O bọc try/catch best-effort, folder chỉ lưu khi còn tồn tại) lưu `LastSourceFolder` + `LastOutputFolder`. Hook mỏng vào `MainWindow`: constructor `AppSettings.Load()` + khôi phục `_customOutputFolder`/`txtOutputDir` nếu có; `BtnBrowseVideo_Click` và `BtnBrowseOutput_Click` set `InitialDirectory` từ settings và gọi Remember khi chọn xong. Không sửa handler render/queue.
+- **Files:** `TitanEngine/AppSettings.cs` (mới), `TitanEngine/MainWindow.xaml.cs` (+~12 dòng ở 3 chỗ).
+- **Protected-core impact:** không — chỉ UI preference.
+- **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (không tạo settings.json cho tới khi user chọn folder — đúng thiết kế).
 - **Commit/push:** (điền hash sau khi push)
 
 ---
