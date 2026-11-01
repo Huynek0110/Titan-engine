@@ -15980,8 +15980,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 // Parse resolution first
                 if (resolutionText.Contains("Custom"))
                 {
-                    if (int.TryParse(txtResW.Text?.Trim(), out int w) && w > 0) targetW = w;
-                    if (int.TryParse(txtResH.Text?.Trim(), out int h) && h > 0) targetH = h;
+                    // Clamp to a sane range: absurd values (99999x99999) would only fail later
+                    // inside ffmpeg's scale filter with a cryptic error.
+                    if (int.TryParse(txtResW.Text?.Trim(), out int w) && w > 0) targetW = Math.Clamp(w, 16, 7680);
+                    if (int.TryParse(txtResH.Text?.Trim(), out int h) && h > 0) targetH = Math.Clamp(h, 16, 7680);
                     LogSystem($"[RESOLUTION-PARSE] Custom: {targetW}x{targetH}");
                 }
                 else if (!resolutionText.Contains("Original"))
@@ -18029,9 +18031,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string resolution = NormalizeResolutionName(rawResolution);
                 if ((targetWidth <= 0 || targetHeight <= 0) && TryExtractResolution(rawResolution, out int rw, out int rh))
                 {
-                    targetWidth = rw;
-                    targetHeight = rh;
-                    resolution = $"{rw}x{rh} (API Custom)";
+                    // Clamp like the UI custom box: absurd values fail later inside ffmpeg's scale.
+                    targetWidth = Math.Clamp(rw, 16, 7680);
+                    targetHeight = Math.Clamp(rh, 16, 7680);
+                    resolution = $"{targetWidth}x{targetHeight} (API Custom)";
                 }
                 else if ((targetWidth <= 0 || targetHeight <= 0) &&
                     allImageInputs &&
@@ -18045,6 +18048,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 else if (targetWidth > 0 && targetHeight > 0)
                 {
                     resolution = $"{targetWidth}x{targetHeight} (API Custom)";
+                }
+
+                // Single clamp for every path that produced a concrete size (UI custom box is
+                // clamped at parse time; here the API can send targetWidth/targetHeight directly).
+                if (targetWidth > 0 && targetHeight > 0)
+                {
+                    targetWidth = Math.Clamp(targetWidth, 16, 7680);
+                    targetHeight = Math.Clamp(targetHeight, 16, 7680);
                 }
 
                 if (cropZoomPercent > 0.001 && targetWidth > 0 && targetHeight > 0)

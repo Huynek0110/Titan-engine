@@ -416,6 +416,26 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (+helper, 3 call site).
 - **Protected-core impact:** không — chỉ validate input ở lớp UI/API; encoder giữ nguyên.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `494f6e9` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 36 — 2026-11-01 (docs: 2 phát hiện cần authorization)
+
+- **Path:** REVIEW/INVESTIGATION → CODE (docs)
+- **REVIEW:** 2 phát hiện ở vùng cần bạn quyết định, đã ghi vào BACKLOG (mục 9, 10): thiếu cờ `usesVoice` trong `/api/soundbar/presets`; và `OnSystemLoaded` tự bật HOST API lúc boot trong khi docs nói OFF mặc định.
+- **Commit/push:** `494f6e9` (chỉ log).
+
+---
+
+## ITERATION 37 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Custom resolution chỉ check `> 0` — nhập `99999x99999` (UI) hoặc `targetWidth=999999` (API) sẽ fail muộn trong `scale` của ffmpeg. Preset combo an toàn vì giá trị có sẵn.
+- **CODE:** clamp 16..7680 ở cả 2 đường: chỗ parse custom của UI (:15983) và một clamp chung cho mọi path API (:18053, bao cả targetWidth/targetHeight gửi thẳng). Encoder/scale không đụng.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (2 chỗ).
+- **Protected-core impact:** không — validate input ở job-creation; `-1` (Original) không bị đụng vì clamp chỉ khi > 0.
+- **TEST:** build Release **0/0** + Debug **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
@@ -431,3 +451,4 @@
 7. **[đã xong It5]** Không có crash log → đã có `%TEMP%\TitanEngine\crash.log`.
 8. Cache PNG `%TEMP%\TitanEngine\soundbar_cache` — vùng protected (soundbar), để nguyên trừ khi user yêu cầu.
 9. **[protected core — cần authorization]** `/api/soundbar/presets` thiếu cờ `usesVoice` (mọi style đã ăn Voice từ r36, nhưng `SoundBarStyleInfo` và payload endpoint chưa có field này — `MainWindow.xaml.cs:20444` + `AudioAnalysisModels.cs:51`). Chỉ là metadata đọc-only, không đổi hành vi vẽ, nhưng nằm trong module soundbar nên cần bạn cho phép trước.
+10. **[cần bạn quyết định — API là critical integration, không tự đổi]** `OnSystemLoaded` (`MainWindow.xaml.cs:12574`) gọi `StartLocalApiServer()` ngay lúc boot → HOST mode ON mặc định, trong khi `docs/00-OVERVIEW.md` + `docs/30-API.md` đều ghi "OFF mặc định, 503 cho tới khi bấm HOST" và log in ra "[API] Host mode OFF". hoặc code hoặc docs đang sai một; nếu BAS của bạn đang dựa vào việc API tự bật thì đừng sửa code.
