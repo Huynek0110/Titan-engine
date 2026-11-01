@@ -18390,7 +18390,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 job.TextOverlay = request.TextOverlay ?? GetFeatureString(request, "textOverlay", "text");
                 job.TextOverlayPosition = request.TextOverlayPosition ?? GetFeatureString(request, "textOverlayPosition", "textPosition");
                 job.TextAlign = request.TextAlign ?? GetFeatureString(request, "textAlign", "align");
-                job.TextOverlayFontSize = request.TextOverlayFontSize;
+                // Clamp the API-supplied font size: the drawtext builder consumes it raw, and
+                // fontsize=0 or fontsize=999999 would fail or blow up the text filter.
+                job.TextOverlayFontSize = request.TextOverlayFontSize.HasValue
+                    ? Math.Clamp(request.TextOverlayFontSize.Value, 8, 400)
+                    : (int?)null;
                 job.TextOverlayColor = request.TextOverlayColor ?? GetFeatureString(request, "textOverlayColor", "textColor");
                 job.TextOverlayStyle = request.TextOverlayStyle ?? GetFeatureString(request, "textOverlayStyle", "textStyle", "fontStyle");
                 job.AddQuotes = request.AddQuotes ?? GetFeatureBool(request, "addQuotes", "quotes") ?? true;

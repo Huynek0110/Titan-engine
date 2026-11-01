@@ -459,6 +459,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (3 chỗ).
 - **Protected-core impact:** không — validate input lúc tạo job; 0 (mặc định) không đổi.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `e417a10` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 40 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Tiếp tục rà các input số: split duration đã an toàn (`> 0.01` guard, split chạy sau render nên không thể render vô hạn), speed có `NormalizePlaybackSpeed`. Còn sót: `TextOverlayFontSize` từ API gán raw (:18393), đưa thẳng vào `drawtext fontsize=` (:2980) — `0` hoặc `99999` sẽ làm hỏng filter text.
+- **CODE:** clamp 8–400 ở chỗ nhận API (UI dùng slider đã bounded). Renderer không đụng.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (1 chỗ).
+- **Protected-core impact:** không — validate input; null (mặc định 28) không đổi.
+- **TEST:** build Release **0/0** + Debug **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
