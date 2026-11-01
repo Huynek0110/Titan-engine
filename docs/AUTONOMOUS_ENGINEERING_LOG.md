@@ -187,7 +187,17 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (2 dòng).
 - **Protected-core impact:** không; layout không đổi.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK` (mọi StaticResource resolve).
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `e793b9c` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 16 — 2026-11-01 (verification sweep — no code change needed)
+
+- **Path:** REVIEW/INVESTIGATION → TEST (không có CODE vì review không tìm ra mục tiêu an toàn mới — theo §5 của lệnh: không bịa feature để giữ vòng lặp)
+- **REVIEW (đã rà, đều ổn):** API validate input đủ (400 thiếu/không tồn tại, outer catch 500 gọn); `AudioEditModels` dùng TryParse; `.gitignore` đã cover `tmp_*`/`bin`/`obj`/`.vs/`; docs 10/20/30 current tới r38; màu status trong `MainWindow.xaml.cs` (Cyan/LimeGreen/red/green) là semantic, không phải theme drift; `Modelfile*` là file của user, không đụng.
+- **TEST:** build **Debug 0/0** + **Release 0/0**; `git status` sạch, branch đang sync với origin (`e793b9c`).
+- **Kết luận vòng:** phần non-protected an toàn đã được dọn phần lớn (UI palette thống nhất, 2 cửa sổ phụ đồng bộ, crash log, log cap, port fix, setup script, docs). Các mục còn lại nằm trong BACKLOG (cần user quyết định hoặc protected core).
+- **Commit/push:** chỉ commit log này (nếu có) — xem bên dưới.
 
 ---
 
