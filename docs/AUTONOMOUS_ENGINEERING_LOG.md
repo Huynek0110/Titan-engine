@@ -348,6 +348,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `8e3eb2b` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 30 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Ô "Output Name" (`txtOutputName`) đưa thẳng vào tên file output (:15954) — nếu gõ ký tự cấm của filename (`\ / : * ? " < > |`) thì render fail ở bước encode/copy. `SanitizeRandomNamePart` đã có sẵn nhưng chỉ dùng cho tên random. API path đã an toàn nhờ `Path.GetFullPath` ở :17518 ném exception trước.
+- **CODE:** ở chỗ tính `outName` cho job UI, chạy qua `SanitizeRandomNamePart(txtOutputName.Text, defaultName)` — ký tự cấm → `_`, tối đa 40 ký tự, rỗng → fallback tên theo source (đúng như khi để trống).
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (1 khối).
+- **Protected-core impact:** không — chỉ validation tên file ở UI glue; tên hợp lệ không đổi byte nào.
+- **TEST:** build Release **0/0** + Debug **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

@@ -15949,9 +15949,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     : (_listAudioPaths.Count == 1 ? _listAudioPaths[0] :
                        (_listAudioPaths.Count > i ? _listAudioPaths[i] : null));
 
+                // Sanitize the user-typed name: invalid filename chars (\ / : * ? " < > |) would
+                // otherwise reach the output path and fail the render at encode/copy time.
+                string defaultOutName = System.IO.Path.GetFileNameWithoutExtension(vp) + "_Titan";
                 string outName = string.IsNullOrWhiteSpace(txtOutputName.Text)
-                    ? System.IO.Path.GetFileNameWithoutExtension(vp) + "_Titan"
-                    : txtOutputName.Text;
+                    ? defaultOutName
+                    : SanitizeRandomNamePart(txtOutputName.Text, defaultOutName);
 
                 if (!mergeVideos && _listVideoPaths.Count > 1) outName += $"_{(i + 1):D2}";
 
