@@ -372,6 +372,17 @@
 - **Files:** `TitanEngine/AppSettings.cs`, `TitanEngine/PortInputWindow.xaml.cs`, `TitanEngine/MainWindow.xaml.cs` (mỗi file vài dòng).
 - **Protected-core impact:** không — chỉ UI preference; prefix mặc định vẫn 5555 khi chưa có setting.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `4a689e8` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 32 — 2026-11-01
+
+- **Path:** REVIEW → CODE (docs) → TEST
+- **REVIEW/CODE:** It31 thêm `LastApiPort` vào settings.json nhưng `docs/00-OVERVIEW.md` mới chỉ nói "thư mục source/output" → cập nhật bullet cho đủ (thêm port của HOST API).
+- **Files:** `docs/00-OVERVIEW.md`.
+- **Protected-core impact:** không.
+- **TEST:** markdown only.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
