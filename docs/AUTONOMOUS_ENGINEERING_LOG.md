@@ -679,6 +679,15 @@
 
 ---
 
+## ITERATION 62 — 2026-11-01 (review pass + verification)
+
+- **Path:** REVIEW/INVESTIGATION → TEST
+- **REVIEW:** UI map trong `docs/00-OVERVIEW.md` §5 khớp 11/11 với các GroupBox header thật trong `MainWindow.xaml`. `AssemblyInfo.cs` là template chuẩn WPF, không có version attribute để sửa. Không còn target mới.
+- **TEST:** build Release **0/0**; branch sync origin (`7b5ace9`), tree sạch; 62 commit so với master.
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
