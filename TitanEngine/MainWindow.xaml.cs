@@ -13049,6 +13049,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
 
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            if (files.Length > 0)
+                AppSettings.RememberSourceFolder(files[0]);
             List<string> vids = new List<string>();
             List<string> auds = new List<string>();
 

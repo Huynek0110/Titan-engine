@@ -264,6 +264,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (3 handler, +2 dòng mỗi cái).
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `d81c1cc` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 23 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Cùng tính năng It19/22 nhưng còn sót: thả file bằng drag-drop (`OnWindowDrop`) không nhớ thư mục nguồn.
+- **CODE:** +1 dòng `AppSettings.RememberSourceFolder(files[0])` trong `OnWindowDrop` (bao cả drop video lẫn audio).
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---
