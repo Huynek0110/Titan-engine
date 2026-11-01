@@ -324,6 +324,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml`.
 - **Protected-core impact:** không.
 - **TEST:** build Release **0/0**.
+- **Commit/push:** `5fb7623` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 28 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Kéo watermark trên preview (`ImgWatermark_MouseDown/Move/Up`) chỉ reset `_isWatermarkDragging` ở MouseUp — nếu mất capture mà không có MouseUp (mở dialog giữa chừng, alt-tab) thì cờ vẫn true, chuột đi ngang qua là hình nhảy theo mà không cần giữ nút.
+- **CODE:** wire thêm `LostMouseCapture="ImgWatermark_LostMouseCapture"` trên `imgWatermarkPreview` + handler mới reset cờ. Không đổi hành vi drag bình thường.
+- **Files:** `TitanEngine/MainWindow.xaml` (+1 attribute), `TitanEngine/MainWindow.xaml.cs` (+1 method nhỏ).
+- **Protected-core impact:** không — chỉ UI interaction.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

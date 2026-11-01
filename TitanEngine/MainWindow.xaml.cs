@@ -13122,6 +13122,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             (sender as UIElement)?.ReleaseMouseCapture();
         }
 
+        /// <summary>
+        /// If the mouse capture is lost without a MouseUp (dialog opened mid-drag, alt-tab, …),
+        /// the dragging flag would stay set and the next plain MouseMove would keep moving the
+        /// watermark without a button held. Reset it here so the drag always ends with the capture.
+        /// </summary>
+        private void ImgWatermark_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            _isWatermarkDragging = false;
+        }
+
         private void SldWmk_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (sldWmkScale != null && stWatermark != null)

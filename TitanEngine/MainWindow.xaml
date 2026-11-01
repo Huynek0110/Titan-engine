@@ -1559,7 +1559,7 @@
                                     <Image x:Name="imgWatermarkVideoFrame" Width="1920" Height="1080" Stretch="Fill"/>
                                 </Grid>
                                 <Canvas x:Name="cvsWatermarkPreview" Width="1920" Height="1080" Background="Transparent">
-                                    <Image x:Name="imgWatermarkPreview" Width="150" Height="150" RenderTransformOrigin="0.5,0.5" MouseLeftButtonDown="ImgWatermark_MouseDown" MouseLeftButtonUp="ImgWatermark_MouseUp" MouseMove="ImgWatermark_MouseMove" Cursor="SizeAll">
+                                    <Image x:Name="imgWatermarkPreview" Width="150" Height="150" RenderTransformOrigin="0.5,0.5" MouseLeftButtonDown="ImgWatermark_MouseDown" MouseLeftButtonUp="ImgWatermark_MouseUp" MouseMove="ImgWatermark_MouseMove" LostMouseCapture="ImgWatermark_LostMouseCapture" Cursor="SizeAll">
                                         <Image.RenderTransform>
                                             <TransformGroup>
                                                 <ScaleTransform x:Name="stWatermark"/>
