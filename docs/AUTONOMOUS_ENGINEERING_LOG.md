@@ -430,3 +430,4 @@
 6. **[đã xong It3]** Port dialog whitespace → invalid HttpListener prefix — đã normalize.
 7. **[đã xong It5]** Không có crash log → đã có `%TEMP%\TitanEngine\crash.log`.
 8. Cache PNG `%TEMP%\TitanEngine\soundbar_cache` — vùng protected (soundbar), để nguyên trừ khi user yêu cầu.
+9. **[protected core — cần authorization]** `/api/soundbar/presets` thiếu cờ `usesVoice` (mọi style đã ăn Voice từ r36, nhưng `SoundBarStyleInfo` và payload endpoint chưa có field này — `MainWindow.xaml.cs:20444` + `AudioAnalysisModels.cs:51`). Chỉ là metadata đọc-only, không đổi hành vi vẽ, nhưng nằm trong module soundbar nên cần bạn cho phép trước.
