@@ -288,6 +288,18 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (+1 dòng + comment).
 - **Protected-core impact:** không — chỉ shutdown cleanup; hành vi khi đang render vẫn như nút Stop.
 - **TEST:** build Release **0/0** + Debug **0/0**.
+- **Commit/push:** `f62555f` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 25 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** It8 cap log ở 3000 dòng bằng cách cắtflix — nhưng người dùng không biết là đã bị cắt (dòng đầu tiên tự dưng là giữa chừng).
+- **CODE:** khi trim, prepend một dòng marker `--- N older log lines hidden ---` và tính cả dòng marker vào counter.
+- **Files:** `TitanEngine/MainWindow.xaml.cs` (2 dòng trong khối trim của `LogSystem`).
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
 
 ---

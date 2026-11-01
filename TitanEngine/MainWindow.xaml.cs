@@ -20641,8 +20641,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             cut = nl + 1;
                             dropped++;
                         }
-                        txtLogs.Text = text.Substring(cut);
+                        txtLogs.Text = $"--- {dropped} older log lines hidden ---\n" + text.Substring(cut);
                         _logViewLines -= dropped;
+                        _logViewLines++; // the marker line itself
                     }
 
                     txtLogs.ScrollToEnd();
