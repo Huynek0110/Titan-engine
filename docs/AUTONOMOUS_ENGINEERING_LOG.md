@@ -508,11 +508,19 @@
 - **Path:** REVIEW/INVESTIGATION → TEST
 - **REVIEW:** Queue API đã chuẩn (405 sai method, 409 đang chạy, 200 "no pending jobs" khi queue rỗng). AppSettings bọc try/catch cả đọc lẫn ghi. Không còn target an toàn mới rõ ràng ở các vùng đã quét — theo §5 của lệnh: không bịa thêm thay đổi.
 - **TEST:** build Release **0/0** + Debug **0/0**; `git status` sạch, branch sync origin (`5c3004d`).
-- **Commit/push:** chỉ log.
+- **Commit/push:** `1672c1f` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
 
 ---
 
-## STOP REPORT (lần 1) — 2026-11-01
+## ITERATION 45 — 2026-11-01 (phân tích chênh lệch 2 bản API guide — hỗ trợ backlog #1)
+
+- **Path:** REVIEW/INVESTIGATION → CODE (docs)
+- **REVIEW/CODE:** So sánh 2 bản `BAS_LOCALHOST_API_GUIDE.txt`: root 997 dòng vs packaged 1196 dòng. Kết quả cụ thể (grep theo chủ đề): root có `AUDIO 1 VOICE FX` (2) và `WHISPER` (1) mà packaged thiếu; packaged có `CROSS-CLIP` gấp đôi và mục `AUDIO 1 / AUDIO 2 API` bản chuẩn. Kết luận: không bản nào là superset → ghi evidence vào BACKLOG mục 1 để user quyết định gộp thế nào. Không sửa nội dung guide (cần user chọn giữ gì).
+- **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
+- **TEST:** không cần build (chỉ docs).
+- **Commit/push:** (điền hash sau khi push)
+
+---
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83`, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
 - **Tổng kết:** 38 iteration (It1–It38). Build Release + Debug đều **0 warn / 0 err** ở checkpoint cuối; smoke-launch exe OK; 2 lần e2e render thật (audio-ring 23.1 s, neon-bars 21.1 s) với ffprobe đúng và full-decode 0 lỗi.
@@ -523,7 +531,7 @@
 
 ## BACKLOG (ưu tiên từ cao xuống thấp — theo evidence, không làm lại cái đã xong)
 
-1. **[cần user quyết định]** Gộp 2 bản `BAS_LOCALHOST_API_GUIDE.txt` (root bản cũ lệch vs bản được đóng gói trong `TitanEngine/`). Mỗi bản có phần riêng — cần user chọn giữ gì. Xem `docs/30-API.md` §mục 6.
+1. **[cần user quyết định — đã có evidence ở It45]** Gộp 2 bản `BAS_LOCALHOST_API_GUIDE.txt`: root (997 dòng) vs bản được đóng gói `TitanEngine/` (1196 dòng). **Không bản nào là siêu tập của bản kia**: root có `4C) AUDIO 1 VOICE FX` + chi tiết WHISPER/Caption Sync + `4AA) TEXT OVERLAY` bản đầy đủ mà packaged thiếu; packaged có thêm `CROSS-CLIP TRANSITIONS`, `4F) AUDIO 1/AUDIO 2 API`, và nhiều ví dụ hơn (8 ví dụ) mà root thiếu. Quyết định của bạn: giữ packaged làm chuẩn và port các mục của root sang, hoặc ngược lại.
 2. **[protected core — cần authorization rõ]** Mọi thay đổi render pipeline / soundbar / effect / API core: `MainWindow.xaml.cs` (EngineCore), `SoundBar*`, `AudioSpectrumAnalyzer.cs`, `EffectRecipe*`, overlay presets. Hiện tại không có issue mở ở các vùng này.
 3. **[việc lớn, không gấp]** Tách `MainWindow.xaml.cs` ~18.2k dòng thành nhiều file theo vùng (UI / queue / API / EngineCore). Rủi ro cao, cần kế hoạch riêng.
 4. **[cần user duyệt vì là feature mới]** Per-style palettes, animated preview trong UI picker, loop window >6 s (hiện cap 180 frame = 6 s).
