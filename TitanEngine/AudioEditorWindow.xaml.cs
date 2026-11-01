@@ -17,6 +17,9 @@ namespace TitanEngine
 {
     public partial class AudioEditorWindow : Window
     {
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern void DwmSetWindowAttribute(System.IntPtr hwnd, int attribute, ref int value, int size);
+
         private readonly string _audioPath;
         private double _durationSeconds;
         private readonly MediaPlayer _player = new MediaPlayer();
@@ -30,6 +33,39 @@ namespace TitanEngine
 
         public ObservableCollection<AudioEditSegment> Segments { get; } = new ObservableCollection<AudioEditSegment>();
         public List<AudioEditSegment> ResultSegments { get; private set; } = new List<AudioEditSegment>();
+
+        /// <summary>
+        /// Same dark chrome as the main window (immersive dark title bar + rounded corners + brand
+        /// icon) so secondary windows match the V193 look. Purely visual, additive, silently skipped
+        /// where DWM or the logo file is unavailable.
+        /// </summary>
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            try
+            {
+                string logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Content", "Branding", "video-logo.png");
+                if (File.Exists(logoPath))
+                    Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(logoPath));
+            }
+            catch
+            {
+                // Cosmetic only - never block startup over a missing icon.
+            }
+
+            try
+            {
+                System.IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                int on = 1;
+                DwmSetWindowAttribute(hwnd, 20, ref on, 4);   // DWMWA_USE_IMMERSIVE_DARK_MODE
+                int round = 2;
+                DwmSetWindowAttribute(hwnd, 33, ref round, 4); // DWMWA_WINDOW_CORNER_PREFERENCE = ROUND
+            }
+            catch
+            {
+                // Older DWM: keep the standard chrome, nothing else depends on it.
+            }
+        }
 
         public AudioEditorWindow(string audioPath, double durationSeconds, List<AudioEditSegment> initialSegments)
         {

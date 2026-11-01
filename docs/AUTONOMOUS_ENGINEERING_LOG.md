@@ -103,4 +103,16 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (1 method + 3 dòng field/const).
 - **Protected-core impact:** không — chỉ log view của UI; pipeline/queue/API không đụng.
 - **TEST:** build Release **0/0**; launch exe 10 s → `APP_RUNNING_OK`.
+- **Commit/push:** `2f4b71c` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 9 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Main window có dark DWM title bar + bo góc + icon (từ round V193), nhưng `AudioEditorWindow` và `PortInputWindow` vẫn để chrome mặc định của Windows → khi mở 2 cửa sổ này chúng sáng/già hơn hẳn so với main.
+- **CODE:** copy đúng pattern `OnSourceInitialized` (DWMWA_USE_IMMERSIVE_DARK_MODE=20, DWMWA_WINDOW_CORNER_PREFERENCE=33=ROUND, icon từ `Content/Branding/video-logo.png`, mọi thứ bọc try/catch) vào cả 2 code-behind. Visual-only, additive, không đổi layout/hành vi.
+- **Files:** `TitanEngine/AudioEditorWindow.xaml.cs`, `TitanEngine/PortInputWindow.xaml.cs`.
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**.
 - **Commit/push:** (điền hash sau khi push)
