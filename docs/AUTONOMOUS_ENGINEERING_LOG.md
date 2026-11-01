@@ -667,7 +667,15 @@
 - **REVIEW/CODE:** Các clamp mới (It35/37/39/40) là thay đổi hợp đồng thấy được của API nhưng bản guide được đóng gói (`TitanEngine/BAS_LOCALHOST_API_GUIDE.txt`) chưa ghi → thêm comment vào block ví dụ JSON: customBitrate 100..200000, targetWidth/Height 16..7680, imageTimelineDurationSeconds 0..3600, textOverlayFontSize 8..400, textOverlayColor hợp lệ. Không đụng bản root vì đang chờ bạn quyết định gộp (backlog #1).
 - **Files:** `TitanEngine/BAS_LOCALHOST_API_GUIDE.txt`.
 - **TEST:** docs only; build không đổi (0/0 từ It59).
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `e6d11a2` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 61 — 2026-11-01 (verification sweep)
+
+- **Path:** REVIEW/INVESTIGATION → TEST
+- **TEST:** build Release **0/0** + Debug **0/0**; branch sync origin (`e6d11a2`), tree sạch; 61 commit so với master. Không còn target an toàn mới — tiếp tục review ở các vòng sau.
+- **Commit/push:** chỉ log.
 
 ---
 
