@@ -522,6 +522,16 @@
 
 ---
 
+## ITERATION 46 — 2026-11-01 (security review note — chỉ ghi nhận, không đổi)
+
+- **Path:** REVIEW/INVESTIGATION → CODE (docs)
+- **REVIEW:** API set `Access-Control-Allow-Origin: *` ở 2 chỗ (:20574, :20618). Listener chỉ bind 127.0.0.1 và HOST mặc định off theo docs, nhưng wildcard CORS + HOST bật = trang web bất kỳ trong trình duyệt có thể gọi API nội bộ (PNA của browser hiện đại chặn phần nào). Vì BAS dashboard có thể cần wildcard → không tự đổi, ghi vào BACKLOG mục 11 kèm đề xuất (chỉ set header khi Origin là localhost, hoặc thêm tuỳ chọn tắt CORS).
+- **Files:** `docs/AUTONOMOUS_ENGINEERING_LOG.md`.
+- **TEST:** không cần build (docs).
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.
@@ -543,3 +553,4 @@
 8. Cache PNG `%TEMP%\TitanEngine\soundbar_cache` — vùng protected (soundbar), để nguyên trừ khi user yêu cầu.
 9. **[protected core — cần authorization]** `/api/soundbar/presets` thiếu cờ `usesVoice` (mọi style đã ăn Voice từ r36, nhưng `SoundBarStyleInfo` và payload endpoint chưa có field này — `MainWindow.xaml.cs:20444` + `AudioAnalysisModels.cs:51`). Chỉ là metadata đọc-only, không đổi hành vi vẽ, nhưng nằm trong module soundbar nên cần bạn cho phép trước.
 10. **[cần bạn quyết định — API là critical integration, không tự đổi]** `OnSystemLoaded` (`MainWindow.xaml.cs:12574`) gọi `StartLocalApiServer()` ngay lúc boot → HOST mode ON mặc định, trong khi `docs/00-OVERVIEW.md` + `docs/30-API.md` đều ghi "OFF mặc định, 503 cho tới khi bấm HOST" và log in ra "[API] Host mode OFF". hoặc code hoặc docs đang sai một; nếu BAS của bạn đang dựa vào việc API tự bật thì đừng sửa code.
+11. **[security note — cần bạn quyết định]** API trả `Access-Control-Allow-Origin: *` (:20574, :20618). Listener chỉ bind 127.0.0.1 nên rủi ro thấp, và BAS dashboard trên trình duyệt cần wildcard này — nhưng về lý thuyết một trang web bất kỳ mở trong trình duyệt của bạn có thể POST vào `127.0.0.1:5555` khi HOST đang bật (browser hiện đại có Private Network Access chặn phần nào). Đề xuất nếu muốn chặt: chỉ set header khi `Origin` là localhost/127.0.0.1, hoặc thêm tuỳ chọn tắt CORS. Không đổi vì có thể gãy BAS.
