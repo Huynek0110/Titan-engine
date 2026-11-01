@@ -127,4 +127,16 @@
 - **Files:** `TitanEngine/MainWindow.xaml.cs` (comment block), `docs/00-OVERVIEW.md`.
 - **Protected-core impact:** không (chỉ comment).
 - **TEST:** build Release **0/0** (comment không ảnh hưởng nhưng build để chắc).
+- **Commit/push:** `9b31b62` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 11 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Sau khi retheme XAML của `AudioEditorWindow`, phần vẽ tay trên canvas (code-behind) vẫn dùng palette cũ: nền `#101016`, track `#1C1C26`, segment teal `#00BAD6/#85EBFF`, playhead `#FF6666`, label `White`.
+- **CODE:** map sang V193 palette: nền → card #11141A, viền → #1E242E, track → input #161B22, segment → accent #4CC3FF (alpha 230) + stroke #6FD4FF, label → #F0F4F8, playhead → #F43F5E. Chỉ đổi giá trị màu trong `DrawTimeline`, không đổi hình học.
+- **Files:** `TitanEngine/AudioEditorWindow.xaml.cs` (5 màu).
+- **Protected-core impact:** không — canvas của cửa sổ phụ.
+- **TEST:** build Release **0/0**; grep xác nhận không còn màu cũ nào trong file.
 - **Commit/push:** (điền hash sau khi push)

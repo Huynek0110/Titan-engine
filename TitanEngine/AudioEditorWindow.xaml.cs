@@ -525,8 +525,8 @@ namespace TitanEngine
                 Height = height - 2,
                 RadiusX = 4,
                 RadiusY = 4,
-                Fill = new SolidColorBrush(Color.FromRgb(16, 16, 22)),
-                Stroke = new SolidColorBrush(Color.FromRgb(52, 52, 62)),
+                Fill = new SolidColorBrush(Color.FromRgb(17, 20, 26)),
+                Stroke = new SolidColorBrush(Color.FromRgb(30, 36, 46)),
                 StrokeThickness = 1
             };
             Canvas.SetLeft(background, 1);
@@ -543,7 +543,7 @@ namespace TitanEngine
                 Height = trackHeight,
                 RadiusX = 4,
                 RadiusY = 4,
-                Fill = new SolidColorBrush(Color.FromRgb(28, 28, 38))
+                Fill = new SolidColorBrush(Color.FromRgb(22, 27, 34))
             };
             Canvas.SetLeft(baseTrack, 7);
             Canvas.SetTop(baseTrack, trackTop);
@@ -561,8 +561,8 @@ namespace TitanEngine
                     Height = trackHeight,
                     RadiusX = 4,
                     RadiusY = 4,
-                    Fill = new SolidColorBrush(Color.FromArgb(230, 0, 186, 255)),
-                    Stroke = new SolidColorBrush(Color.FromArgb(255, 133, 235, 255)),
+                    Fill = new SolidColorBrush(Color.FromArgb(230, 76, 195, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(255, 111, 212, 255)),
                     StrokeThickness = 1
                 };
                 Canvas.SetLeft(segRect, left);
@@ -574,7 +574,7 @@ namespace TitanEngine
                     var label = new TextBlock
                     {
                         Text = $"{segment.StartText} - {segment.EndText}",
-                        Foreground = Brushes.White,
+                        Foreground = new SolidColorBrush(Color.FromRgb(240, 244, 248)),
                         FontSize = 10,
                         FontWeight = FontWeights.SemiBold
                     };
@@ -594,7 +594,7 @@ namespace TitanEngine
                 X2 = playheadX,
                 Y1 = 10,
                 Y2 = height - 10,
-                Stroke = new SolidColorBrush(Color.FromRgb(255, 102, 102)),
+                Stroke = new SolidColorBrush(Color.FromRgb(244, 63, 94)),
                 StrokeThickness = 2
             };
             cvsTimeline.Children.Add(playhead);
