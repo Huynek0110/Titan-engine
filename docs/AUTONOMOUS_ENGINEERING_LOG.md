@@ -569,7 +569,16 @@
 - **REVIEW/CODE:** Bảng log-prefix ở `docs/10-RENDER-PIPELINE.md` §11 thiếu các prefix mà code thật đã phát ra (`[AUDIO-EDITOR]`, `[API-*]`…) → thêm 2 dòng vào bảng. Đã rà flow mở Audio Editor (validate đủ: báo lỗi khi chưa chọn audio, merge preview vào temp, có catch + MessageBox).
 - **Files:** `docs/10-RENDER-PIPELINE.md`.
 - **TEST:** docs only; build đã 0/0 ở It49.
-- **Commit/push:** (điền hash sau khi push)
+- **Commit/push:** `d21313e` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 51 — 2026-11-01 (review pass)
+
+- **Path:** REVIEW/INVESTIGATION → TEST
+- **REVIEW:** Đã rà các handler ô % soundbar (`TxtSoundBarPercent_TextChanged` :15258, debounce preview, cờ guard load-bearing) — đã được làm kỹ ở các vòng soundbar trước và thuộc vùng protected-adjacent nên không đụng. Không có target mới.
+- **TEST:** build không đổi từ It49 (0/0 cả 2 config); branch sync origin (`d21313e`), tree sạch.
+- **Commit/push:** chỉ log.
 
 ---
 
