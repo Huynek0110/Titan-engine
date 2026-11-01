@@ -139,4 +139,16 @@
 - **Files:** `TitanEngine/AudioEditorWindow.xaml.cs` (5 màu).
 - **Protected-core impact:** không — canvas của cửa sổ phụ.
 - **TEST:** build Release **0/0**; grep xác nhận không còn màu cũ nào trong file.
+- **Commit/push:** `ccbb981` — pushed + verified on `origin/autonomous/continuous-improvements-20261031-201926`
+
+---
+
+## ITERATION 12 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Quét lại toàn bộ XAML/C# tìm màu palette cũ: phát hiện `PortInputWindow.xaml` vẫn còn `#1E1E1E/#2E2E2E/#448844/#559955/#88CCFF` — vòng trước regex `#[0-9A-Fa-f]{3}` đứng trước `{6}` nên nuốt mất 3 ký tự đầu của hex 6 chữ số và không map được. `AudioEditorWindow.xaml` kiểm lại sạch (0 màu cũ).
+- **CODE:** chạy lại perl với thứ tự đúng (6-digit trước 3-digit) → toàn bộ màu của PortInputWindow đã về palette V193 (xem output: `#0A0C10/#161B22/#4CC3FF/#149E44/#22C55E/#171B23/#262D38/#F0F4F8`). `EffectRecipeLibrary.cs:204` là palette của effect recipe (protected) — cố tình không đụng.
+- **Files:** `TitanEngine/PortInputWindow.xaml`.
+- **Protected-core impact:** không.
+- **TEST:** build Release **0/0**; grep xác nhận không còn hex cũ nào trong cả 2 file.
 - **Commit/push:** (điền hash sau khi push)

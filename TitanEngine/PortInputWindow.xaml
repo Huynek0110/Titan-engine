@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Host API Port" Height="220" Width="420"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
-        Background="#1E1E1E">
+        Background="#0A0C10">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -15,13 +15,13 @@
         
         <TextBlock Text="Enter localhost API port:" Foreground="#F0F4F8" FontSize="14" Grid.Row="0" Margin="0,0,0,10"/>
         <TextBox x:Name="txtPort" Grid.Row="1" Text="5555" FontSize="16" Height="30" TextChanged="TxtPort_TextChanged" 
-                 Background="#2E2E2E" Foreground="#F0F4F8" BorderBrush="#262D38" Padding="5,0,0,0" VerticalContentAlignment="Center"/>
+                 Background="#161B22" Foreground="#F0F4F8" BorderBrush="#262D38" Padding="5,0,0,0" VerticalContentAlignment="Center"/>
         
-        <TextBlock x:Name="lblPreview" Grid.Row="2" Foreground="#88CCFF" Margin="0,15,0,0" FontSize="14" TextWrapping="Wrap"/>
+        <TextBlock x:Name="lblPreview" Grid.Row="2" Foreground="#4CC3FF" Margin="0,15,0,0" FontSize="14" TextWrapping="Wrap"/>
         
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
             <Button x:Name="btnCancel" Content="Cancel" Width="80" Height="30" Margin="0,0,10,0" Click="BtnCancel_Click" Background="#171B23" Foreground="#F0F4F8" BorderBrush="#262D38"/>
-            <Button x:Name="btnOk" Content="OK" Width="80" Height="30" Click="BtnOk_Click" Background="#448844" Foreground="#F0F4F8" BorderBrush="#559955"/>
+            <Button x:Name="btnOk" Content="OK" Width="80" Height="30" Click="BtnOk_Click" Background="#149E44" Foreground="#F0F4F8" BorderBrush="#22C55E"/>
         </StackPanel>
     </Grid>
 </Window>
