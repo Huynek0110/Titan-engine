@@ -582,6 +582,18 @@
 
 ---
 
+## ITERATION 52 — 2026-11-01
+
+- **Path:** REVIEW/INVESTIGATION → CODE → TEST
+- **REVIEW:** Quét resource chết trong `MainWindow.xaml`: chỉ còn `AccentDimBrush` được khai báo nhưng không được tham chiếu (3 chỗ trong resources vẫn dùng raw `#1F4258`).
+- **CODE:** 3 setter trong `Window.Resources` đổi `Value="#1F4258"` → `Value="{StaticResource AccentDimBrush}"` — y hệt pixel, không còn resource mồ côi.
+- **Files:** `TitanEngine/MainWindow.xaml` (3 dòng).
+- **Protected-core impact:** không; chỉ style trong resources.
+- **TEST:** build Release **0/0**.
+- **Commit/push:** (điền hash sau khi push)
+
+---
+
 ## STOP REPORT (lần 1) — 2026-11-01 (đã resume lại theo lệnh "start AUTONOMOUS LOOP")
 
 - **Branch:** `autonomous/continuous-improvements-20261031-201926`, HEAD `d87cb83` lúc stop, đã push + verify, tree sạch, sync origin. Backup gốc `backup/pre-autonomous-improvements-20261031-201926` = `ac8bd33` không đụng; `master` không đổi.

@@ -69,7 +69,7 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="#161B22"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="#1F4258"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource AccentDimBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -84,7 +84,7 @@
             <Setter Property="Background" Value="#161B22"/>
             <Setter Property="Foreground" Value="#E8EEF5"/>
             <Setter Property="CaretBrush" Value="#4CC3FF"/>
-            <Setter Property="SelectionBrush" Value="#1F4258"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentDimBrush}"/>
             <Setter Property="BorderBrush" Value="#262D38"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="9,7"/>
@@ -125,7 +125,7 @@
                                 <Setter Property="Foreground" Value="#FFFFFF"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="itemBorder" Property="Background" Value="#1F4258"/>
+                                <Setter TargetName="itemBorder" Property="Background" Value="{StaticResource AccentDimBrush}"/>
                                 <Setter Property="Foreground" Value="#4CC3FF"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
