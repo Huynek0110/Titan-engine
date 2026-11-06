@@ -287,7 +287,7 @@ namespace TitanEngine
 
         private static readonly SoundBarStyleInfo[] Styles = BuildStyles();
 
-        /// <summary>All 12 styles in menu order.</summary>
+        /// <summary>All styles in menu order - the canonical table (keep in sync with <see cref="SoundBarStyleId"/>).</summary>
         public static IReadOnlyList<SoundBarStyleInfo> AllStyles => Styles;
 
         /// <summary>Resolves a style by kebab id, display name or enum name. Returns null when unknown.</summary>
@@ -420,6 +420,29 @@ namespace TitanEngine
             {
                 for (int i = 0; i < stops.Count; i++)
                     material.Append(stops[i].Offset.ToString("F4", inv)).Append(':').Append(stops[i].Hex).Append('|');
+            }
+
+            // Media-card fields enter the key ONLY for the style that draws them, so adding them
+            // does not change (and therefore does not re-render) any other style's cached loop.
+            if (safeSettings.Style == SoundBarStyleId.MediaCard)
+            {
+                string art = safeSettings.MediaArtworkPath ?? string.Empty;
+                material.Append("art=").Append(art).Append('|');
+                if (!string.IsNullOrEmpty(art))
+                {
+                    try
+                    {
+                        var fi = new FileInfo(art);
+                        if (fi.Exists)
+                            material.Append(fi.Length).Append(':').Append(fi.LastWriteTimeUtc.Ticks).Append('|');
+                    }
+                    catch
+                    {
+                        // Unreadable path still hashes the raw string above; the render falls back to the placeholder.
+                    }
+                }
+                material.Append("title=").Append(safeSettings.MediaTitle ?? string.Empty).Append('|');
+                material.Append("artist=").Append(safeSettings.MediaArtist ?? string.Empty).Append('|');
             }
         }
 
@@ -914,6 +937,12 @@ namespace TitanEngine
                     "Glowing stars pinned to local band maxima, fading over time.", true, false, false, false, 64),
                 MakeStyle(SoundBarStyleId.AudioRing, "audio-ring", "Audio Ring (NCS)",
                     "Quả cầu hạt 3D quay theo nhạc bên trong vòng neon mép sóng - đúng kiểu sphere NCS.", true, true, false, false, 64),
+                MakeStyle(SoundBarStyleId.EchoWave, "echo-wave", "Echo Wave",
+                    "Noctalia spectrum wave: 32 pooled control points, gamma 0.4 + baseline, Catmull-Rom curve with edge fade and a phase-shifted echo layer.", true, false, false, false, 32),
+                MakeStyle(SoundBarStyleId.Sunburst, "sunburst", "Sunburst",
+                    "Noctalia fancy visualizer (bars): 64 mirrored polar rays from an inner ring, 3-stop colour ramp, bass-brightened.", true, false, false, false, 32),
+                MakeStyle(SoundBarStyleId.MediaCard, "media-card", "Media Card",
+                    "Noctalia media-player card: album thumbnail + title + artist + embedded 16-band spectrum + progress bar (only style that reads the media-* fields).", true, false, false, false, 16),
             };
         }
 

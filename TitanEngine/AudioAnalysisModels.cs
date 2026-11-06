@@ -4,7 +4,11 @@ using System.Collections.Generic;
 namespace TitanEngine
 {
     /// <summary>
-    /// The 12 audio-visualizer styles shipped in the SoundBar v1 pass.
+    /// The audio-visualizer styles shipped with the SoundBar renderer. The canonical table is
+    /// <c>SoundBarVisualizerPreset.BuildStyles</c> - do not hardcode a count here (r22+ added
+    /// audio-ring; a later port added echo-wave / sunburst / media-card from Noctalia 5.4.1 -
+    /// RendererVersion stayed r38 because no existing style's pixels changed; the new style
+    /// ids are part of the cache key, so old cached loops are never mis-served).
     /// String ids are the stable contract used by the UI, the localhost API and the cache key.
     /// </summary>
     public enum SoundBarStyleId
@@ -27,7 +31,26 @@ namespace TitanEngine
         /// bars radiating from a hub, the After Effects "polar spectrum" look - this is a single
         /// stroked circle, matching the ring that NCS has used on its uploads since 2013.
         /// </summary>
-        AudioRing = 12
+        AudioRing = 12,
+
+        /// <summary>
+        /// Ported from Noctalia 5.4.1's spectrum wave (audio_spectrum_program.cpp, show_wave=true):
+        /// 32 pooled control points, gamma 0.4 + 0.10 baseline, 3-tap blur, Catmull-Rom curve with an
+        /// 18 % edge fade, plus a phase-shifted 55 % echo wave in the accent colour.
+        /// </summary>
+        EchoWave = 13,
+        /// <summary>
+        /// Ported from Noctalia 5.4.1's fancy visualizer in bars mode
+        /// (fancy_audio_visualizer_program.cpp): 64 mirrored polar rays rising from an inner ring,
+        /// 3-stop colour ramp (primary*0.6 -&gt; primary -&gt; secondary), bass-brightened.
+        /// </summary>
+        Sunburst = 14,
+        /// <summary>
+        /// Ported from Noctalia 5.4.1's desktop media player card (desktop_media_player_widget):
+        /// rounded card with album-art thumbnail, track title, artist line, an embedded 16-band
+        /// mini spectrum and a progress bar along the card's bottom edge.
+        /// </summary>
+        MediaCard = 15
     }
 
     /// <summary>Which audio stream feeds the visualizer.</summary>
@@ -92,6 +115,13 @@ namespace TitanEngine
         public double Roundness { get; set; } = 1.0;
         /// <summary>Multiplier on the additive glow passes.</summary>
         public double GlowIntensity { get; set; } = 1.0;
+
+        /// <summary>Album-art thumbnail path for the media-card style. Null/empty = placeholder glyph.</summary>
+        public string? MediaArtworkPath { get; set; }
+        /// <summary>Track title line of the media-card style. Empty = the line is not drawn.</summary>
+        public string MediaTitle { get; set; } = string.Empty;
+        /// <summary>Artist line of the media-card style. Empty = the line is not drawn.</summary>
+        public string MediaArtist { get; set; } = string.Empty;
 
         public SoundBarSettings Clone() => (SoundBarSettings)MemberwiseClone();
     }

@@ -69,8 +69,8 @@ Hai chế độ hoạt động:
 | File | Vai trò |
 |---|---|
 | `AudioSpectrumAnalyzer.cs` | PCM → FFT → bands + waveform + `Voice` + onset + timeline audibility |
-| `AudioAnalysisModels.cs` | `SoundBarStyleId` (13 style), `SoundBarAudioSource`, `AudioFrameData` |
-| `SoundBarStyleRenderer.cs` | Hình học 13 style + helper dùng chung (peak cap, beat envelope, bloom, reflection…) |
+| `AudioAnalysisModels.cs` | `SoundBarStyleId` (16 style), `SoundBarAudioSource`, `AudioFrameData` |
+| `SoundBarStyleRenderer.cs` | Hình học 16 style + helper dùng chung (peak cap, beat envelope, bloom, reflection…) |
 | `SoundBarVisualizerPreset.cs` | Sinh PNG loop, cache SHA-256, dựng graph composite. **`RendererVersion` ở đây** |
 | `SoundBarPalette.cs` | 30 palette NCS |
 

@@ -143,15 +143,10 @@ namespace TitanEngine
             double duration = Math.Max(0.5, outputDurationSeconds);
             string filter;
 
-            if (recipe.Name.Equals("FilmBurnWarm", StringComparison.OrdinalIgnoreCase))
-            {
-                double center = Math.Max(0.18, duration - 0.46);
-                filter = $"eq=brightness='0.18*exp(-10*abs(t-{center.ToString("0.###", CultureInfo.InvariantCulture)}))':contrast=1.08:saturation=1.18";
-            }
-            else
-            {
-                filter = "eq=brightness='0.055*(0.5+0.5*sin(2*PI*t/4.8))':contrast=1.045:saturation=1.12,colorbalance=rs=0.06:gs=0.015:bs=-0.035";
-            }
+            // NOTE: the "FilmBurnWarm" branch is intentionally absent — every recipe named
+            // FilmBurnWarm (or resolving via the light-leak key) already threw above, because
+            // light leak is asset-only and must never take a procedural fallback.
+            filter = "eq=brightness='0.055*(0.5+0.5*sin(2*PI*t/4.8))':contrast=1.045:saturation=1.12,colorbalance=rs=0.06:gs=0.015:bs=-0.035";
 
             onLog($"[RECIPE-OVERLAY-FALLBACK] {recipe.Name} asset missing; using built-in FFmpeg fallback.");
             return filter;

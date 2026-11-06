@@ -884,6 +884,33 @@
                                     <ComboBox x:Name="cmbSoundBarPalette" Height="28" SelectionChanged="CmbSoundBar_Changed" Margin="0,0,0,8"/>
                                     <TextBlock Text="NGUỒN ÂM THANH" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
                                     <ComboBox x:Name="cmbSoundBarAudioSource" Height="28" SelectionChanged="CmbSoundBar_Changed" Margin="0,0,0,8"/>
+
+                                    <!-- Chỉ style "media-card" đọc các trường này; panel ẩn hoàn toàn với style khác -->
+                                    <StackPanel x:Name="pnlMediaCard" Visibility="Collapsed" Margin="0,0,0,8">
+                                        <TextBlock Text="THÔNG TIN MEDIA CARD (chỉ dùng khi Kiểu = Media Card)" Foreground="#4CC3FF" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="44"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="44" Height="44" CornerRadius="6" BorderBrush="#262D38" BorderThickness="1" Background="#161B22">
+                                                <Image x:Name="imgMediaCardArt" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <TextBlock x:Name="txtMediaCardArtPath" Grid.Column="1" Text="(chưa chọn ảnh - sẽ vẽ nốt nhạc mặc định)" Foreground="#7A7A8A" FontSize="10" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                                            <Button x:Name="btnPickMediaCardArt" Grid.Column="2" Content="Chọn ảnh…" Height="26" Padding="8,0,8,0" Click="BtnPickMediaCardArt_Click" ToolTip="Ảnh bìa (album art) vẽ ở góc trái thẻ media-card trong soundbar"/>
+                                        </Grid>
+                                        <TextBlock Text="TÊN BÀI HÁT" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+                                        <TextBox x:Name="txtMediaCardTitle" Height="28" Padding="4,2,4,2" FontSize="12" Background="#161B22" Foreground="#4CC3FF" BorderBrush="#262D38" BorderThickness="1" VerticalContentAlignment="Center" Margin="0,0,0,8" TextChanged="TxtMediaCardField_Changed" ToolTip="Dòng tiêu đề trên thẻ media-card. Để trống = không vẽ dòng này."/>
+                                        <TextBlock Text="NGHỆ SĨ" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+                                        <TextBox x:Name="txtMediaCardArtist" Height="28" Padding="4,2,4,2" FontSize="12" Background="#161B22" Foreground="#4CC3FF" BorderBrush="#262D38" BorderThickness="1" VerticalContentAlignment="Center" Margin="0,0,0,8" TextChanged="TxtMediaCardField_Changed" ToolTip="Dòng nghệ sĩ dưới tên bài trên thẻ media-card. Để trống = không vẽ dòng này."/>
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="TIẾN TRÌNH THEO VIDEO" Foreground="#8B95A5" FontSize="10"/>
+                                            <TextBlock x:Name="txtMediaCardProgress" Text="0%" Foreground="#4CC3FF" FontSize="10" FontWeight="Bold" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                        <ProgressBar x:Name="prgMediaCardVideo" Height="6" Minimum="0" Maximum="100" Value="0" Foreground="#4CC3FF" Background="#161B22" Margin="0,0,0,2" ToolTip="Thanh thời gian của thẻ media-card chạy theo video preview (không phải theo vòng lặp PNG)"/>
+                                    </StackPanel>
+
                                     <Grid Margin="0,0,0,6">
                                         <TextBlock Text="Độ đục" Foreground="#C9D2DE" FontSize="11"/>
                                         <TextBlock Text="{Binding ElementName=sldSoundBarOpacity, Path=Value, StringFormat={}{0:F2}}" Foreground="#4CC3FF" FontWeight="Bold" HorizontalAlignment="Right"/>

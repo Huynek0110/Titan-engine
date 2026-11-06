@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace TitanEngine
 {
@@ -773,6 +776,15 @@ namespace TitanEngine
                         break;
                     case SoundBarStyleId.AudioRing:
                         DrawAudioRing(dc, ctx);
+                        break;
+                    case SoundBarStyleId.EchoWave:
+                        DrawEchoWave(dc, ctx);
+                        break;
+                    case SoundBarStyleId.Sunburst:
+                        DrawSunburst(dc, ctx);
+                        break;
+                    case SoundBarStyleId.MediaCard:
+                        DrawMediaCard(dc, ctx);
                         break;
                     case SoundBarStyleId.NeonBars:
                     default:
@@ -2889,6 +2901,651 @@ namespace TitanEngine
         }
 
         // ------------------------------------------------------------------
+        // 14. EchoWave - port of Noctalia 5.4.1 audio_spectrum_program.cpp (show_wave = true)
+        // ------------------------------------------------------------------
+
+        /// <summary>Control points of the EchoWave curve - Noctalia kAudioSpectrumWaveBands.</summary>
+        private const int EchoWaveControlPoints = 32;
+        /// <summary>Wave baseline lift - kWaveBaseline, so valleys read as one rolling wave, not teeth.</summary>
+        private const double EchoWaveBaseline = 0.10;
+        /// <summary>Gamma on the pooled band average - the shader's pow(v, 0.4).</summary>
+        private const double EchoWaveGamma = 0.4;
+        /// <summary>Edge fade width as a fraction of the curve - kWaveEdgeFade.</summary>
+        private const double EchoWaveEdgeFade = 0.18;
+        /// <summary>Echo layer sampling offset in control points - kWaveSecondaryOffset (0.3 x pointCount).</summary>
+        private const double EchoWaveEchoOffset = 0.30;
+        /// <summary>Echo layer amplitude scale - kWaveSecondaryScale.</summary>
+        private const double EchoWaveEchoScale = 0.55;
+
+        private static void DrawEchoWave(DrawingContext dc, FrameContext ctx)
+        {
+            Rect plot = ctx.Plot;
+            if (plot.Width < 4.0 || plot.Height < 4.0)
+                return;
+
+            int barCount = Math.Max(2, ctx.BarCount);
+            int pointCount = Math.Min(barCount, EchoWaveControlPoints);
+
+            // Pool the bar slots into the fixed control-point count, gamma-lift and add the
+            // baseline (audio_spectrum_program.cpp:179-191).
+            var points = new double[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                int s0 = (i * barCount) / pointCount;
+                int s1 = Math.Max(s0 + 1, ((i + 1) * barCount) / pointCount);
+                int hi = Math.Min(s1, barCount);
+                double sum = 0.0;
+                for (int j = s0; j < hi; j++)
+                    sum += ctx.SampleBand(j, barCount, true);
+                double avg = sum / Math.Max(1, hi - s0);
+                points[i] = EchoWaveBaseline + ((1.0 - EchoWaveBaseline) * Math.Pow(Math.Clamp(avg, 0.0, 1.0), EchoWaveGamma));
+            }
+
+            // 3-tap blur across the control points (:195-201) so the raw FFT comb does not cut teeth.
+            var curve = new double[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                double Get(int idx) => points[Math.Clamp(idx, 0, pointCount - 1)];
+                curve[i] = (0.25 * Get(i - 1)) + (0.5 * Get(i)) + (0.25 * Get(i + 1));
+            }
+
+            // Catmull-Rom sampling of the control points (:203-226).
+            double SampleValue(double position)
+            {
+                double clamped = Math.Clamp(position, 0.0, pointCount - 1.0);
+                int i = (int)Math.Floor(clamped);
+                double frac = clamped - i;
+                double Get(int idx) => curve[Math.Clamp(idx, 0, pointCount - 1)];
+                if (frac == 0.0)
+                    return Get(i);
+                double p0 = Get(i - 1);
+                double p1 = Get(i);
+                double p2 = Get(i + 1);
+                double p3 = Get(i + 2);
+                double t2 = frac * frac;
+                double t3 = t2 * frac;
+                return (1.0 / 6.0) *
+                    (((-t3 + (3.0 * t2) - (3.0 * frac) + 1.0) * p0)
+                     + (((3.0 * t3) - (6.0 * t2) + 4.0) * p1)
+                     + (((-3.0 * t3) + (3.0 * t2) + (3.0 * frac) + 1.0) * p2)
+                     + (t3 * p3));
+            }
+
+            // smoothstep fade over the first/last 18 % of the curve (:238-245).
+            double EdgeFade(double position)
+            {
+                double Smooth(double e0, double e1, double x)
+                {
+                    double t = Math.Clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+                    return t * t * (3.0 - (2.0 * t));
+                }
+                double u = pointCount <= 1 ? 0.0 : position / (pointCount - 1.0);
+                return Smooth(0.0, EchoWaveEdgeFade, u) * Smooth(1.0, 1.0 - EchoWaveEdgeFade, u);
+            }
+
+            // Keep the polyline dense enough that wide plots do not reveal straight segments (:229-231).
+            int totalSlices = (int)Math.Clamp(Math.Floor(plot.Width / 3.0), pointCount * 4, 1024);
+            double sliceWidth = plot.Width / totalSlices;
+
+            double WaveHeight(double position, double offset, double scale)
+            {
+                double raw = Math.Max(1.0, SampleValue(position + offset) * scale * plot.Height);
+                return raw * EdgeFade(position);
+            }
+
+            Geometry BuildWaveGeometry(double offset, double scale)
+            {
+                var geometry = new StreamGeometry();
+                using (StreamGeometryContext g = geometry.Open())
+                {
+                    g.BeginFigure(new Point(plot.X, plot.Bottom - WaveHeight(0.0, offset, scale)), true, true);
+                    for (int s = 1; s <= totalSlices; s++)
+                    {
+                        double pos = (s * pointCount) / (double)totalSlices;
+                        g.LineTo(new Point(plot.X + (s * sliceWidth), plot.Bottom - WaveHeight(pos, offset, scale)), true, false);
+                    }
+                    g.LineTo(new Point(plot.Right, plot.Bottom), true, false);
+                    g.LineTo(new Point(plot.X, plot.Bottom), true, false);
+                }
+                if (geometry.CanFreeze)
+                    geometry.Freeze();
+                return geometry;
+            }
+
+            // Main layer: filled wave, colour lerped colour1 -> colour2 across the plot width
+            // (the shader's colorAt(color1, color2, t)); palette Glow -> Accent stands in for the pair.
+            var fill = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.Absolute,
+                StartPoint = new Point(plot.X, 0.0),
+                EndPoint = new Point(plot.Right, 0.0)
+            };
+            double fillAlpha = Math.Min(1.0, 0.85 * ctx.AlphaFactor);
+            fill.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Glow, fillAlpha), 0.0));
+            fill.GradientStops.Add(new GradientStop(WithAlpha(ctx.Resolved.Accent, fillAlpha), 1.0));
+            if (fill.CanFreeze)
+                fill.Freeze();
+            dc.DrawGeometry(fill, null, BuildWaveGeometry(0.0, 1.0));
+
+            // Echo layer in front: same curve, sampling offset by 0.3 x pointCount and scaled to
+            // 55 %, in the flat secondary colour (:303-306).
+            Brush echoBrush = CreateBrush(WithAlpha(ctx.Resolved.Accent, Math.Min(1.0, 0.55 * ctx.AlphaFactor)));
+            dc.DrawGeometry(echoBrush, null, BuildWaveGeometry(pointCount * EchoWaveEchoOffset, EchoWaveEchoScale));
+
+            // Bright rim along the main curve.
+            var rim = new StreamGeometry();
+            using (StreamGeometryContext g = rim.Open())
+            {
+                g.BeginFigure(new Point(plot.X, plot.Bottom - WaveHeight(0.0, 0.0, 1.0)), false, false);
+                for (int s = 1; s <= totalSlices; s++)
+                {
+                    double pos = (s * pointCount) / (double)totalSlices;
+                    g.LineTo(new Point(plot.X + (s * sliceWidth), plot.Bottom - WaveHeight(pos, 0.0, 1.0)), true, false);
+                }
+            }
+            if (rim.CanFreeze)
+                rim.Freeze();
+            DrawGlowPasses(dc, rim, Math.Max(0.6, plot.Height * 0.010), ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, PenLineCap.Round);
+        }
+
+        // ------------------------------------------------------------------
+        // 15. Sunburst - port of Noctalia 5.4.1 fancy_audio_visualizer_program.cpp (mode bars_rings)
+        // ------------------------------------------------------------------
+
+        /// <summary>Band count of the Noctalia fancy visualizer's audio texture - NBARS.</summary>
+        private const int SunburstBands = 32;
+        /// <summary>Inner hole diameter as a fraction of the half-size - u_inner_diameter default 0.7.</summary>
+        private const double SunburstInnerDiameter = 0.7;
+        /// <summary>Ray width factor - u_bar_width default 0.6, times the shader's 0.015.</summary>
+        private const double SunburstBarWidth = 0.6;
+        /// <summary>Shader MIN_VISUAL_RADIUS.</summary>
+        private const double SunburstMinRadius = 0.35;
+        /// <summary>Shader MIN_VISUAL_THICKNESS.</summary>
+        private const double SunburstMinThickness = 0.025;
+        /// <summary>Shader MAX_VISUAL_RADIUS - rays never reach past this.</summary>
+        private const double SunburstMaxRadius = 0.95;
+        /// <summary>Ring layer opacity - u_ring_opacity default 0.8.</summary>
+        private const double SunburstRingOpacity = 0.8;
+
+        private static Color ScaleColor(Color c, double k) => Color.FromRgb(
+            (byte)Math.Clamp(Math.Round(c.R * k), 0, 255),
+            (byte)Math.Clamp(Math.Round(c.G * k), 0, 255),
+            (byte)Math.Clamp(Math.Round(c.B * k), 0, 255));
+
+        private static Color MixColor(Color a, Color b, double t) => Color.FromRgb(
+            (byte)Math.Clamp(Math.Round(a.R + ((b.R - a.R) * t)), 0, 255),
+            (byte)Math.Clamp(Math.Round(a.G + ((b.G - a.G) * t)), 0, 255),
+            (byte)Math.Clamp(Math.Round(a.B + ((b.B - a.B) * t)), 0, 255));
+
+        private static void DrawSunburst(DrawingContext dc, FrameContext ctx)
+        {
+            Rect plot = ctx.Plot;
+            double radius = MaxRadius(plot);
+            if (radius < 6.0)
+                return;
+
+            Point center = plotCenter(plot);
+
+            int n = SunburstBands;
+            var bands = new double[n];
+            for (int i = 0; i < n; i++)
+                bands[i] = ctx.SampleBand(i, n, true);
+
+            // smoothAudio(pos): linear interpolation over the 32 bands (fancy_..._program.cpp:68-74).
+            double SmoothAudio(double pos)
+            {
+                double idx = Math.Clamp(pos, 0.0, 1.0) * (n - 1);
+                int i0 = (int)Math.Floor(idx);
+                int i1 = Math.Min(n - 1, i0 + 1);
+                return bands[i0] + ((bands[i1] - bands[i0]) * (idx - i0));
+            }
+
+            // The shader's four "sensors" (:76-79).
+            double bass = SmoothAudio(0.05);
+            double mid = SmoothAudio(0.30);
+            double highMid = SmoothAudio(0.60);
+            double treble = SmoothAudio(0.90);
+
+            double innerRadius = SunburstInnerDiameter * 0.5;
+            double baseRadius = Math.Max(SunburstMinRadius, innerRadius + SunburstMinThickness);
+            // One full turn per loop: the ffmpeg loop wrap lands on the same ray/band mapping.
+            double rotation = ctx.Time * (Math.PI * 2.0);
+
+            Color primary = ctx.Resolved.Glow;
+            Color secondary = ctx.Resolved.Accent;
+
+            // 3-stop ray ramp of computeBars (:255-265): primary*0.6 -> primary -> secondary,
+            // brightened by bass, with a cool treble glint near the tip.
+            Color BarColor(double heightFactor)
+            {
+                Color c = heightFactor < 0.5
+                    ? MixColor(ScaleColor(primary, 0.6), primary, heightFactor * 2.0)
+                    : MixColor(primary, secondary, (heightFactor - 0.5) * 2.0);
+                c = ScaleColor(c, 1.0 + (bass * 0.4));
+                if (heightFactor > 0.85)
+                {
+                    double glint = Math.Clamp(treble * 0.8, 0.0, 0.5);
+                    c = Color.FromRgb(
+                        (byte)Math.Clamp(c.R + Math.Round(0.3 * 255.0 * glint), 0, 255),
+                        (byte)Math.Clamp(c.G + Math.Round(0.4 * 255.0 * glint), 0, 255),
+                        (byte)Math.Clamp(c.B + Math.Round(0.5 * 255.0 * glint), 0, 255));
+                }
+                return c;
+            }
+
+            int rayCount = n * 2; // NBARS * 2 rays: the spectrum is mirrored over 360 deg
+            double barW = SunburstBarWidth * 0.015; // half-thickness of a ray, in radius units
+            double rayThickness = Math.Max(0.6, (2.0 * barW) * radius);
+
+            var allRays = new List<RaySpec>(rayCount);
+            var buckets = new List<RaySpec>[3]
+            {
+                new List<RaySpec>(rayCount),
+                new List<RaySpec>(rayCount),
+                new List<RaySpec>(rayCount)
+            };
+
+            double twoPi = Math.PI * 2.0;
+            for (int k = 0; k < rayCount; k++)
+            {
+                double pixelAngle = (k / (double)rayCount) * twoPi;
+                // adjustedTheta = theta + PI + rotation; the band comes from the ROTATED angle
+                // while the wobble uses the fixed pixel angle (shader :239-248).
+                double adjusted = pixelAngle + Math.PI + rotation;
+                double circlePos = adjusted / twoPi;
+                circlePos -= Math.Floor(circlePos);
+                double mirroredPos = circlePos < 0.5 ? circlePos * 2.0 : (1.0 - circlePos) * 2.0;
+                double wobble = Math.Sin((pixelAngle * 3.0) + (mid * 5.0)) * Math.Clamp(mid * 0.03, 0.0, 0.05);
+                double v = Math.Max(0.0, SmoothAudio(mirroredPos) + wobble);
+
+                double r0 = innerRadius * radius;
+                double r1 = Math.Min(baseRadius + (v * 0.5), SunburstMaxRadius) * radius;
+                if (r1 < r0 + 0.5)
+                    r1 = r0 + 0.5;
+
+                double cos = Math.Cos(pixelAngle);
+                double sin = Math.Sin(pixelAngle);
+                allRays.Add(new RaySpec(
+                    center.X + (cos * r0), center.Y + (sin * r0),
+                    center.X + (cos * r1), center.Y + (sin * r1)));
+
+                // Split each ray into thirds so the 3-stop ramp survives as three batched cores.
+                for (int b = 0; b < 3; b++)
+                {
+                    double f0 = b / 3.0;
+                    double f1 = (b + 1) / 3.0;
+                    double ra = r0 + ((r1 - r0) * f0);
+                    double rb = r0 + ((r1 - r0) * f1);
+                    buckets[b].Add(new RaySpec(
+                        center.X + (cos * ra), center.Y + (sin * ra),
+                        center.X + (cos * rb), center.Y + (sin * rb)));
+                }
+            }
+
+            DrawAmbientBloom(dc, ctx, center, radius * SunburstMaxRadius);
+            DrawSunburstRings(dc, ctx, center, radius, bass, mid, highMid, treble, primary, secondary);
+
+            // Halo + mid passes over the whole ray set (the shader's soft bar edges come from the
+            // same wide/mid/core stack DrawGlowPasses implements).
+            double intensity = ctx.GlowIntensity;
+            double fade = ctx.AlphaFactor;
+            if (fade <= 0.002)
+                return;
+
+            // The shader fills every bar wedge from innerRadius up to barEnd (fancy_...:198-199),
+            // and barEnd >= baseRadius always, so the 64 ray bases merge into one solid bright
+            // annulus at the hole edge - the prominent glowing ring in the reference screenshots.
+            double baseAnnulusT = Math.Max(0.5, SunburstMinThickness * radius);
+            DrawSolidRing(dc, center, (innerRadius * radius) + (baseAnnulusT * 0.5), baseAnnulusT,
+                BarColor(0.0), Math.Min(1.0, 0.9 * fade));
+
+            Geometry all = BuildRayGeometry(allRays);
+            if (intensity > 0.002)
+            {
+                double t = Math.Max(0.25, rayThickness);
+                double halo = t * GlowWideRatio;
+                double maxHalo = Math.Max(2.0, radius * 0.06);
+                double scale = halo > maxHalo ? maxHalo / halo : 1.0;
+                double ceiling = Math.Max(t * GlowMinWideRatio, maxHalo);
+                double wide = Math.Max(t * GlowMinWideRatio, Math.Min(halo * scale, ceiling));
+                double midT = Math.Min(wide, Math.Max(t * GlowMinMidRatio, Math.Min((t * GlowMidRatio) * scale, ceiling)));
+                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, GlowWideAlpha * intensity * fade)), wide, PenLineCap.Round), all);
+                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, GlowMidAlpha * intensity * fade)), midT, PenLineCap.Round), all);
+            }
+
+            // Core passes, one per colour bucket - always drawn, so the figure survives Glow = 0.
+            double coreAlpha = (intensity > 0.002 ? GlowCoreAlpha * intensity : 1.0) * fade;
+            Color[] coreColors = { BarColor(1.0 / 6.0), BarColor(0.5), BarColor(5.0 / 6.0) };
+            for (int b = 0; b < 3; b++)
+            {
+                if (buckets[b].Count == 0)
+                    continue;
+                dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(coreColors[b], coreAlpha)), Math.Max(0.6, rayThickness), PenLineCap.Round), BuildRayGeometry(buckets[b]));
+            }
+        }
+
+        /// <summary>The six ring layers of the shader's addRings() (fancy_..._program.cpp:114-174),
+        /// drawn inside the sunburst's inner hole. Dash strokes stand in for the shader's angular
+        /// mod() segment patterns; WPF has no arc-dash primitive.</summary>
+        private static void DrawSunburstRings(
+            DrawingContext dc,
+            FrameContext ctx,
+            Point center,
+            double radius,
+            double bass,
+            double mid,
+            double highMid,
+            double treble,
+            Color primary,
+            Color secondary)
+        {
+            double ringAlpha = SunburstRingOpacity * ctx.AlphaFactor;
+            if (ringAlpha <= 0.004)
+                return;
+
+            double innerRadius = SunburstInnerDiameter * 0.5;
+            double innerRpx = innerRadius * radius;
+
+            // 1. Inner ripple: soft disc shimmering with mid (the sin(d*25 + ...) arcs, :117-124).
+            if (mid > 0.02)
+            {
+                RadialGradientBrush ripple = CreateRadialGlowBrush(
+                    secondary, Math.Clamp(mid * 0.6, 0.0, 0.4) * ringAlpha, center, innerRpx * 0.6);
+                if (ripple.CanFreeze)
+                    ripple.Freeze();
+                dc.DrawEllipse(ripple, null, center, innerRpx * 0.6, innerRpx * 0.6);
+            }
+
+            // 2. Energy ring at 0.65 * innerR, cut into 8 arcs (:126-134).
+            double energyT = (0.015 + Math.Clamp(highMid * 0.02, 0.0, 0.03)) * radius;
+            DrawDashedRing(dc, center, 0.65 * innerRpx, energyT, 8, 0.6,
+                MixColor(primary, secondary, 0.5),
+                Math.Clamp(highMid * 2.0, 0.3, 1.0) * ringAlpha);
+
+            // 3. Particle ring at 0.75 * innerR, 16 dots (:136-144).
+            DrawDashedRing(dc, center, 0.75 * innerRpx, Math.Max(0.6, 0.02 * radius), 16, 0.38,
+                secondary,
+                (0.5 + Math.Clamp(treble * 1.5, 0.0, 0.5)) * ringAlpha);
+
+            // 4. Rotating grid ring at 0.85 * innerR (:146-155): dash period 0.2 rad, density follows mid.
+            double gridR = 0.85 * innerRpx;
+            double gridDensity = 0.08 + Math.Clamp(mid * 0.05, 0.0, 0.1);
+            double periodPx = 0.2 * gridR;
+            DrawDashedRingRaw(dc, center, gridR, Math.Max(0.5, 0.012 * radius),
+                gridDensity * gridR, Math.Max(0.1, periodPx - (gridDensity * gridR)),
+                ScaleColor(primary, 0.7), ringAlpha * 0.9);
+
+            // 5. Accent ring at 0.92 * innerR (:157-165): thickness pulses with bass, colour shifts
+            //    secondary -> primary with bass.
+            double pulse = Math.Clamp(bass * 0.08, 0.0, 0.05);
+            Color accentColor = ScaleColor(
+                MixColor(ScaleColor(secondary, 0.7), primary, Math.Clamp(bass * 0.5, 0.0, 1.0)),
+                1.0 + (bass * 0.3));
+            DrawSolidRing(dc, center, 0.92 * innerRpx, Math.Max(0.5, (0.015 + pulse) * radius), accentColor, ringAlpha);
+
+            // 6. Outer ring at innerR + bass*0.05 with a cool treble tint (:167-173).
+            double tint = Math.Clamp(treble * 0.5, 0.0, 0.3);
+            Color outerColor = ScaleColor(primary, 1.0 + (bass * 0.4));
+            outerColor = Color.FromRgb(
+                (byte)Math.Clamp(outerColor.R + Math.Round(0.2 * 255.0 * tint), 0, 255),
+                (byte)Math.Clamp(outerColor.G + Math.Round(0.3 * 255.0 * tint), 0, 255),
+                (byte)Math.Clamp(outerColor.B + Math.Round(0.4 * 255.0 * tint), 0, 255));
+            DrawSolidRing(dc, center, (innerRadius + (bass * 0.05)) * radius, Math.Max(0.5, 0.016 * radius), outerColor, ringAlpha);
+        }
+
+        private static void DrawSolidRing(DrawingContext dc, Point center, double radius, double thickness, Color color, double alpha)
+        {
+            if (radius <= 0.5 || alpha <= 0.004)
+                return;
+            var geo = new EllipseGeometry(center, radius, radius);
+            if (geo.CanFreeze)
+                geo.Freeze();
+            dc.DrawGeometry(null, CreatePen(CreateBrush(WithAlpha(color, alpha)), Math.Max(0.25, thickness), PenLineCap.Flat), geo);
+        }
+
+        private static void DrawDashedRing(DrawingContext dc, Point center, double radius, double thickness, int segments, double fillFraction, Color color, double alpha)
+        {
+            if (segments <= 0 || radius <= 0.5)
+                return;
+            double periodPx = (2.0 * Math.PI * radius) / segments;
+            double fill = Math.Clamp(fillFraction, 0.05, 0.95);
+            DrawDashedRingRaw(dc, center, radius, thickness, periodPx * fill, periodPx * (1.0 - fill), color, alpha);
+        }
+
+        private static void DrawDashedRingRaw(DrawingContext dc, Point center, double radius, double thickness, double dashPx, double gapPx, Color color, double alpha)
+        {
+            if (radius <= 0.5 || alpha <= 0.004)
+                return;
+            double t = Math.Max(0.25, thickness);
+            var geo = new EllipseGeometry(center, radius, radius);
+            if (geo.CanFreeze)
+                geo.Freeze();
+            var pen = new Pen(CreateBrush(WithAlpha(color, alpha)), t)
+            {
+                DashStyle = new DashStyle(new[] { Math.Max(0.1, dashPx / t), Math.Max(0.1, gapPx / t) }, 0.0),
+                StartLineCap = PenLineCap.Flat,
+                EndLineCap = PenLineCap.Flat
+            };
+            if (pen.CanFreeze)
+                pen.Freeze();
+            dc.DrawGeometry(null, pen, geo);
+        }
+
+        // ------------------------------------------------------------------
+        // 16. MediaCard - port of Noctalia 5.4.1 desktop_media_player_widget (horizontal layout)
+        // ------------------------------------------------------------------
+
+        /// <summary>Embedded spectrum band count of the Noctalia media player - kVisualizerBands = 16.</summary>
+        private const int MediaCardBands = 16;
+        /// <summary>Embedded spectrum alpha - kVisualizerAlpha = 0.5.</summary>
+        private const double MediaCardVisualizerAlpha = 0.5;
+        /// <summary>Card corner radius as a fraction of the card height.</summary>
+        private const double MediaCardCornerFraction = 0.12;
+        /// <summary>Alpha of the full-card progress fill (the bar widget's progress bar covers the whole widget).</summary>
+        private const double MediaCardProgressFillAlpha = 0.14;
+
+        private static readonly ConcurrentDictionary<string, BitmapSource?> ArtworkCache =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        private static BitmapSource? LoadArtwork(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            string key;
+            try
+            {
+                key = Path.GetFullPath(path.Trim());
+            }
+            catch
+            {
+                return null;
+            }
+
+            return ArtworkCache.GetOrAdd(key, static p =>
+            {
+                try
+                {
+                    if (!File.Exists(p))
+                        return null;
+                    using FileStream stream = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.DecodePixelWidth = 256;
+                    bmp.StreamSource = stream;
+                    bmp.EndInit();
+                    if (bmp.CanFreeze)
+                        bmp.Freeze();
+                    return (BitmapSource)bmp;
+                }
+                catch
+                {
+                    return null;
+                }
+            });
+        }
+
+        private static void DrawMediaCard(DrawingContext dc, FrameContext ctx)
+        {
+            Rect plot = ctx.Plot;
+            if (plot.Width < 24.0 || plot.Height < 16.0)
+                return;
+
+            // Card fills the plot with a small inset (the Noctalia card's background_padding).
+            double pad = Math.Max(2.0, Math.Min(plot.Width, plot.Height) * 0.05);
+            var card = new Rect(
+                plot.X + pad, plot.Y + pad,
+                Math.Max(1.0, plot.Width - (pad * 2.0)), Math.Max(1.0, plot.Height - (pad * 2.0)));
+            if (card.Width < 20.0 || card.Height < 12.0)
+                return;
+
+            double corner = Math.Max(2.0, card.Height * MediaCardCornerFraction);
+
+            // Card body: dark translucent surface with a hairline border.
+            var body = new RectangleGeometry(card, corner, corner);
+            if (body.CanFreeze)
+                body.Freeze();
+            Brush bodyBrush = CreateBrush(Color.FromArgb((byte)Math.Round(0.86 * 255.0 * ctx.AlphaFactor), 14, 14, 20));
+            Brush borderBrush = CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.25 * ctx.AlphaFactor));
+            dc.DrawGeometry(bodyBrush, CreatePen(borderBrush, Math.Max(0.5, card.Height * 0.012)), body);
+
+            // Progress = a full-card fill BEHIND the content (media_widget.cpp:196-203: the
+            // progress bar sits at 0,0 covering the whole widget). Inside the PNG loop the only
+            // clock is the loop itself, so it sweeps 0 -> 100 % once per loop (ctx.Time); the
+            // UI-side bar next to the style picker is the one that follows the video playhead.
+            double progress = Math.Clamp(ctx.Time, 0.0, 1.0);
+            if (progress > 0.003 && card.Width > 0.0)
+            {
+                var cardClip = new RectangleGeometry(card, corner, corner);
+                if (cardClip.CanFreeze)
+                    cardClip.Freeze();
+                dc.PushClip(cardClip);
+                dc.DrawRectangle(CreateBrush(WithAlpha(ctx.Resolved.Glow, MediaCardProgressFillAlpha * ctx.AlphaFactor)), null,
+                    new Rect(card.X, card.Y, card.Width * progress, card.Height));
+                dc.Pop();
+            }
+
+            double innerPad = Math.Max(3.0, card.Height * 0.10);
+
+            // Album art on the left (cover-fit, rounded corners), placeholder note when unset.
+            double artSize = Math.Max(8.0, card.Height - (innerPad * 2.0));
+            var artRect = new Rect(card.X + innerPad, card.Y + ((card.Height - artSize) * 0.5), artSize, artSize);
+            BitmapSource? art = LoadArtwork(ctx.Settings.MediaArtworkPath);
+            if (art != null)
+            {
+                double scale = Math.Max(artRect.Width / Math.Max(1, art.PixelWidth), artRect.Height / Math.Max(1, art.PixelHeight));
+                double drawW = art.PixelWidth * scale;
+                double drawH = art.PixelHeight * scale;
+                var dest = new Rect(
+                    artRect.X + ((artRect.Width - drawW) * 0.5),
+                    artRect.Y + ((artRect.Height - drawH) * 0.5),
+                    drawW, drawH);
+                double artCorner = Math.Max(1.0, artSize * 0.12);
+                var artClip = new RectangleGeometry(artRect, artCorner, artCorner);
+                if (artClip.CanFreeze)
+                    artClip.Freeze();
+                dc.PushClip(artClip);
+                dc.DrawImage(art, dest);
+                dc.Pop();
+            }
+            else
+            {
+                DrawArtworkPlaceholder(dc, ctx, artRect, artSize);
+            }
+
+            // Horizontal layout of desktop_media_player_widget.cpp:401-444: art square on the
+            // left (full card height), title + artist vertically CENTRED in the text area above
+            // the controls row (:424-433), and the 16-band spectrum strip centred inside the
+            // bottom controls row (:439-442) with bars bottom-anchored and flat accent colour.
+            double controlsH = card.Height * 0.27;
+            double spacing = Math.Max(2.0, card.Height * 0.06);
+            double textX = artRect.Right + innerPad;
+            double textWidth = Math.Max(0.0, card.Right - innerPad - textX);
+            double barX = textWidth > 4.0 ? textX : card.X + innerPad;
+            double barSpan = textWidth > 4.0 ? textWidth : card.Width - (innerPad * 2.0);
+
+            if (textWidth > 4.0)
+            {
+                double titleSize = Math.Max(6.0, card.Height * 0.17);
+                double artistSize = Math.Max(5.0, titleSize * 0.9);
+                double textAreaH = Math.Max(0.0, card.Height - controlsH - spacing);
+                double textBlockH = (titleSize * 1.2) + (spacing * 0.5) + artistSize;
+                double titleY = card.Y + Math.Max(0.0, (textAreaH - textBlockH) * 0.5);
+                // The reference screenshots paint title + artist in the accent colour, artist
+                // dimmer - both lines cyan, not white.
+                DrawCardText(dc, ctx.Settings.MediaTitle, textX, titleY, textWidth, titleSize, FontWeights.Bold,
+                    WithAlpha(ctx.Resolved.Glow, 0.95 * ctx.AlphaFactor));
+                DrawCardText(dc, ctx.Settings.MediaArtist, textX, titleY + (titleSize * 1.2) + (spacing * 0.5), textWidth, artistSize, FontWeights.Normal,
+                    WithAlpha(ctx.Resolved.Glow, 0.60 * ctx.AlphaFactor));
+            }
+
+            // Embedded mini spectrum (kVisualizerBands = 16, kVisualizerAlpha = 0.5): strip
+            // vertically centred in the bottom controls row (widget :439-442).
+            double stripH = Math.Max(2.0, Math.Min(card.Height * 0.22, controlsH));
+            double stripCenterY = card.Bottom - (controlsH * 0.5);
+            double barAreaTop = stripCenterY - (stripH * 0.5);
+            double barBase = stripCenterY + (stripH * 0.5);
+            double barAreaH = stripH;
+            int bands = MediaCardBands;
+            double slotW = Math.Max(0.5, barSpan / bands);
+            double barW = Math.Max(0.5, slotW * 0.6);
+            var barGeom = new StreamGeometry();
+            using (StreamGeometryContext g = barGeom.Open())
+            {
+                for (int i = 0; i < bands; i++)
+                {
+                    double v = ctx.SampleBand(i, bands, true);
+                    double h = Math.Max(1.0, v * barAreaH);
+                    double x = barX + (slotW * i) + ((slotW - barW) * 0.5);
+                    g.BeginFigure(new Point(x, barBase), false, false);
+                    g.LineTo(new Point(x, barBase - h), true, false);
+                }
+            }
+            if (barGeom.CanFreeze)
+                barGeom.Freeze();
+            DrawGlowPasses(dc, barGeom, Math.Max(0.5, barW * 0.5), ctx.Resolved, ctx.GlowIntensity,
+                ctx.AlphaFactor, PenLineCap.Round, double.PositiveInfinity, true, MediaCardVisualizerAlpha);
+        }
+
+        private static void DrawCardText(DrawingContext dc, string? text, double x, double y, double maxWidth, double fontSize, FontWeight weight, Color color)
+        {
+            if (string.IsNullOrWhiteSpace(text) || maxWidth <= 2.0 || fontSize <= 1.0)
+                return;
+
+            var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, weight, FontStretches.Normal);
+            var ft = new FormattedText(
+                text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, fontSize,
+                CreateBrush(color), 1.0)
+            {
+                MaxTextWidth = maxWidth,
+                Trimming = TextTrimming.CharacterEllipsis
+            };
+            dc.DrawText(ft, new Point(x, y));
+        }
+
+        private static void DrawArtworkPlaceholder(DrawingContext dc, FrameContext ctx, Rect artRect, double artSize)
+        {
+            double corner = Math.Max(1.0, artSize * 0.12);
+            var bg = new RectangleGeometry(artRect, corner, corner);
+            if (bg.CanFreeze)
+                bg.Freeze();
+            dc.DrawGeometry(
+                CreateBrush(Color.FromArgb((byte)Math.Round(0.9 * 255.0 * ctx.AlphaFactor), 28, 28, 38)),
+                CreatePen(CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.35 * ctx.AlphaFactor)), Math.Max(0.5, artSize * 0.02)),
+                bg);
+
+            // Simple double eighth-note glyph in the palette glow colour.
+            Brush note = CreateBrush(WithAlpha(ctx.Resolved.Glow, 0.8 * ctx.AlphaFactor));
+            double stemW = Math.Max(1.0, artSize * 0.055);
+            dc.DrawRectangle(note, null, new Rect(artRect.X + (artSize * 0.56), artRect.Y + (artSize * 0.16), stemW, artSize * 0.58));
+            dc.DrawRectangle(note, null, new Rect(artRect.X + (artSize * 0.30), artRect.Y + (artSize * 0.20), stemW, artSize * 0.54));
+            dc.DrawRectangle(note, null, new Rect(artRect.X + (artSize * 0.30), artRect.Y + (artSize * 0.20), artSize * 0.40, Math.Max(1.0, artSize * 0.07)));
+            dc.DrawEllipse(note, null, new Point(artRect.X + (artSize * 0.245), artRect.Y + (artSize * 0.79)), artSize * 0.13, artSize * 0.095);
+            dc.DrawEllipse(note, null, new Point(artRect.X + (artSize * 0.505), artRect.Y + (artSize * 0.75)), artSize * 0.13, artSize * 0.095);
+        }
+
+        // ------------------------------------------------------------------
         // Shared drawing helpers
         // ------------------------------------------------------------------
 
@@ -4002,7 +4659,8 @@ namespace TitanEngine
                 or SoundBarStyleId.RippleRings
                 or SoundBarStyleId.SpokeLines
                 or SoundBarStyleId.CenterColumn
-                or SoundBarStyleId.AudioRing;
+                or SoundBarStyleId.AudioRing
+                or SoundBarStyleId.Sunburst;
 
         private static AudioFrameData? FrameAt(AudioFrameData[] frames, int index)
         {

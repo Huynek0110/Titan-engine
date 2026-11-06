@@ -2578,7 +2578,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 Roundness = Math.Clamp(job.SoundBarRoundness, 0.0, 1.0),
                                 GlowIntensity = Math.Clamp(job.SoundBarGlowIntensity, 0.0, 3.0),
                                 LoopSeconds = soundBarLoopSeconds,
-                                FrameRate = 30.0
+                                FrameRate = 30.0,
+                                MediaArtworkPath = string.IsNullOrWhiteSpace(job.SoundBarArtworkPath) ? null : job.SoundBarArtworkPath,
+                                MediaTitle = job.SoundBarMediaTitle ?? string.Empty,
+                                MediaArtist = job.SoundBarMediaArtist ?? string.Empty
                             };
 
                             var sbPalette = ColorPresets.GetOrDefault(sbSettings.PaletteId);
@@ -14101,6 +14104,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         // ══════════════════════════════════════════════════════════════════════
 
         private CancellationTokenSource? _soundBarPreviewCts;
+        /// <summary>Đường dẫn ảnh bìa đã chọn cho style media-card (UI picker). Null = chưa chọn.</summary>
+        private string? _mediaCardArtworkPath;
+        /// <summary>Đồng hồ cập nhật thanh tiến trình theo video preview của thẻ media-card.</summary>
+        private DispatcherTimer? _mediaCardProgressTimer;
 
         /// <summary>
         /// Short picker labels for the style combo, keyed by canonical style id.
@@ -14133,7 +14140,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 ["wave-ribbon"] = "Waveform Ribbon",
                 ["center-column"] = "Center Sound Column",
                 ["peak-stars"] = "Peak Star Field",
-                ["audio-ring"] = "Audio Ring (NCS)"
+                ["audio-ring"] = "Audio Ring (NCS)",
+                ["echo-wave"] = "Echo Wave (sóng + echo)",
+                ["sunburst"] = "Sunburst (tia tròn)",
+                ["media-card"] = "Media Card (ảnh + tên bài)"
             };
 
         private void PopulateSoundBarComboBoxes()
@@ -15154,7 +15164,102 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         {
             UpdateSoundBarDescription();
             UpdateSoundBarUiState();
+            UpdateMediaCardPanel();
             ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// Chỉ style media-card mới đọc các trường ảnh bìa / tên bài / nghệ sĩ, nên panel của nó
+        /// chỉ hiện khi style đó được chọn - các style khác không bị đụng vào gì cả.
+        /// </summary>
+        private void UpdateMediaCardPanel()
+        {
+            bool isMediaCard = string.Equals(GetSelectedSoundBarStyleId(), "media-card", StringComparison.OrdinalIgnoreCase);
+            if (pnlMediaCard != null)
+                pnlMediaCard.Visibility = isMediaCard ? Visibility.Visible : Visibility.Collapsed;
+
+            if (isMediaCard)
+            {
+                if (_mediaCardProgressTimer == null)
+                {
+                    _mediaCardProgressTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+                    {
+                        Interval = TimeSpan.FromMilliseconds(250)
+                    };
+                    _mediaCardProgressTimer.Tick += (_, __) => UpdateMediaCardVideoProgress();
+                }
+                _mediaCardProgressTimer.Start();
+            }
+            else if (_mediaCardProgressTimer != null)
+            {
+                _mediaCardProgressTimer.Stop();
+            }
+        }
+
+        private void BtnPickMediaCardArt_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Chọn ảnh bìa cho media-card",
+                Filter = "Ảnh|*.png;*.jpg;*.jpeg;*.webp;*.bmp|All files|*.*"
+            };
+            if (dlg.ShowDialog(this) != true)
+                return;
+
+            _mediaCardArtworkPath = dlg.FileName;
+            if (txtMediaCardArtPath != null)
+                txtMediaCardArtPath.Text = dlg.FileName;
+
+            try
+            {
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 96;
+                bmp.UriSource = new Uri(dlg.FileName, UriKind.Absolute);
+                bmp.EndInit();
+                if (imgMediaCardArt != null)
+                    imgMediaCardArt.Source = bmp;
+            }
+            catch
+            {
+                // Ảnh không đọc được thì thẻ vẫn render với placeholder - không chặn job.
+            }
+
+            ScheduleSoundBarPreview();
+        }
+
+        private void TxtMediaCardField_Changed(object sender, TextChangedEventArgs e)
+        {
+            ScheduleSoundBarPreview();
+        }
+
+        /// <summary>
+        /// Thanh tiến trình của thẻ media-card chạy THEO VIDEO preview (medCropPreview), không theo
+        /// audio: PNG loop của soundbar không có đồng hồ video, nên chỉ UI mới bám được playhead.
+        /// </summary>
+        private void UpdateMediaCardVideoProgress()
+        {
+            if (prgMediaCardVideo == null || pnlMediaCard == null || pnlMediaCard.Visibility != Visibility.Visible)
+                return;
+
+            try
+            {
+                if (medCropPreview != null && medCropPreview.NaturalDuration.HasTimeSpan &&
+                    medCropPreview.NaturalDuration.TimeSpan.TotalSeconds > 0.0)
+                {
+                    double total = medCropPreview.NaturalDuration.TimeSpan.TotalSeconds;
+                    double pos = medCropPreview.Position.TotalSeconds;
+                    prgMediaCardVideo.Maximum = total;
+                    prgMediaCardVideo.Value = Math.Clamp(pos, 0.0, total);
+                    if (txtMediaCardProgress != null)
+                        txtMediaCardProgress.Text = $"{(100.0 * pos / total):0}%";
+                }
+            }
+            catch
+            {
+                // Preview chưa sẵn sàng thì để nguyên thanh ở 0.
+            }
         }
 
         /// <summary>
@@ -15316,7 +15421,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     Roundness = 1.0,
                     GlowIntensity = 1.0,
                     LoopSeconds = 5.0,
-                    FrameRate = 30.0
+                    FrameRate = 30.0,
+                    MediaArtworkPath = string.IsNullOrWhiteSpace(_mediaCardArtworkPath) ? null : _mediaCardArtworkPath,
+                    MediaTitle = txtMediaCardTitle?.Text ?? string.Empty,
+                    MediaArtist = txtMediaCardArtist?.Text ?? string.Empty
                 };
 
                 ColorPreset palette = ColorPresets.GetOrDefault(settings.PaletteId);
@@ -15425,6 +15533,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             job.SoundBarGlowIntensity = 1.0;
             job.SoundBarRingCount = 2;
             job.SoundBarLoopSeconds = 5.0;
+            job.SoundBarArtworkPath = string.IsNullOrWhiteSpace(_mediaCardArtworkPath) ? null : _mediaCardArtworkPath;
+            job.SoundBarMediaTitle = txtMediaCardTitle?.Text ?? string.Empty;
+            job.SoundBarMediaArtist = txtMediaCardArtist?.Text ?? string.Empty;
         }
 
         /// <summary>
@@ -18313,6 +18424,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     job.SoundBarRoundness = Math.Clamp(request.SoundBarRoundness ?? 1.0, 0.0, 1.0);
                     job.SoundBarGlowIntensity = Math.Clamp(request.SoundBarGlowIntensity ?? 1.0, 0.0, 3.0);
                     job.SoundBarLoopSeconds = Math.Clamp(request.SoundBarLoopSeconds ?? 5.0, SoundBarMinLoopSeconds, SoundBarMaxLoopSeconds);
+                    job.SoundBarArtworkPath = request.SoundBarArtworkPath
+                        ?? GetFeatureString(request, "soundBarArtworkPath", "soundbarArtwork", "artworkPath", "coverArt");
+                    job.SoundBarMediaTitle = request.SoundBarMediaTitle
+                        ?? GetFeatureString(request, "soundBarMediaTitle", "soundbarTitle", "trackTitle", "mediaTitle")
+                        ?? string.Empty;
+                    job.SoundBarMediaArtist = request.SoundBarMediaArtist
+                        ?? GetFeatureString(request, "soundBarMediaArtist", "soundbarArtist", "mediaArtist", "artist")
+                        ?? string.Empty;
                 }
 
                 if (job.MergeVideos && job.MergeInputPaths.Count > 1)

@@ -1,6 +1,6 @@
 # 20 — Soundbar (audio visualizer)
 
-> Hệ thống overlay động: đọc audio → FFT → vẽ 13 kiểu hình → PNG loop → composite lên video.
+> Hệ thống overlay động: đọc audio → FFT → vẽ 16 kiểu hình → PNG loop → composite lên video.
 > Trạng thái hiện tại: **`soundbar-r38`**. Đọc [`10-RENDER-PIPELINE.md`](10-RENDER-PIPELINE.md) §7
 > để biết vị trí trong filter graph.
 
@@ -9,8 +9,8 @@
 | File | Vai trò |
 |---|---|
 | `AudioSpectrumAnalyzer.cs` | Decode PCM → FFT → bands + waveform + `Voice` + onset; timeline audibility scan |
-| `AudioAnalysisModels.cs` | `SoundBarStyleId` (13), `SoundBarAudioSource`, `AudioFrameData`, `AudioInterval` |
-| `SoundBarStyleRenderer.cs` | Toàn bộ hình học 13 style + helper dùng chung (peak caps, beat envelope, floor spill, bloom, reflection, dust…) |
+| `AudioAnalysisModels.cs` | `SoundBarStyleId` (16), `SoundBarAudioSource`, `AudioFrameData`, `AudioInterval` |
+| `SoundBarStyleRenderer.cs` | Toàn bộ hình học 16 style + helper dùng chung (peak caps, beat envelope, floor spill, bloom, reflection, dust…) |
 | `SoundBarVisualizerPreset.cs` | Sinh chuỗi PNG loop, cache SHA-256, dựng graph `overlay` composite. **`RendererVersion` ở đây** |
 | `SoundBarPalette.cs` | 30 palette NCS; default `ncs-cyan`, riêng `audio-ring` → `ncs-house-yellow` |
 | `MainWindow.xaml.cs` | Wiring: analyze → generate → chèn overlay vào graph; fast path ảnh; thread cap |
@@ -63,7 +63,7 @@ ffmpeg: base yuv420p + overlay yuva420p, overlay=…:enable=<gate>
 Bands là chuẩn `0..1` **per frame**. Envelope follower bất đối xứng trong `SampleBandRange`:
 attack `k=0.75`, release `k=0.40` tại `Smoothing=1`; `Smoothing=0` → `k=1.0` cả hai nhánh.
 
-## 3. 13 style
+## 3. 16 style
 
 | # | id | Tên | Nguồn điều khiển |
 |---|---|---|---|
@@ -80,6 +80,9 @@ attack `k=0.75`, release `k=0.40` tại `Smoothing=1`; `Smoothing=0` → `k=1.0`
 | 10 | `center-column` | Center Column | RMS + peak-hold |
 | 11 | `peak-stars` | Peak Stars | FFT local maxima |
 | 12 | `audio-ring` | Audio Ring (NCS) | FFT + waveform; quả cầu hạt 3D |
+| 13 | `echo-wave` | Echo Wave | FFT; port Noctalia 5.4.1 `audio_spectrum_program` show_wave: 32 điểm điều khiển, gamma 0.4 + baseline 0.10, Catmull-Rom + fade mép 18%, thêm lớp echo lệch pha 55% |
+| 14 | `sunburst` | Sunburst | FFT; port Noctalia 5.4.1 `fancy_audio_visualizer_program`: 64 tia đối xứng từ vòng trong, ramp 3 màu, sáng theo bass, 6 vòng trang trí + bloom; plot vuông; xoay đúng 1 vòng/loop để seam |
+| 15 | `media-card` | Media Card | FFT; port Noctalia 5.4.1 `desktop_media_player_widget`: thẻ bo góc + ảnh bìa + tên bài + nghệ sĩ + spectrum 16 dải nhúng + thanh tiến trình. **Style duy nhất đọc `MediaArtworkPath` / `MediaTitle` / `MediaArtist`** (cache key chỉ thêm các trường này khi style = media-card) |
 
 ## 4. Bất biến hình học — seam loop
 
@@ -178,7 +181,7 @@ Sau upmix, side = 0. Khi downmix về mid, hệ số trùng `-ac 1` cũ → band
 | Envelope | attack `0.06 s`, release `0.20 s` |
 | Rendering | `VoiceSwellFraction = 0.10`, **không** nhân Sensitivity (Voice đã tự chuẩn hoá) |
 
-3. **Cả 13 style đều phản ứng**, mỗi style theo "ngôn ngữ hình" của nó:
+3. **Cả 16 style đều phản ứng**, mỗi style theo "ngôn ngữ hình" của nó:
    bars/wave-ribbon/dot-matrix cao thêm 10%, họ radial scale 10%, ripple đẩy ra 8%,
    center-column nâng reading 10%, peak-stars sáng thêm 30%.
 
@@ -215,6 +218,7 @@ Trên stem vocal tách bằng model (bài test thật):
 | r36 | mid/side centre extraction + `Voice` + swell 10% cho cả 13 style |
 | r37 | absolute audibility fade −48…−38 dBFS |
 | r38 | timeline gate bằng `silencedetect` + `overlay=enable` |
+| port NC 5.4.1 | thêm 3 style mới `echo-wave` / `sunburst` / `media-card` từ mã nguồn Noctalia 5.4.1. **Không đổi pixel của style cũ ⇒ không bump RendererVersion** (vẫn r38); styleId mới đã nằm sẵn trong cache key, các trường media-* chỉ vào key khi style = media-card |
 
 ## 8. Cache và `RendererVersion`
 
@@ -231,7 +235,7 @@ Harness ngoài repo: `%TEMP%\SbSphere` (project riêng, tham chiếu Debug DLL),
 
 | Mode | Việc |
 |---|---|
-| `all <suffix>` | render 13 preview; thư mục fresh mỗi suffix để tránh cache |
+| `all <suffix>` | render 16 preview; thư mục fresh mỗi suffix để tránh cache |
 | `loopall` | 3 frame kick/decay/quiet — kiểm seam |
 | `e2e <style>` | chạy thật `EngineCore.ExecuteRenderAsync` |
 | `beat`, `freqmap`, `prescaletest` | kiểm onset / map tần số / scale |

@@ -839,7 +839,7 @@ Enable with:
 - enableSoundBar: true to render the soundbar layer (default false)
 
 Style / look:
-- soundBarStyle: one of the 13 canonical ids (see GET /api/soundbar/presets)
+- soundBarStyle: one of the 16 canonical ids (see GET /api/soundbar/presets)
 - soundBarPalette: palette id, default "ncs-cyan"
 - soundBarOpacity: 0.05 - 1.0 (default 1.0)
 - soundBarSensitivity: 0.0 - 3.0 (default 1.0). Higher = taller, more reactive bars.
@@ -914,6 +914,18 @@ Analysis tuning:
 - soundBarRingCount: 1 - 8 (default 2). Only read by dual-rings (2-6) and
   ripple-rings (1-8). See the per-style note above.
 
+Media card fields (only read when soundBarStyle = "media-card"; all optional,
+ignored by every other style):
+- soundBarArtworkPath: absolute path to an image file (png/jpg/jpeg/webp/bmp)
+  used as the album-art thumbnail on the card. Empty/missing/unreadable =
+  a placeholder music-note glyph is drawn instead. The file's size + mtime are
+  part of the PNG-loop cache key, so swapping the image regenerates the loop.
+- soundBarMediaTitle: track title line on the card. Empty = line not drawn.
+- soundBarMediaArtist: artist line under the title. Empty = line not drawn.
+  NOTE: the card's progress bar inside the PNG loop sweeps with the loop
+  itself; there is no video clock inside a cached loop. The video-following
+  progress bar is the one in the desktop UI's Media Card panel.
+
 Canonical soundBarStyle values:
 - neon-bars          (Neon Bars, bottom-anchored)
 - mirror-spectrum   (Center Mirror Spectrum)
@@ -930,10 +942,21 @@ Canonical soundBarStyle values:
 - audio-ring        (Audio Ring - the NCS look: one thick neon circle whose
                       radius ripples with the waveform, filled with a lattice of
                       dots on concentric circles that reads as a moire vortex)
+- echo-wave         (Echo Wave - ported from Noctalia 5.4.1: 32 pooled control
+                      points, gamma 0.4 + 0.10 baseline, Catmull-Rom curve with
+                      edge fade, plus a phase-shifted 55% echo wave)
+- sunburst          (Sunburst - ported from Noctalia 5.4.1 fancy visualizer:
+                      64 mirrored polar rays rising from an inner ring, 3-stop
+                      colour ramp, bass-brightened, decorative rings around)
+- media-card        (Media Card - ported from Noctalia 5.4.1 desktop media
+                      player: rounded card with album-art thumbnail, track title,
+                      artist line, an embedded 16-band mini spectrum and a
+                      progress bar. ONLY this style reads soundBarArtworkPath /
+                      soundBarMediaTitle / soundBarMediaArtist)
 
 Notes:
-- Six styles draw a centred, aspect-symmetric figure - radial-ring, dual-rings,
-  ripple-rings, spoke-lines, center-column and audio-ring. Their plot rect is
+- Seven styles draw a centred, aspect-symmetric figure - radial-ring, dual-rings,
+  ripple-rings, spoke-lines, center-column, audio-ring and sunburst. Their plot rect is
   squared IN PIXELS, so the figure is bounded by the smaller of width and height
   as actual measurements. On a landscape canvas that is always the height, so
   changing soundBarWidthPercent alone will not resize a circular style: use
@@ -956,7 +979,10 @@ Notes:
 - If the audio cannot be analysed, the soundbar layer is SKIPPED and the video
   still renders. A soundbar failure never aborts a job.
 - Aliases: soundBarStyle -> soundbarStyle, soundBarPalette -> soundbarPalette,
-  soundBarAudioSource -> soundbarAudioSource, enableSoundBar -> soundBar / soundbar.
+  soundBarAudioSource -> soundbarAudioSource, enableSoundBar -> soundBar / soundbar,
+  soundBarArtworkPath -> soundbarArtwork / artworkPath / coverArt,
+  soundBarMediaTitle -> soundbarTitle / trackTitle / mediaTitle,
+  soundBarMediaArtist -> soundbarArtist / mediaArtist / artist.
 
 !!! PERCENT FIELD WARNING - READ BEFORE SENDING X / Y / WIDTH / HEIGHT !!!
 The four position/size fields are:
@@ -1025,7 +1051,7 @@ Path:   /api/soundbar/presets
 Response fields:
 - success: true
 - message: "Soundbar visualizer styles and palettes"
-- soundBarStyles:   array of style entries (13 today), in menu order
+- soundBarStyles:   array of style entries (16 today), in menu order
 - soundBarPalettes: array of palette entries
 
 The two lists are SEPARATE arrays, not one flat list. Older builds returned a single
@@ -1055,7 +1081,7 @@ Palette entry:
 - accent:       highlight / peak colour
 - glowStrength: glow multiplier for this palette
 
-Example response (abridged - 2 of 13 styles, 1 of N palettes shown):
+Example response (abridged - 2 of 16 styles, 1 of N palettes shown):
 GET http://localhost:5555/api/soundbar/presets
 
 {
@@ -1104,10 +1130,10 @@ GET http://localhost:5555/api/soundbar/presets
   ]
 }
 
-All 13 canonical soundBarStyle values, in the order soundBarStyles returns them:
+All 16 canonical soundBarStyle values, in the order soundBarStyles returns them:
 - neon-bars, mirror-spectrum, pill-bars, dense-columns, dot-matrix, radial-ring,
   dual-rings, ripple-rings, spoke-lines, wave-ribbon, center-column, peak-stars,
-audio-ring
+  audio-ring, echo-wave, sunburst, media-card
 
 Notes:
 - Host mode must be ON, otherwise the endpoint returns 503 like every other route.

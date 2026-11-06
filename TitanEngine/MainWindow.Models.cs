@@ -223,6 +223,12 @@ namespace TitanEngine {
         public double SoundBarLoopSeconds { get; set; } = 5.0;
         /// <summary>"auto" | "external" | "video".</summary>
         public string SoundBarAudioSource { get; set; } = "auto";
+        /// <summary>Album-art thumbnail for the media-card soundbar style (absolute path; empty = placeholder glyph).</summary>
+        public string? SoundBarArtworkPath { get; set; }
+        /// <summary>Track title drawn on the media-card style. Empty = line not drawn.</summary>
+        public string SoundBarMediaTitle { get; set; } = string.Empty;
+        /// <summary>Artist line drawn on the media-card style. Empty = line not drawn.</summary>
+        public string SoundBarMediaArtist { get; set; } = string.Empty;
         // ===== END SOUNDBAR =====
 
         public bool AddQuotes { get; set; } = true;
@@ -410,6 +416,12 @@ namespace TitanEngine {
         public double? SoundBarGlowIntensity { get; set; }
         public double? SoundBarLoopSeconds { get; set; }
         public string? SoundBarAudioSource { get; set; }
+        /// <summary>Album-art thumbnail for soundBarStyle "media-card" (absolute path; empty = placeholder).</summary>
+        public string? SoundBarArtworkPath { get; set; }
+        /// <summary>Track title drawn on the media-card style.</summary>
+        public string? SoundBarMediaTitle { get; set; }
+        /// <summary>Artist line drawn on the media-card style.</summary>
+        public string? SoundBarMediaArtist { get; set; }
         // ===== END SOUNDBAR =====
 
         public string? ColorGrading { get; set; }

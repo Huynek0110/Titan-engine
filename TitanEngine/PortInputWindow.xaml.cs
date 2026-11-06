@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows;
@@ -49,7 +50,9 @@ namespace TitanEngine
                 return;
             }
 
-            SelectedPort = txtPort.Text;
+            // Store the parsed number, not the raw text: int.TryParse accepts " 5555 " / "+5555",
+            // and the consumer builds an HttpListener prefix from this string verbatim.
+            SelectedPort = port.ToString(CultureInfo.InvariantCulture);
             DialogResult = true;
             Close();
         }

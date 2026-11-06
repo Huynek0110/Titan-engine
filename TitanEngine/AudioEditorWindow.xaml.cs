@@ -23,7 +23,6 @@ namespace TitanEngine
         private readonly DispatcherTimer _timer = new DispatcherTimer();
         private bool _isPlaying;
         private bool _isUpdatingSlider;
-        private bool _isDraggingTimeline;
         private bool _isLoadedSuccessfully;
         private double _singleTrimDefaultStartSeconds;
         private double _singleTrimDefaultEndSeconds;
@@ -155,12 +154,9 @@ namespace TitanEngine
                 return;
 
             double position = Math.Max(0.0, _player.Position.TotalSeconds);
-            if (!_isDraggingTimeline)
-            {
-                _isUpdatingSlider = true;
-                sldPlayback.Value = Math.Min(position, sldPlayback.Maximum);
-                _isUpdatingSlider = false;
-            }
+            _isUpdatingSlider = true;
+            sldPlayback.Value = Math.Min(position, sldPlayback.Maximum);
+            _isUpdatingSlider = false;
 
             txtCurrentTime.Text = AudioEditHelpers.FormatTime(position);
             RedrawTimeline(position);
@@ -286,8 +282,9 @@ namespace TitanEngine
 
         private void btnClearCuts_Click(object sender, RoutedEventArgs e)
         {
+            // Segments.Clear() raises CollectionChanged, whose handler already runs
+            // RedrawTimeline() + UpdateMetaText().
             Segments.Clear();
-            UpdateMetaText();
         }
 
         private void btnNormalize_Click(object sender, RoutedEventArgs e)
@@ -345,7 +342,6 @@ namespace TitanEngine
             Point pos = e.GetPosition(cvsTimeline);
             double ratio = Math.Clamp(pos.X / cvsTimeline.ActualWidth, 0.0, 1.0);
             SeekToSeconds(_durationSeconds * ratio, true);
-            _isDraggingTimeline = false;
         }
 
         private void SeekRelative(double deltaSeconds)
@@ -441,13 +437,6 @@ namespace TitanEngine
 
             UpdateMetaText();
             RedrawTimeline();
-        }
-
-        private double GetRangeEndFallback()
-        {
-            if (AudioEditHelpers.TryParseFlexibleTime(txtRangeEnd.Text, out double parsed))
-                return parsed;
-            return Math.Min(5.0, _durationSeconds);
         }
 
         private string BuildAudioMetaText()

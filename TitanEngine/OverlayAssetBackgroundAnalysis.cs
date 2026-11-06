@@ -146,7 +146,19 @@ namespace TitanEngine
                     if (!extracted || !File.Exists(tempFrame))
                         continue;
 
-                    AnalyzeFrame(tempFrame, accumulator);
+                    // A single corrupt/undecodable frame must not kill the whole probe:
+                    // coverage sampling is best-effort, and AnalyzeAsync's contract is to
+                    // fall back to Unknown (low-opacity screen blend) rather than fail the
+                    // render. Skip the bad frame; if no frame survives, Samples stays 0 and
+                    // the caller keeps the Unknown default.
+                    try
+                    {
+                        AnalyzeFrame(tempFrame, accumulator);
+                    }
+                    catch (Exception frameEx) when (frameEx is not OperationCanceledException)
+                    {
+                        // Keep whatever partial samples already accumulated.
+                    }
                 }
                 finally
                 {
