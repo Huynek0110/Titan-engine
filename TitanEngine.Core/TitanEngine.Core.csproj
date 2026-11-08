@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Phase 1 (tạm thời): multi-target vì các file vẽ overlay/soundbar vẫn dùng System.Windows.Media.
+         Phase 2 sẽ cắt hết System.Windows khỏi Core và chỉ còn net8.0. -->
+    <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF Condition="'$(TargetFramework)' == 'net8.0-windows'">true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- EngineCore giữ các member internal như bản gốc; WPF assembly cần nhìn thấy. -->
+    <InternalsVisibleTo Include="TitanEngine" />
+  </ItemGroup>
+
+</Project>

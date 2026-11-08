@@ -44,4 +44,8 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TitanEngine.Core\TitanEngine.Core.csproj" />
+  </ItemGroup>
+
 </Project>
