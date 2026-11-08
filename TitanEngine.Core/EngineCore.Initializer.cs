@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,7 +9,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Media;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -18,14 +16,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shell;
-using System.Windows.Threading;
 
 namespace TitanEngine
 {
@@ -47,12 +37,12 @@ namespace TitanEngine
             if (!File.Exists(_ffmpegPath))
             {
                 var msg = $"FFmpeg not found at:\n{baseDir}\n\nManually select ffmpeg.exe?";
-                if (MessageBox.Show(msg, "Missing Core Engine", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                if (EngineServices.Prompt?.Confirm("Missing Core Engine", msg) == true)
                 {
-                    var dlg = new OpenFileDialog { Filter = "FFmpeg|ffmpeg.exe" };
-                    if (dlg.ShowDialog() == true)
+                    string? selectedFfmpeg = EngineServices.Prompt.PromptForFfmpegPath();
+                    if (selectedFfmpeg != null)
                     {
-                        _ffmpegPath = dlg.FileName;
+                        _ffmpegPath = selectedFfmpeg;
                         string? dirName = System.IO.Path.GetDirectoryName(_ffmpegPath);
                         if (dirName != null)
                             _ffprobePath = System.IO.Path.Combine(dirName, "ffprobe.exe");
@@ -886,6 +876,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
         }
 
+        // Phase 2: decode/re-encode PNG (TrySanitizeBrandLogoAsset) moved sang WPF qua IImageServices;
+        // headless (Images == null) trả false như nhánh catch gốc.
+        private static bool TrySanitizeBrandLogoAsset(string sourcePath, string destinationPath, Action<string> onLog)
+            => EngineServices.Images?.SanitizeBrandLogoAsset(sourcePath, destinationPath, onLog) ?? false;
+
         private static string? ResolveBrandLogoAssetPath(Action<string> onLog)
         {
             string bundledPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BundledBrandLogoRelativePath);
@@ -920,101 +915,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return null;
         }
 
-        private static bool TrySanitizeBrandLogoAsset(string sourcePath, string destinationPath, Action<string> onLog)
-        {
-            try
-            {
-                using FileStream stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                BitmapDecoder decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                BitmapFrame? frame = decoder.Frames.FirstOrDefault();
-                if (frame == null || frame.PixelWidth <= 0 || frame.PixelHeight <= 0)
-                    return false;
-
-                BitmapSource rgbaSource = frame.Format == PixelFormats.Pbgra32
-                    ? frame
-                    : new FormatConvertedBitmap(frame, PixelFormats.Pbgra32, null, 0.0);
-
-                int width = rgbaSource.PixelWidth;
-                int height = rgbaSource.PixelHeight;
-                int stride = width * 4;
-                byte[] pixels = new byte[stride * height];
-                rgbaSource.CopyPixels(pixels, stride, 0);
-
-                const byte alphaThreshold = 5;
-                bool hiddenRgbDetected = false;
-
-                for (int y = 0; y < height; y++)
-                {
-                    int row = y * stride;
-                    for (int x = 0; x < width; x++)
-                    {
-                        int idx = row + (x * 4);
-                        byte b = pixels[idx];
-                        byte g = pixels[idx + 1];
-                        byte r = pixels[idx + 2];
-                        byte a = pixels[idx + 3];
-
-                        if (a < alphaThreshold)
-                        {
-                            if (r != 0 || g != 0 || b != 0)
-                                hiddenRgbDetected = true;
-
-                            pixels[idx] = 0;
-                            pixels[idx + 1] = 0;
-                            pixels[idx + 2] = 0;
-                            pixels[idx + 3] = 0;
-                        }
-                    }
-                }
-
-                string fullSource = Path.GetFullPath(sourcePath);
-                string fullDestination = Path.GetFullPath(destinationPath);
-                bool sameFile = string.Equals(fullSource, fullDestination, StringComparison.OrdinalIgnoreCase);
-                bool needsRewrite = !sameFile || hiddenRgbDetected;
-                if (!needsRewrite)
-                    return true;
-
-                double dpiX = frame.DpiX > 0 ? frame.DpiX : 96.0;
-                double dpiY = frame.DpiY > 0 ? frame.DpiY : 96.0;
-                BitmapSource sanitized = BitmapSource.Create(
-                    width,
-                    height,
-                    dpiX,
-                    dpiY,
-                    PixelFormats.Pbgra32,
-                    null,
-                    pixels,
-                    stride);
-                if (sanitized.CanFreeze)
-                    sanitized.Freeze();
-
-                string? targetDir = Path.GetDirectoryName(destinationPath);
-                if (!string.IsNullOrWhiteSpace(targetDir))
-                    Directory.CreateDirectory(targetDir);
-
-                string tempPath = sameFile ? destinationPath + ".sanitized.tmp" : destinationPath;
-                using (FileStream output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    var encoder = new PngBitmapEncoder();
-                    encoder.Frames.Add(BitmapFrame.Create(sanitized));
-                    encoder.Save(output);
-                }
-
-                if (sameFile)
-                {
-                    File.Copy(tempPath, destinationPath, overwrite: true);
-                    File.Delete(tempPath);
-                }
-
-                onLog($"[BRAND-LOGO] Sanitized asset alpha-only cleanup: {destinationPath}");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                onLog($"[BRAND-LOGO-WARN] Failed to sanitize asset '{sourcePath}': {ex.Message}");
-                return false;
-            }
-        }
 
         public static string NormalizeBrandLogoPosition(string? input)
         {

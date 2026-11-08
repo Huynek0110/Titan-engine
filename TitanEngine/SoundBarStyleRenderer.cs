@@ -4032,7 +4032,7 @@ namespace TitanEngine
                 {
                     GradientStopSpec spec = source[i];
                     offsets.Add(Math.Clamp(spec.Offset, 0.0, 1.0));
-                    colors.Add(ColorPreset.TryParseHex(spec.Hex, out Color parsed) ? parsed : Colors.White);
+                    colors.Add(SoundBarPaletteArt.TryParseHex(spec.Hex, out Color parsed) ? parsed : Colors.White);
                 }
             }
 
@@ -4063,9 +4063,9 @@ namespace TitanEngine
             return new ResolvedPalette
             {
                 Id = safe.Id ?? string.Empty,
-                Core = safe.CoreColor,
-                Glow = safe.GlowColor,
-                Accent = safe.AccentColor,
+                Core = SoundBarPaletteArt.CoreColor(safe),
+                Glow = SoundBarPaletteArt.GlowColor(safe),
+                Accent = SoundBarPaletteArt.AccentColor(safe),
                 RampOffsets = ramp,
                 RampColors = rampColors,
                 AngularBrushes = angular

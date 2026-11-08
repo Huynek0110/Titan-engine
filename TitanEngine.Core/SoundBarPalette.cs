@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Windows.Media;
 
 namespace TitanEngine
 {
@@ -37,113 +36,6 @@ namespace TitanEngine
         string Accent,
         double GlowStrength = 1.0)
     {
-        /// <summary>
-        /// Parses "#RGB", "#RRGGBB" or "#AARRGGBB" (an optional "0x" prefix is also accepted).
-        /// The result is ALWAYS opaque: the alpha of an "#AARRGGBB" literal is discarded because the
-        /// renderer applies alpha as a separate multiplicative pass. Never throws.
-        /// </summary>
-        /// <returns>True when the literal parsed as a hex colour; <paramref name="color"/> is then opaque.</returns>
-        public static bool TryParseHex(string hex, out Color color)
-        {
-            color = Colors.White;
-            if (string.IsNullOrWhiteSpace(hex))
-                return false;
-
-            string value = hex.Trim();
-            if (value.StartsWith("#", StringComparison.Ordinal))
-                value = value[1..];
-            else if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                value = value[2..];
-
-            if (value.Length != 3 && value.Length != 6 && value.Length != 8)
-                return false;
-
-            int r;
-            int g;
-            int b;
-
-            if (value.Length == 3)
-            {
-                int n0 = Nibble(value[0]);
-                int n1 = Nibble(value[1]);
-                int n2 = Nibble(value[2]);
-                if (n0 < 0 || n1 < 0 || n2 < 0)
-                    return false;
-
-                r = n0 * 17;
-                g = n1 * 17;
-                b = n2 * 17;
-            }
-            else
-            {
-                int n0 = Nibble(value[0]);
-                int n1 = Nibble(value[1]);
-                int n2 = Nibble(value[2]);
-                int n3 = Nibble(value[3]);
-                int n4 = Nibble(value[4]);
-                int n5 = Nibble(value[5]);
-                if (n0 < 0 || n1 < 0 || n2 < 0 || n3 < 0 || n4 < 0 || n5 < 0)
-                    return false;
-
-                r = (n0 * 16) + n1;
-                g = (n2 * 16) + n3;
-                b = (n4 * 16) + n5;
-
-                // 8 digits is "#AARRGGBB". Alpha is intentionally dropped: glow passes apply alpha themselves.
-            }
-
-            color = Color.FromRgb((byte)r, (byte)g, (byte)b);
-            return true;
-        }
-
-        /// <summary>
-        /// Builds a fresh <see cref="GradientStopCollection"/> from <see cref="Stops"/>.
-        /// A new set of <see cref="GradientStop"/> instances is produced every call because a gradient
-        /// stop can only ever belong to one collection.
-        /// </summary>
-        public GradientStopCollection ToBrushStops()
-        {
-            var stops = new GradientStopCollection();
-
-            IReadOnlyList<GradientStopSpec>? source = Stops;
-            if (source != null)
-            {
-                for (int i = 0; i < source.Count; i++)
-                {
-                    GradientStopSpec spec = source[i];
-                    Color parsed = TryParseHex(spec.Hex, out Color color) ? color : Colors.White;
-                    stops.Add(new GradientStop(parsed, Math.Clamp(spec.Offset, 0.0, 1.0)));
-                }
-            }
-
-            if (stops.Count == 0)
-                stops.Add(new GradientStop(Colors.White, 0.0));
-
-            return stops;
-        }
-
-        /// <summary>Returns the opaque <see cref="Color"/> for <see cref="Core"/>, falling back to white.</summary>
-        public Color CoreColor => TryParseHex(Core, out Color color) ? color : Colors.White;
-
-        /// <summary>Returns the opaque <see cref="Color"/> for <see cref="Glow"/>, falling back to white.</summary>
-        public Color GlowColor => TryParseHex(Glow, out Color color) ? color : Colors.White;
-
-        /// <summary>Returns the opaque <see cref="Color"/> for <see cref="BgTint"/>, falling back to black.</summary>
-        public Color BgTintColor => TryParseHex(BgTint, out Color color) ? color : Colors.Black;
-
-        /// <summary>Returns the opaque <see cref="Color"/> for <see cref="Accent"/>, falling back to white.</summary>
-        public Color AccentColor => TryParseHex(Accent, out Color color) ? color : Colors.White;
-
-        private static int Nibble(char c)
-        {
-            if (c >= '0' && c <= '9')
-                return c - '0';
-            if (c >= 'a' && c <= 'f')
-                return (c - 'a') + 10;
-            if (c >= 'A' && c <= 'F')
-                return (c - 'A') + 10;
-            return -1;
-        }
     }
 
     /// <summary>The 30 shipped soundbar palettes, in display order.</summary>

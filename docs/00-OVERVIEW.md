@@ -34,14 +34,34 @@ Hai chế độ hoạt động:
 
 ## 3. Bản đồ file
 
-### Lõi
+### Phân tầng (từ Giai đoạn 1 port/linux)
+
+**`TitanEngine.Core/` (net8.0 thuần — KHÔNG tham chiếu WPF/UI):** engine, render pipeline, FFmpeg command
+builder, audio mix, HTTP API. Gồm: `EngineCore.{State,Initializer,FfmpegCommandBuilder,AudioMixer,RenderPipeline,
+HostApiServer,Helpers}.cs` (partial class `EngineCore`), `MainWindow.Models.cs`, `EffectRecipe*`, `TitanTransition*`,
+`Audio*`, `OverlayAssetBackgroundAnalysis.cs`, `OverlayContentLayout.cs`, `VideoAssetProbeInfo.cs`, và nửa Core của
+các preset overlay/soundbar (model + settings + BuildSingleClipGraph/BuildAssetClipGraph… — logic filter graph).
+`EngineServices.cs` định nghĩa các interface `IUserPrompt / IUiDispatcher / IEngineLogSink / ITextMetrics /
+IImageServices` + service locator `EngineServices` — **Core gọi UI/ảnh vẽ CHỈ qua đây**, không gọi ngược project WPF.
+`PixelRect.cs` = struct `PixelRect`/`Vector` (double, semantics giống WPF; `Vector.Normalize` chia 1/max(|x|,|y|)
+trước rồi chia Length — số học phải khớp bản Windows vì seed/particle/cache SHA-256 phụ thuộc).
+
+**`TitanEngine/` (WPF, net8.0-windows):** UI + phần vẽ pixel (WPF-stay). `MainWindow.xaml(.cs)` (UI, queue),
+`WpfOverlayArt.cs` (9 class `*Art` — member vẽ chuyển nguyên văn từ Core: Snowfall/DreamyDot/Particle/Polaroid2/
+RgbPolaroid/Scratch/LightLeakBurn/SoundBar + DashedPolaroid), `SoundBarStyleRenderer.cs` (nguyên file, từ Core),
+`SoundBarPaletteArt.cs` (TryParseHex + 4 hàm màu), `WpfImageCodecArt.cs` (decode ảnh/sanitize logo),
+`WpfEngineServices.cs` (implement các interface trên bằng MessageBox/OpenFileDialog/FormattedText/RenderTargetBitmap;
+`Install()` chạy đầu `MainWindow()`). Core sinh overlay pixel qua `EngineServices.Images.*` → `*Art` classes.
+
+### Lõi (WPF project)
 
 | File | Vai trò |
 |---|---|
-| `MainWindow.xaml.cs` | **Trung tâm, ~18 200 dòng.** `EngineCore` (static) + `MainWindow`: render pipeline, FFmpeg command builder, duration sync, audio mix, queue, HTTP API, overlay wiring |
+| `MainWindow.xaml.cs` | UI + queue + wiring; `WpfEngineServices.Install()` chạy đầu constructor |
 | `MainWindow.xaml` | Toàn bộ layout UI |
-| `MainWindow.Models.cs` | `RenderJob`, `LocalhostRenderRequest/Response`, `LocalhostQueueJobInfo`, `ApiRenderJobState` |
 | `App.xaml(.cs)` | Entry point, rất mỏng |
+
+(`MainWindow.Models.cs`, `EngineCore` và các model/preset không dính vẽ đã chuyển sang `TitanEngine.Core/`.)
 
 ### Effect / overlay / template
 

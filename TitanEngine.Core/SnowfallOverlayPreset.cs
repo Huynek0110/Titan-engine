@@ -7,9 +7,6 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace TitanEngine
 {
@@ -70,8 +67,6 @@ namespace TitanEngine
 
     public static class SnowfallOverlayPreset
     {
-        private static readonly Lazy<IReadOnlyList<BitmapSource>> SnowflakeSpriteCache =
-            new(CreateSnowflakeSprites, LazyThreadSafetyMode.ExecutionAndPublication);
 
         public static string NormalizeMode(string? input)
         {
@@ -82,6 +77,7 @@ namespace TitanEngine
                 return "generatedOverlay";
             return "auto";
         }
+
 
         public static string NormalizePreset(string? input)
         {
@@ -104,6 +100,7 @@ namespace TitanEngine
 
             return "Snow Cinematic";
         }
+
 
         public static IReadOnlyList<SnowfallOverlayRecipe> ResolveRecipes(RenderJob job, double outputDurationSeconds, Action<string> onLog)
         {
@@ -162,6 +159,7 @@ namespace TitanEngine
             return recipes;
         }
 
+
         public static SnowfallOverlayRecipe ResolveRecipe(RenderJob job, double outputDurationSeconds, Action<string> onLog)
         {
             string presetName = NormalizePreset(job.SnowfallPreset);
@@ -198,6 +196,7 @@ namespace TitanEngine
             return recipe;
         }
 
+
         private static SnowfallOverlayRecipe CreateNamedAssetRecipe(string presetName, string assetBaseName, double opacity, Action<string> onLog)
         {
             SnowOverlayAsset asset = ResolveUiNamedAsset(assetBaseName, onLog);
@@ -215,6 +214,7 @@ namespace TitanEngine
             onLog($"[SNOWFALL] {presetName} -> {asset.FilePath}");
             return recipe;
         }
+
 
         private static SnowOverlayAsset ResolveUiNamedAsset(string assetBaseName, Action<string> onLog)
         {
@@ -254,6 +254,7 @@ namespace TitanEngine
             };
         }
 
+
         private static IEnumerable<string> EnumerateSnowAssetDirectories()
         {
             string baseDirectory = AppContext.BaseDirectory;
@@ -271,6 +272,7 @@ namespace TitanEngine
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Where(Directory.Exists);
         }
+
 
         private static bool FilesLookIdentical(string firstPath, string secondPath)
         {
@@ -297,87 +299,6 @@ namespace TitanEngine
             }
         }
 
-        public static async Task<SnowfallGeneratedOverlay> GenerateOverlayAsync(
-            int width,
-            int height,
-            OverlayContentLayout? layout,
-            double frameRate,
-            SnowfallOverlayRecipe recipe,
-            string? tag,
-            CancellationToken token,
-            Action<string> onLog)
-        {
-            string safeTag = string.IsNullOrWhiteSpace(tag)
-                ? Guid.NewGuid().ToString("N").Substring(0, 8)
-                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"snowfall_{safeTag}");
-            string overlayPattern = Path.Combine(tempRoot, "snow_overlay_%04d.png");
-            string previewDir = Path.Combine(tempRoot, "preview");
-            int safeW = Math.Max(2, width);
-            int safeH = Math.Max(2, height);
-            double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
-            double renderScale = Math.Min(1.0, 1280.0 / Math.Max(safeW, safeH));
-            int renderW = Math.Max(320, (int)Math.Round(safeW * renderScale));
-            int renderH = Math.Max(320, (int)Math.Round(safeH * renderScale));
-            if ((renderW & 1) != 0) renderW--;
-            if ((renderH & 1) != 0) renderH--;
-            int frameCount = Math.Clamp((int)Math.Ceiling(Math.Max(2.0, recipe.CycleSeconds) * safeFps), 36, 90);
-            OverlayContentLayout renderLayout = new OverlayContentLayout
-            {
-                CanvasWidth = renderW,
-                CanvasHeight = renderH,
-                // Snow should behave like an environmental overlay, not a media-content-only frame.
-                // Use the full render canvas so particles can cover the entire output frame.
-                ContentRect = new Rect(0, 0, renderW, renderH)
-            };
-
-            await RunOnStaThreadAsync(() =>
-            {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
-
-                for (int i = 0; i < frameCount; i++)
-                {
-                    token.ThrowIfCancellationRequested();
-
-                    double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
-                    DrawingVisual overlayVisual = new DrawingVisual();
-
-                    using (DrawingContext dc = overlayVisual.RenderOpen())
-                    {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
-                        DrawSnowLayers(dc, renderLayout, recipe, progress);
-                    }
-
-                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
-                    overlayBitmap.Render(overlayVisual);
-                    if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
-
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
-
-                    if (i < 8)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        SaveBitmap(overlayBitmap, previewFile);
-                    }
-                }
-            }, token);
-
-            onLog($"[SNOWFALL] Generated particle overlay @ {renderW}x{renderH} (target {safeW}x{safeH}), fps={safeFps:0.00}, frames={frameCount}, preview={previewDir}");
-
-            return new SnowfallGeneratedOverlay
-            {
-                TempRoot = tempRoot,
-                OverlayPattern = overlayPattern,
-                FrameCount = frameCount,
-                FrameRate = safeFps,
-                Width = renderW,
-                Height = renderH,
-                PreviewDirectory = previewDir,
-                TempArtifacts = new List<string> { tempRoot }
-            };
-        }
 
         public static string BuildGeneratedClipGraph(
             string baseInputLabel,
@@ -413,6 +334,7 @@ namespace TitanEngine
             onLog($"[SNOWFALL] Generated overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}");
             return $"{baseChain};{overlayChain};{mergeChain}";
         }
+
 
         public static string BuildAssetClipGraph(
             string baseInputLabel,
@@ -489,6 +411,7 @@ namespace TitanEngine
             return $"{baseChain};{sourceChain};{mergeChain}";
         }
 
+
         private static OverlayBackgroundType ResolveBackgroundType(string? assetType)
         {
             string value = (assetType ?? string.Empty).Trim().ToLowerInvariant();
@@ -500,6 +423,7 @@ namespace TitanEngine
                 return OverlayBackgroundType.BlackBackground;
             return OverlayBackgroundType.Unknown;
         }
+
 
         private static SnowOverlayAsset? ResolveAsset(RenderJob job)
         {
@@ -555,6 +479,7 @@ namespace TitanEngine
             return null;
         }
 
+
         private static IEnumerable<string> ResolvePreferredAssetNames(string presetName)
         {
             switch (presetName)
@@ -580,6 +505,7 @@ namespace TitanEngine
             yield return "snow_default_01";
         }
 
+
         private static string GuessAssetType(string path)
         {
             string fileName = Path.GetFileName(path).ToLowerInvariant();
@@ -589,12 +515,14 @@ namespace TitanEngine
             return "blackBackground";
         }
 
+
         private static string GuessBlendMode(string path)
         {
             return GuessAssetType(path).Equals("alpha", StringComparison.OrdinalIgnoreCase)
                 ? "screen"
                 : "screen";
         }
+
 
         private static double ResolveDefaultOpacity(string presetName)
         {
@@ -607,6 +535,7 @@ namespace TitanEngine
                 _ => 0.36
             };
         }
+
 
         private static double ResolveCycleSeconds(string presetName, double intensity, double outputDurationSeconds)
         {
@@ -623,6 +552,7 @@ namespace TitanEngine
             double cycle = baseCycle + intensityShift;
             return Math.Clamp(cycle, 2.8, Math.Min(6.0, Math.Max(3.0, outputDurationSeconds)));
         }
+
 
         private static List<SnowOverlayLayerRecipe> BuildLayers(string presetName, double intensity)
         {
@@ -671,6 +601,7 @@ namespace TitanEngine
             return layers;
         }
 
+
         private static SnowOverlayLayerRecipe CreateLayer(
             string name,
             int count,
@@ -713,102 +644,8 @@ namespace TitanEngine
             };
         }
 
-        private static void DrawSnowLayers(DrawingContext dc, OverlayContentLayout layout, SnowfallOverlayRecipe recipe, double progress)
-        {
-            Rect canvasRect = new Rect(
-                0,
-                0,
-                Math.Max(2.0, layout.CanvasWidth),
-                Math.Max(2.0, layout.CanvasHeight));
 
-            dc.PushClip(new RectangleGeometry(canvasRect));
-
-            foreach (SnowOverlayLayerRecipe layer in recipe.Layers)
-            {
-                for (int i = 0; i < layer.Count; i++)
-                    DrawSnowParticle(dc, canvasRect, recipe, layer, i, progress);
-            }
-
-            dc.Pop();
-        }
-
-        private static void DrawSnowParticle(DrawingContext dc, Rect contentRect, SnowfallOverlayRecipe recipe, SnowOverlayLayerRecipe layer, int index, double progress)
-        {
-            Random rng = new Random(HashSeed(recipe.PresetName, layer.Name, index));
-            double size = Lerp(layer.MinSize, layer.MaxSize, rng.NextDouble());
-            double opacityPulse = 0.96 + (0.22 * Math.Sin((progress * Math.PI * 2.0 * (1.0 + rng.NextDouble())) + (rng.NextDouble() * Math.PI * 2.0)));
-            double opacity = Math.Clamp(
-                Lerp(layer.MinOpacity, layer.MaxOpacity, rng.NextDouble()) * opacityPulse,
-                0.05,
-                1.0);
-            double verticalLoops = Lerp(layer.MinVerticalLoops, layer.MaxVerticalLoops, rng.NextDouble());
-            double sway = Lerp(layer.MinSway, layer.MaxSway, rng.NextDouble());
-            double drift = Lerp(layer.MinDrift, layer.MaxDrift, rng.NextDouble());
-            double baseX = rng.NextDouble() * contentRect.Width;
-            double baseY = rng.NextDouble();
-            double phase = rng.NextDouble() * Math.PI * 2.0;
-            double frequency = 1.0 + (rng.NextDouble() * 2.5);
-            double margin = Math.Max(12.0, size * 3.0);
-            double rangeH = contentRect.Height + (margin * 2.0);
-            double rangeW = contentRect.Width + (margin * 2.0);
-
-            double totalFall = (baseY * rangeH) + (verticalLoops * progress * rangeH);
-            double fallPosition = PositiveMod(totalFall, rangeH);
-            double descentTravel = baseY + (verticalLoops * progress);
-            double flutter =
-                (Math.Sin((progress * Math.PI * 2.0 * frequency) + phase) * sway * 0.12) +
-                (Math.Cos((progress * Math.PI * 2.0 * (0.45 + (frequency * 0.18))) + phase) * sway * 0.04);
-            double windPush = drift * (0.35 + (descentTravel * 4.20));
-            double particleX = contentRect.X - margin + PositiveMod(baseX + windPush + flutter + margin, rangeW);
-            double particleY = contentRect.Y - margin + fallPosition;
-
-            if (layer.UseStreaks)
-            {
-                DrawStreakParticle(dc, particleX, particleY, size, opacity, layer, phase, progress);
-                return;
-            }
-
-            BitmapSource sprite = SelectSnowflakeSprite(layer.Name, index);
-            double spriteSize = Math.Max(8.0, size * 4.60);
-            double rotation = (rng.NextDouble() * 360.0) + (Math.Sin((progress * Math.PI * 2.0 * (0.7 + rng.NextDouble())) + phase) * 8.0);
-
-            if (layer.UseGlow || layer.BlurMultiplier > 0.01)
-            {
-                double glowSize = spriteSize * (1.24 + (layer.BlurMultiplier * 0.12));
-                DrawSnowflakeSprite(dc, sprite, particleX, particleY, glowSize, opacity * 0.26, rotation);
-            }
-
-            DrawSnowflakeSprite(dc, sprite, particleX, particleY, spriteSize, opacity, rotation);
-        }
-
-        private static void DrawStreakParticle(
-            DrawingContext dc,
-            double x,
-            double y,
-            double size,
-            double opacity,
-            SnowOverlayLayerRecipe layer,
-            double phase,
-            double progress)
-        {
-            double angle = (72.0 + (Math.Sin((progress * Math.PI * 2.0 * 0.75) + phase) * 4.0)) * (Math.PI / 180.0);
-            double length = Math.Max(size * 2.0, size * layer.StreakLengthMultiplier);
-            double dx = Math.Cos(angle) * length * 0.5;
-            double dy = Math.Sin(angle) * length * 0.5;
-            Point start = new Point(x - dx, y - dy);
-            Point end = new Point(x + dx, y + dy);
-
-            Pen glowPen = CreatePen(WithAlpha(Colors.White, opacity * 0.24), Math.Max(1.0, size * 0.95));
-            Pen corePen = CreatePen(WithAlpha(Colors.White, Math.Min(1.0, opacity * 0.82)), Math.Max(1.0, size * 0.56));
-            dc.DrawLine(glowPen, start, end);
-            dc.DrawLine(corePen, start, end);
-
-            Point tail = new Point(x - (dx * 0.70), y - (dy * 0.70));
-            Brush tailBrush = CreateBrush(WithAlpha(Colors.White, opacity * 0.16));
-            dc.DrawEllipse(tailBrush, null, tail, size * 0.92, size * 0.92);
-        }
-
-        private static int HashSeed(string presetName, string layerName, int particleIndex)
+        internal static int HashSeed(string presetName, string layerName, int particleIndex)
         {
             unchecked
             {
@@ -821,7 +658,8 @@ namespace TitanEngine
             }
         }
 
-        private static double PositiveMod(double value, double modulus)
+
+        internal static double PositiveMod(double value, double modulus)
         {
             if (modulus <= 0.0)
                 return 0.0;
@@ -830,151 +668,12 @@ namespace TitanEngine
             return result < 0.0 ? result + modulus : result;
         }
 
-        private static double Lerp(double a, double b, double t)
+
+        internal static double Lerp(double a, double b, double t)
             => a + ((b - a) * Math.Clamp(t, 0.0, 1.0));
 
-        private static Brush CreateBrush(Color color)
-        {
-            SolidColorBrush brush = new SolidColorBrush(color);
-            if (brush.CanFreeze) brush.Freeze();
-            return brush;
-        }
 
-        private static IReadOnlyList<BitmapSource> CreateSnowflakeSprites()
-        {
-            var sprites = new List<BitmapSource>(5);
-            for (int variant = 0; variant < 5; variant++)
-                sprites.Add(CreateSnowflakeSprite(128, variant));
-            return sprites;
-        }
-
-        private static BitmapSource CreateSnowflakeSprite(int canvasSize, int variant)
-        {
-            DrawingVisual visual = new DrawingVisual();
-            using (DrawingContext dc = visual.RenderOpen())
-            {
-                double center = canvasSize / 2.0;
-                Point pivot = new Point(center, center);
-                double radius = canvasSize * (0.28 + (variant * 0.012));
-                double branchInsetA = 0.42 + (variant * 0.03);
-                double branchInsetB = 0.66 + (variant * 0.02);
-                double branchLengthA = canvasSize * (0.09 + (variant * 0.006));
-                double branchLengthB = canvasSize * (0.07 + (variant * 0.005));
-                double branchAngleA = (26.0 + (variant * 2.0)) * (Math.PI / 180.0);
-                double branchAngleB = (18.0 + (variant * 1.5)) * (Math.PI / 180.0);
-                double coreThickness = Math.Max(1.9, canvasSize * 0.030);
-                double branchThickness = Math.Max(1.2, coreThickness * 0.56);
-                Pen mainPen = CreatePen(WithAlpha(Colors.White, 0.96), coreThickness);
-                Pen branchPen = CreatePen(WithAlpha(Colors.White, 0.90), branchThickness);
-                Pen sparklePen = CreatePen(WithAlpha(Colors.White, 0.68), Math.Max(1.0, branchThickness * 0.62));
-
-                for (int arm = 0; arm < 6; arm++)
-                {
-                    double baseAngle = (Math.PI / 3.0 * arm) + (variant * 0.045);
-                    Point armStart = PointOnCircle(pivot, radius * 0.08, baseAngle + Math.PI);
-                    Point armEnd = PointOnCircle(pivot, radius, baseAngle);
-                    dc.DrawLine(mainPen, armStart, armEnd);
-
-                    DrawBranchPair(dc, pivot, baseAngle, radius * branchInsetA, branchLengthA, branchAngleA, branchPen);
-                    DrawBranchPair(dc, pivot, baseAngle, radius * branchInsetB, branchLengthB, branchAngleB, branchPen);
-
-                    if ((variant % 2) == 0)
-                    {
-                        double miniInset = radius * (0.78 + (arm % 2 == 0 ? 0.00 : 0.04));
-                        double miniLength = branchLengthB * 0.58;
-                        DrawBranchPair(dc, pivot, baseAngle, miniInset, miniLength, branchAngleB * 0.8, sparklePen);
-                    }
-                }
-
-                double innerRadius = canvasSize * (0.072 + (variant * 0.004));
-                dc.DrawEllipse(CreateBrush(WithAlpha(Colors.White, 0.90)), null, pivot, innerRadius, innerRadius);
-                dc.DrawEllipse(CreateBrush(WithAlpha(Colors.White, 0.18)), null, pivot, innerRadius * 1.80, innerRadius * 1.80);
-            }
-
-            RenderTargetBitmap bitmap = new RenderTargetBitmap(canvasSize, canvasSize, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(visual);
-            if (bitmap.CanFreeze) bitmap.Freeze();
-            return bitmap;
-        }
-
-        private static void DrawBranchPair(
-            DrawingContext dc,
-            Point pivot,
-            double baseAngle,
-            double inset,
-            double branchLength,
-            double branchAngle,
-            Pen branchPen)
-        {
-            Point origin = PointOnCircle(pivot, inset, baseAngle);
-            Point first = PointOnCircle(origin, branchLength, baseAngle + Math.PI - branchAngle);
-            Point second = PointOnCircle(origin, branchLength, baseAngle + Math.PI + branchAngle);
-            dc.DrawLine(branchPen, origin, first);
-            dc.DrawLine(branchPen, origin, second);
-        }
-
-        private static Point PointOnCircle(Point pivot, double radius, double angle)
-            => new Point(
-                pivot.X + (Math.Cos(angle) * radius),
-                pivot.Y + (Math.Sin(angle) * radius));
-
-        private static BitmapSource SelectSnowflakeSprite(string layerName, int particleIndex)
-        {
-            IReadOnlyList<BitmapSource> sprites = SnowflakeSpriteCache.Value;
-            int spriteIndex = Math.Abs(HashSeed("snowflake", layerName, particleIndex)) % sprites.Count;
-            return sprites[spriteIndex];
-        }
-
-        private static void DrawSnowflakeSprite(
-            DrawingContext dc,
-            BitmapSource sprite,
-            double centerX,
-            double centerY,
-            double size,
-            double opacity,
-            double rotationDegrees)
-        {
-            if (opacity <= 0.001 || size <= 1.0)
-                return;
-
-            double safeSize = Math.Max(2.0, size);
-            Rect rect = new Rect(centerX - (safeSize / 2.0), centerY - (safeSize / 2.0), safeSize, safeSize);
-
-            dc.PushOpacity(Math.Clamp(opacity, 0.0, 1.0));
-            dc.PushTransform(new RotateTransform(rotationDegrees, centerX, centerY));
-            dc.DrawImage(sprite, rect);
-            dc.Pop();
-            dc.Pop();
-        }
-
-        private static Pen CreatePen(Color color, double thickness)
-        {
-            Pen pen = new Pen(CreateBrush(color), Math.Max(0.4, thickness))
-            {
-                LineJoin = PenLineJoin.Round,
-                StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
-            };
-            if (pen.CanFreeze) pen.Freeze();
-            return pen;
-        }
-
-        private static Color WithAlpha(Color color, double alphaFactor)
-        {
-            byte alpha = (byte)Math.Clamp(Math.Round(alphaFactor * 255.0), 0.0, 255.0);
-            return Color.FromArgb(alpha, color.R, color.G, color.B);
-        }
-
-        private static void SaveBitmap(BitmapSource bitmap, string path)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            PngBitmapEncoder encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using FileStream stream = File.Create(path);
-            encoder.Save(stream);
-        }
-
-        private static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
+        internal static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
         {
             if (string.IsNullOrWhiteSpace(ffmpegPattern))
                 throw new ArgumentException("Sequence pattern cannot be empty.", nameof(ffmpegPattern));
@@ -984,43 +683,6 @@ namespace TitanEngine
                 csharpPattern = Regex.Replace(ffmpegPattern, @"%0?(\d+)d", m => "{0:D" + m.Groups[1].Value + "}");
 
             return string.Format(CultureInfo.InvariantCulture, csharpPattern, frameNumber);
-        }
-
-        private static Task RunOnStaThreadAsync(Action action, CancellationToken token)
-        {
-            if (token.IsCancellationRequested)
-                return Task.FromCanceled(token);
-
-            var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Thread thread = new Thread(() =>
-            {
-                try
-                {
-                    if (token.IsCancellationRequested)
-                    {
-                        tcs.TrySetCanceled(token);
-                        return;
-                    }
-
-                    action();
-                    tcs.TrySetResult(null);
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken.CanBeCanceled ? oce.CancellationToken : token);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            })
-            {
-                IsBackground = true,
-                Name = "TitanEngine_Snowfall_STA"
-            };
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-            return tcs.Task;
         }
     }
 }

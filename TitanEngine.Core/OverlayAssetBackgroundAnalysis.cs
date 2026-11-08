@@ -6,8 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace TitanEngine
 {
@@ -180,19 +178,17 @@ namespace TitanEngine
 
         private static void AnalyzeFrame(string framePath, CoverageAccumulator accumulator)
         {
-            using FileStream stream = new FileStream(framePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            BitmapDecoder decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-            BitmapSource source = decoder.Frames[0];
-            BitmapSource scaled = new TransformedBitmap(source, new ScaleTransform(
-                160.0 / Math.Max(1.0, source.PixelWidth),
-                90.0 / Math.Max(1.0, source.PixelHeight)));
-            BitmapSource rgba = new FormatConvertedBitmap(scaled, PixelFormats.Bgra32, null, 0.0);
+            // Giai đoạn 1 (đính chính): decode ảnh là máy ảnh WPF — chuyển sang WPF qua IImageServices
+            // (EngineServices.Images.SampleOverlayFrame, cùng thuật toán scale ≤160x90 + BGRA32).
+            // Headless (Images == null) bỏ qua frame như frame lỗi.
+            OverlayFrameSample? sample = EngineServices.Images?.SampleOverlayFrame(framePath);
+            if (sample == null)
+                return;
 
-            int width = rgba.PixelWidth;
-            int height = rgba.PixelHeight;
+            int width = sample.Width;
+            int height = sample.Height;
             int stride = width * 4;
-            byte[] pixels = new byte[stride * height];
-            rgba.CopyPixels(pixels, stride, 0);
+            byte[] pixels = sample.BgraPixels;
 
             int borderX = Math.Max(1, (int)Math.Round(width * 0.10));
             int borderY = Math.Max(1, (int)Math.Round(height * 0.10));

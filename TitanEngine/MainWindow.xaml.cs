@@ -188,6 +188,7 @@ namespace TitanEngine
 
         public MainWindow()
         {
+            WpfEngineServices.Install();
             InitializeComponent();
             JobQueue = new ObservableCollection<RenderJob>();
             lstQueue.ItemsSource = JobQueue;
@@ -3153,7 +3154,7 @@ namespace TitanEngine
                 // and caches it under previewDir, so the returned file is intentionally NOT deleted.
                 // The cache key already covers renderW / renderH, so a new aspect cannot serve a PNG
                 // rendered at the old one.
-                string? previewPath = await SoundBarVisualizerPreset.GeneratePreviewPngAsync(
+                string? previewPath = await SoundBarVisualizerArt.GeneratePreviewPngAsync(
                     settings,
                     palette,
                     previewWidth,
@@ -3918,7 +3919,7 @@ namespace TitanEngine
                     ColorFilter = (cmbColorFilter.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "None (Original)",
                     ColorIntensity = sldColorIntensity.Value / 100.0,
                     StatusDisplay = "WAITING",
-                    StatusColor = Brushes.Cyan,
+                    StatusColor = "Cyan",
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
@@ -4358,7 +4359,7 @@ namespace TitanEngine
                     ColorFilter = (cmbColorFilter.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "None (Original)",
                     ColorIntensity = sldColorIntensity.Value / 100.0,
                     StatusDisplay = "WAITING",
-                    StatusColor = Brushes.Cyan,
+                    StatusColor = "Cyan",
                     VideoVolume = sldVideoVol.Value / 100.0,
                     AudioVolume = sldAudioVol.Value / 100.0,
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
@@ -4511,7 +4512,7 @@ namespace TitanEngine
 
                     job.Progress = 0;
                     job.StatusDisplay = "PROCESSING...";
-                    job.StatusColor = Brushes.Yellow;
+                    job.StatusColor = "Yellow";
                     lstQueue.Items.Refresh();
                     lstQueue.ScrollIntoView(job);
 
@@ -4532,7 +4533,7 @@ namespace TitanEngine
                     await EngineCore.ExecuteRenderAsync(job, _customOutputFolder, _cancellationTokenSource.Token, progHandler, logHandler);
 
                     job.StatusDisplay = "DONE";
-                    job.StatusColor = Brushes.LimeGreen;
+                    job.StatusColor = "LimeGreen";
                     job.Progress = 100;
                     LogSystem($"[SUCCESS] Job #{job.Id} completed");
 
@@ -6064,7 +6065,7 @@ namespace TitanEngine
                     SlowMotionAudio = slowMotionAudio,
                     SplitDurationSeconds = request.SplitDurationSeconds ?? GetFeatureDouble(request, "splitDurationSeconds", "splitDuration", "splitSec") ?? 0.0,
                     StatusDisplay = "WAITING",
-                    StatusColor = Brushes.Yellow
+                    StatusColor = "Yellow"
                 };
                 job.IsApiJob = true;
                 job.WebhookUrl = request.WebhookUrl;
@@ -6807,7 +6808,7 @@ namespace TitanEngine
                     await Dispatcher.InvokeAsync(() =>
                     {
                         job.StatusDisplay = "FAILED (API)";
-                        job.StatusColor = Brushes.Red;
+                        job.StatusColor = "Red";
                     });
 
                     SetApiJobState(new ApiRenderJobState
@@ -6850,7 +6851,7 @@ namespace TitanEngine
                     await Dispatcher.InvokeAsync(() =>
                     {
                         job.StatusDisplay = "FAILED (API)";
-                        job.StatusColor = Brushes.Red;
+                        job.StatusColor = "Red";
                     });
 
                     SetApiJobState(new ApiRenderJobState
@@ -7334,7 +7335,7 @@ namespace TitanEngine
                     await Dispatcher.InvokeAsync(() =>
                     {
                         queueJob.StatusDisplay = "FAILED (API)";
-                        queueJob.StatusColor = Brushes.Red;
+                        queueJob.StatusColor = "Red";
                     });
 
                     SetApiJobState(new ApiRenderJobState
@@ -7364,7 +7365,7 @@ namespace TitanEngine
                     await Dispatcher.InvokeAsync(() =>
                     {
                         queueJob.StatusDisplay = "FAILED (API)";
-                        queueJob.StatusColor = Brushes.Red;
+                        queueJob.StatusColor = "Red";
                     });
 
                     SetApiJobState(new ApiRenderJobState
@@ -7438,7 +7439,7 @@ namespace TitanEngine
             await Dispatcher.InvokeAsync(() =>
             {
                 job.StatusDisplay = "PROCESSING...";
-                job.StatusColor = Brushes.Yellow;
+                job.StatusColor = "Yellow";
             });
 
             // [NEW] Record start time
@@ -7454,7 +7455,7 @@ namespace TitanEngine
                     {
                         job.Progress = p;
                         job.StatusDisplay = $"{p:F1}%";
-                        job.StatusColor = Brushes.Yellow;
+                        job.StatusColor = "Yellow";
                         pbGlobalProgress.Value = p;
                     });
 
@@ -7550,7 +7551,7 @@ namespace TitanEngine
             {
                 job.Progress = 100.0;
                 job.StatusDisplay = "DONE (API)";
-                job.StatusColor = Brushes.LimeGreen;
+                job.StatusColor = "LimeGreen";
             });
 
             LogSystem($"[API] COMPLETED: {Path.GetFileName(finalOutput)} (took {encodingTime:F2}s)");

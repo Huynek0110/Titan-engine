@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,7 +9,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Media;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -18,14 +16,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shell;
-using System.Windows.Threading;
 
 namespace TitanEngine
 {
@@ -744,31 +734,16 @@ namespace TitanEngine
             double maxWpfWidth = 0;
             try
             {
-                var typeface = new System.Windows.Media.Typeface(fontFamilyName);
-                var ft = new System.Windows.Media.FormattedText(
-                    normalizedText,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Windows.FlowDirection.LeftToRight,
-                    typeface,
-                    fontSize,
-                    System.Windows.Media.Brushes.White,
-                    1.0); // 1.0 pixels per dip
+                if (EngineServices.Text is null)
+                    throw new InvalidOperationException("ITextMetrics service is not registered.");
+                var metrics = EngineServices.Text.Measure(normalizedText, fontFamilyName, fontSize);
 
-                blockY = blockY.Replace("text_h", ft.Height.ToString("F1", inv));
+                blockY = blockY.Replace("text_h", metrics.Height.ToString("F1", inv));
 
-                // Measure each line to find max width
-                foreach (string lineText in lines)
+                // Measure each line to find max width (LineWidths[i] = 0 cho dòng rỗng như loop gốc skip)
+                foreach (double lineWidth in metrics.LineWidths)
                 {
-                    if (lineText.Length == 0) continue;
-                    var lineFt = new System.Windows.Media.FormattedText(
-                        lineText,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        System.Windows.FlowDirection.LeftToRight,
-                        typeface,
-                        fontSize,
-                        System.Windows.Media.Brushes.White,
-                        1.0);
-                    if (lineFt.Width > maxWpfWidth) maxWpfWidth = lineFt.Width;
+                    if (lineWidth > maxWpfWidth) maxWpfWidth = lineWidth;
                 }
             }
             catch (Exception ex)
@@ -838,21 +813,14 @@ namespace TitanEngine
 
                 try
                 {
-                    var typeface = new System.Windows.Media.Typeface(fontFamilyName);
-                    var lineFt = new System.Windows.Media.FormattedText(
-                        lineText,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        System.Windows.FlowDirection.LeftToRight,
-                        typeface,
-                        fontSize,
-                        System.Windows.Media.Brushes.White,
-                        1.0);
+                    if (EngineServices.Text is null)
+                        throw new InvalidOperationException("ITextMetrics service is not registered.");
 
                     // We intentionally DO NOT replace "text_w" in lineX here.
                     // Leaving "text_w" in the expression allows FFmpeg to calculate the exact width 
                     // of the string based on its actual font file (like custom Calligraphy fonts)
                     // which guarantees 100% perfect Left/Center/Right alignment!
-                    lineHeight = lineFt.Height;
+                    lineHeight = EngineServices.Text.Measure(lineText, fontFamilyName, fontSize).Height;
                 }
                 catch
                 {
@@ -989,14 +957,9 @@ namespace TitanEngine
                 double height;
                 try
                 {
-                    var measured = new System.Windows.Media.FormattedText(
-                        activeLines[i],
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        System.Windows.FlowDirection.LeftToRight,
-                        new System.Windows.Media.Typeface(fontFamilyName),
-                        fontSize,
-                        System.Windows.Media.Brushes.White,
-                        1.0);
+                    if (EngineServices.Text is null)
+                        throw new InvalidOperationException("ITextMetrics service is not registered.");
+                    var measured = EngineServices.Text.Measure(activeLines[i], fontFamilyName, fontSize);
                     width = measured.Width;
                     height = measured.Height;
                 }

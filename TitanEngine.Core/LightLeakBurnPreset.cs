@@ -7,9 +7,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace TitanEngine
 {
@@ -69,6 +66,7 @@ namespace TitanEngine
             };
         }
 
+
         public static string NormalizeDirection(string? input)
         {
             string v = (input ?? string.Empty).Trim().ToLowerInvariant();
@@ -77,6 +75,7 @@ namespace TitanEngine
             if (v.Contains("bottom")) return "from-bottom";
             return "from-left";
         }
+
 
         public static string NormalizeBlendMode(string? input)
         {
@@ -87,12 +86,14 @@ namespace TitanEngine
             return "screen";
         }
 
+
         public static string BuildFxFilter(RenderJob job, Action<string> onLog)
         {
             _ = job;
             onLog("[LIGHT-LEAK-BURN] Procedural burn path disabled. Asset-only render path is required.");
             throw new InvalidOperationException("Light leak asset missing. Asset-only effect cannot render.");
         }
+
 
         public static LightLeakOverlayRecipe? ResolveSingleClipAssetRecipe(
             RenderJob job,
@@ -119,6 +120,7 @@ namespace TitanEngine
                 Usages = usages
             };
         }
+
 
         public static LightLeakOverlayRecipe? ResolveTransitionAssetRecipe(
             RenderJob job,
@@ -155,6 +157,7 @@ namespace TitanEngine
             };
         }
 
+
         public static async Task<LightLeakBurnGeneratedLayers> GenerateLayersAsync(
             int width,
             int height,
@@ -177,6 +180,7 @@ namespace TitanEngine
             throw new InvalidOperationException("Light leak asset missing. Asset-only effect cannot render.");
         }
 
+
         public static string BuildSingleClipLightLeakGraph(
             string baseInputLabel,
             string baseVideoFilters,
@@ -193,6 +197,7 @@ namespace TitanEngine
             onLog("[LIGHT-LEAK-BURN] Procedural single-clip graph disabled. Asset-only mode is active.");
             throw new InvalidOperationException("Light leak asset missing. Asset-only effect cannot render.");
         }
+
 
         public static string BuildAssetBackedTransitionFilterComplex(
             int targetWidth,
@@ -262,6 +267,7 @@ namespace TitanEngine
             onLog($"[LIGHT-LEAK-BURN] Asset-backed transition graph ready: offset={xfadeOffset}s, duration={trans}s, output={outDur}s");
             return filterComplex;
         }
+
 
         public static async Task<LightLeakBurnTransitionGraph> RenderTransitionSourceAsync(
             IReadOnlyList<string> sourcePaths,
@@ -399,6 +405,7 @@ namespace TitanEngine
             };
         }
 
+
         private static LightLeakOverlayAsset CreateAssetDescriptor(
             string assetPath,
             LightLeakBurnSettings settings,
@@ -420,6 +427,7 @@ namespace TitanEngine
                 PreferredSeekSeconds = preferredSeekSeconds
             };
         }
+
 
         private static List<LightLeakOverlayUsage> BuildSingleClipAssetUsages(
             LightLeakBurnSettings settings,
@@ -470,6 +478,7 @@ namespace TitanEngine
             return usages;
         }
 
+
         private static List<LightLeakOverlayUsage> BuildTransitionAssetUsages(
             LightLeakBurnSettings settings,
             double outputDurationSeconds,
@@ -504,6 +513,7 @@ namespace TitanEngine
             };
         }
 
+
         private static LightLeakOverlayUsage CreateUsage(
             double outputDurationSeconds,
             double anchorRatio,
@@ -535,6 +545,7 @@ namespace TitanEngine
                 EdgeCoverage = Math.Clamp(edgeCoverage, 0.30, 0.60)
             };
         }
+
 
         private static string? ResolvePrimaryAssetPath(LightLeakBurnSettings settings, Action<string> onLog)
         {
@@ -580,6 +591,7 @@ namespace TitanEngine
             return null;
         }
 
+
         private static IEnumerable<string> EnumerateAssetRoots()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -600,6 +612,7 @@ namespace TitanEngine
             yield return Path.Combine(Environment.CurrentDirectory, "TitanEngine", "Assets", "Overlays", "LightLeaks");
         }
 
+
         private static double ResolveAssetOpacity(LightLeakBurnSettings settings)
         {
             double intensity = Math.Clamp(settings.Intensity / 100.0, 0.0, 1.0);
@@ -609,6 +622,7 @@ namespace TitanEngine
 
             return Math.Clamp(rawOpacity, 0.14, 0.24);
         }
+
 
         private static double ResolvePreferredSeekSeconds(string assetPath)
         {
@@ -624,6 +638,7 @@ namespace TitanEngine
             return 0.0;
         }
 
+
         private static string ResolveDirectionalPlacement(LightLeakBurnSettings settings, bool alternate)
         {
             string direction = NormalizeDirection(settings.Direction);
@@ -636,12 +651,14 @@ namespace TitanEngine
             };
         }
 
+
         private static double ResolveDirectionalEdgeCoverage(LightLeakBurnSettings settings, string mode)
         {
             double spread = Math.Clamp(settings.Spread / 100.0, 0.0, 1.0);
             double baseCoverage = mode.Equals("transition", StringComparison.OrdinalIgnoreCase) ? 0.44 : 0.40;
             return Math.Clamp(baseCoverage + (spread * 0.10), 0.30, 0.56);
         }
+
 
         private static string ResolveAssetPlacement(string assetPath, string mode, string fallbackPlacement)
         {
@@ -654,6 +671,7 @@ namespace TitanEngine
 
             return fallbackPlacement;
         }
+
 
         public static Task<string> BuildTransitionFilterComplexAsync(
             int targetWidth,
@@ -692,68 +710,8 @@ namespace TitanEngine
             throw new InvalidOperationException("Light leak asset missing. Asset-only effect cannot render.");
         }
 
-        private static async Task GenerateBurnFrameSequencesAsync(
-            string tempRoot,
-            string maskPattern,
-            string overlayPattern,
-            int frameCount,
-            int width,
-            int height,
-            double transitionDuration,
-            LightLeakBurnSettings settings,
-            Action<string> onLog,
-            CancellationToken token)
-        {
-            await RunOnStaThreadAsync(() =>
-            {
-                Directory.CreateDirectory(tempRoot);
-                int safeW = Math.Max(2, width);
-                int safeH = Math.Max(2, height);
-                var rng = new Random(unchecked((int)(DateTime.UtcNow.Ticks ^ safeW ^ (safeH << 1))));
 
-                for (int i = 0; i < frameCount; i++)
-                {
-                    token.ThrowIfCancellationRequested();
-                    double progress = frameCount <= 1 ? 1.0 : (double)i / (frameCount - 1);
-                    var maskVisual = new DrawingVisual();
-                    var overlayVisual = new DrawingVisual();
-
-                    using (DrawingContext mg = maskVisual.RenderOpen())
-                    using (DrawingContext og = overlayVisual.RenderOpen())
-                    {
-                        mg.DrawRectangle(Brushes.Black, null, new Rect(0, 0, safeW, safeH));
-                        og.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
-                        DrawBurnFrame(mg, og, safeW, safeH, progress, settings, rng);
-                    }
-
-                    RenderTargetBitmap maskBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
-                    maskBitmap.Render(maskVisual);
-                    if (maskBitmap.CanFreeze) maskBitmap.Freeze();
-
-                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
-                    overlayBitmap.Render(overlayVisual);
-                    if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
-
-                    string maskFile = FormatSequenceFilePath(maskPattern, i + 1);
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(maskBitmap, maskFile);
-                    SaveBitmap(overlayBitmap, overlayFile);
-                }
-
-                onLog($"[LIGHT-LEAK-BURN] Generated {frameCount} burn mask/overlay frames at {safeW}x{safeH}");
-            }, token);
-        }
-
-        private static void SaveBitmap(BitmapSource bitmap, string path)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using var stream = File.Create(path);
-            encoder.Save(stream);
-        }
-
-        private static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
+        internal static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
         {
             if (string.IsNullOrWhiteSpace(ffmpegPattern))
                 throw new ArgumentException("Sequence pattern cannot be empty.", nameof(ffmpegPattern));
@@ -767,92 +725,8 @@ namespace TitanEngine
             return string.Format(CultureInfo.InvariantCulture, csharpPattern, frameNumber);
         }
 
-        private static Task RunOnStaThreadAsync(Action action, CancellationToken token)
-        {
-            if (token.IsCancellationRequested)
-                return Task.FromCanceled(token);
 
-            var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Thread thread = new Thread(() =>
-            {
-                try
-                {
-                    if (token.IsCancellationRequested)
-                    {
-                        tcs.TrySetCanceled(token);
-                        return;
-                    }
-
-                    action();
-                    tcs.TrySetResult(null);
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken.CanBeCanceled ? oce.CancellationToken : token);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            })
-            {
-                IsBackground = true,
-                Name = "TitanEngine_LightLeakBurn_STA"
-            };
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-            return tcs.Task;
-        }
-
-        private static void DrawBurnFrame(DrawingContext mg, DrawingContext og, int width, int height, double progress, LightLeakBurnSettings settings, Random rng)
-        {
-            double intensity = settings.Intensity / 100.0;
-            double spread = settings.Spread / 100.0;
-            double warmth = settings.Warmth / 100.0;
-            double burn = settings.Burn / 100.0;
-            double edgeSoftness = Math.Max(0.05, settings.EdgeSoftness / 100.0);
-            double grain = settings.Grain / 100.0;
-            double alphaPeak = Math.Sin(Math.PI * progress);
-            double motion = 0.35 + 0.65 * alphaPeak;
-            Color hotWhite = Color.FromRgb(255, 245, 230);
-            Color warmGold = Color.FromRgb(255, 208, 108);
-            Color warmOrange = Color.FromRgb(255, 122, 42);
-            Color emberRed = Color.FromRgb(255, 70, 20);
-
-            var blobs = BuildLeakCenters(settings.Direction, progress, width, height);
-            foreach (var blob in blobs)
-            {
-                DrawRadialGlow(mg, og, width, height, blob.cx, blob.cy, blob.rx, blob.ry, hotWhite, warmGold, motion * (0.18 + intensity * 0.36), 0.0);
-                DrawRadialGlow(mg, og, width, height, blob.cx * 1.01, blob.cy * 0.99, blob.rx * 1.55, blob.ry * 1.35, warmGold, warmOrange, motion * (0.16 + spread * 0.28), 0.0);
-                DrawRadialGlow(mg, og, width, height, blob.cx * 0.98, blob.cy * 1.02, blob.rx * 2.10, blob.ry * 1.65, warmOrange, emberRed, motion * (0.10 + burn * 0.20), 0.0);
-            }
-
-            var grainBrush = new SolidColorBrush(Color.FromArgb((byte)(10 + 42 * grain), 255, 255, 255));
-            int speckCount = Math.Max(220, (int)(width * height * (0.00002 + grain * 0.00003)));
-            for (int i = 0; i < speckCount; i++)
-            {
-                int x = rng.Next(0, width);
-                int y = rng.Next(0, height);
-                int size = rng.Next(1, 3);
-                mg.DrawRectangle(Brushes.White, null, new Rect(x, y, size, size));
-                og.DrawRectangle(grainBrush, null, new Rect(x, y, size, size));
-            }
-
-            if (settings.Direction is "from-left" or "from-right")
-            {
-                var linePen = new System.Windows.Media.Pen(new SolidColorBrush(Color.FromArgb((byte)(48 + 72 * alphaPeak), 255, 242, 194)), Math.Max(1.0, height / 240.0));
-                double y = height * (0.08 + 0.12 * alphaPeak);
-                og.DrawLine(linePen, new Point(0, y), new Point(width, y + height * 0.03 * Math.Sin(progress * 8.0)));
-            }
-            else
-            {
-                var linePen = new System.Windows.Media.Pen(new SolidColorBrush(Color.FromArgb((byte)(42 + 66 * alphaPeak), 255, 230, 165)), Math.Max(1.0, width / 240.0));
-                double x = width * (0.10 + 0.14 * alphaPeak);
-                og.DrawLine(linePen, new Point(x, 0), new Point(x + width * 0.03 * Math.Sin(progress * 8.0), height));
-            }
-        }
-
-        private readonly struct BurnBlob
+        internal readonly struct BurnBlob
         {
             public BurnBlob(double cx, double cy, double rx, double ry)
             {
@@ -868,7 +742,8 @@ namespace TitanEngine
             public double ry { get; }
         }
 
-        private static List<BurnBlob> BuildLeakCenters(string direction, double progress, int width, int height)
+
+        internal static List<BurnBlob> BuildLeakCenters(string direction, double progress, int width, int height)
         {
             double px = progress;
             double eased = 0.5 - 0.5 * Math.Cos(Math.PI * px);
@@ -924,45 +799,6 @@ namespace TitanEngine
             };
         }
 
-        private static void DrawRadialGlow(
-            DrawingContext mg,
-            DrawingContext og,
-            int width,
-            int height,
-            double cx,
-            double cy,
-            double rx,
-            double ry,
-            Color centerColor,
-            Color outerColor,
-            double overlayAlpha,
-            double maskAlpha)
-        {
-            var geometry = new EllipseGeometry(new Point(cx, cy), Math.Max(1.0, rx), Math.Max(1.0, ry));
-            Color whiteBase = Color.FromRgb(255, 255, 255);
-            Color outerMask = Color.FromRgb(0, 0, 0);
-            Color centerWithAlpha = Color.FromArgb((byte)(255 * Math.Clamp(maskAlpha + overlayAlpha, 0.0, 1.0)), whiteBase.R, whiteBase.G, whiteBase.B);
-            Color centerOverlay = Color.FromArgb((byte)(255 * Math.Clamp(overlayAlpha, 0.0, 1.0)), centerColor.R, centerColor.G, centerColor.B);
-            Color outerOverlay = Color.FromArgb(0, outerColor.R, outerColor.G, outerColor.B);
-
-            var maskBrush = new RadialGradientBrush(centerWithAlpha, outerMask)
-            {
-                Center = new Point(cx, cy),
-                GradientOrigin = new Point(cx, cy),
-                RadiusX = Math.Max(0.01, rx / Math.Max(1, width)),
-                RadiusY = Math.Max(0.01, ry / Math.Max(1, height))
-            };
-            mg.DrawGeometry(maskBrush, null, geometry);
-
-            var overlayBrush = new RadialGradientBrush(centerOverlay, outerOverlay)
-            {
-                Center = new Point(cx, cy),
-                GradientOrigin = new Point(cx, cy),
-                RadiusX = Math.Max(0.01, rx / Math.Max(1, width)),
-                RadiusY = Math.Max(0.01, ry / Math.Max(1, height))
-            };
-            og.DrawGeometry(overlayBrush, null, geometry);
-        }
 
         private static string BuildCustomXfadeExpr(string direction, double spread, double burn, double edgeSoftness)
         {
@@ -992,11 +828,13 @@ namespace TitanEngine
             return $"if(lte({mix},0),A,if(gte({mix},1),B,A*(1-({mix}))+B*({mix})))";
         }
 
+
         private static bool IsImageSourcePath(string path)
         {
             string ext = Path.GetExtension(path).Trim().ToLowerInvariant();
             return ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".webp" or ".gif" or ".tif" or ".tiff";
         }
+
 
         private static string NormalizeFfmpegColor(string color)
         {

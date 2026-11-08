@@ -8,9 +8,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace TitanEngine
 {
@@ -269,11 +266,16 @@ namespace TitanEngine
         /// </summary>
         private const string RendererVersion = "soundbar-r38";
 
+
         private const int CacheKeyHexLength = 24;
+
         private const int PreviewKeyHexLength = 12;
 
-        private const int MaxPreviewFrames = 6;
+
+        internal const int MaxPreviewFrames = 6;
+
         private const int MinRenderDimension = 320;
+
         /// <summary>
         /// Cap on the PNG sequence's long edge. 1920: the dominant output canvas
         /// (1080x1920 portrait) renders its overlay at EXACTLY 1:1 - the 1280 cap upscaled
@@ -285,10 +287,13 @@ namespace TitanEngine
         /// </summary>
         private const int MaxRenderEdge = 1920;
 
+
         private static readonly SoundBarStyleInfo[] Styles = BuildStyles();
+
 
         /// <summary>All 12 styles in menu order.</summary>
         public static IReadOnlyList<SoundBarStyleInfo> AllStyles => Styles;
+
 
         /// <summary>Resolves a style by kebab id, display name or enum name. Returns null when unknown.</summary>
         public static SoundBarStyleInfo? FindStyle(string? styleId)
@@ -297,9 +302,11 @@ namespace TitanEngine
             return parsed.HasValue ? FindByEnum(parsed.Value) : null;
         }
 
+
         /// <summary>Canonical kebab-case id for any accepted input. Falls back to "neon-bars".</summary>
         public static string NormalizeStyleId(string? styleId)
             => FindStyle(styleId)?.StyleId ?? Styles[0].StyleId;
+
 
         /// <summary>
         /// SHA-256 over every input that can change a pixel: renderer version, style, palette (including its
@@ -337,6 +344,7 @@ namespace TitanEngine
             return HashMaterial(material, CacheKeyHexLength);
         }
 
+
         /// <summary>
         /// SHA-256 over the same visual material as <see cref="BuildCacheKey"/> - the renderer version,
         /// style, palette (with its stops), canvas size and every tunable in
@@ -372,6 +380,7 @@ namespace TitanEngine
 
             return HashMaterial(material, PreviewKeyHexLength);
         }
+
 
         /// <summary>
         /// Appends the material shared by the sequence key and the preview key: renderer-agnostic
@@ -423,217 +432,13 @@ namespace TitanEngine
             }
         }
 
+
         private static string HashMaterial(StringBuilder material, int hexLength)
         {
             byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(material.ToString()));
             return Convert.ToHexString(hash)[..hexLength].ToLowerInvariant();
         }
 
-        /// <summary>
-        /// Creates the single <see cref="RenderTargetBitmap"/> a whole overlay pass draws through.
-        /// <para>
-        /// THE DEFECT. This used to be <c>new RenderTargetBitmap(...)</c> INSIDE the per-frame loop.
-        /// Each frame allocated a fresh D3D/WIC render target plus a <c>BitmapVisualManager</c>, and
-        /// the finaliser-driven reclamation of that chain promoted it straight to the oldest
-        /// generation, so a full BLOCKING gen-2 collection ran every other frame. Measured on this
-        /// job at 1080x1080, 50 frames of a deliberately trivial draw method:
-        /// <c>GC.CollectionCount(0) = (1) = (2) = 33</c> with a fresh bitmap per frame, versus
-        /// <c>1 / 1 / 1</c> with one reused + cleared bitmap. Scaled to the 150-frame loop that is
-        /// ~99 forced full GCs per render, with the pause on every one of them.
-        /// <para>
-        /// It was also STYLE-INDEPENDENT, which is why an earlier measurement round could not use
-        /// GC.CollectionCount to tell any two styles apart: the floor was identical under all of
-        /// them, and it sits underneath whichever renderer allocation the round was trying to rank.
-        /// <para>
-        /// WHY REUSE IS SAFE HERE. <see cref="RenderTargetBitmap.Render"/> requires the calling
-        /// thread to be the one allowed to touch the bitmap, so a shared target would be unsafe if
-        /// the loop were threaded. It is not: <see cref="RunOnStaThreadAsync"/> runs the ENTIRE
-        /// pass body - every frame's build, every Render and every Save - inside one
-        /// <c>action()</c> on ONE freshly created STA thread. The bitmap never leaves that thread,
-        /// and each pass builds its own, so two concurrent renders cannot alias.
-        /// <para>
-        /// WHY IT MUST NOT BE FROZEN. The old code froze each bitmap before saving it, because
-        /// freezing is what makes a <see cref="BitmapSource"/> safe to read from anywhere. A target
-        /// that is going to be Render()ed into again must stay UNFROZEN:
-        /// <c>BitmapVisualManager</c> throws
-        /// <c>"The Image passed to the ImageVisualManager cannot be frozen."</c> on the second
-        /// frame. Freezing is therefore dropped here; nothing downstream needs it, because
-        /// <see cref="SaveBitmap"/> encodes on the same thread that produced the pixels.
-        /// <para>
-        /// PIXEL EQUALITY. Verified, not assumed. Rendering the loop's exact frame body (DrawingVisual +
-        /// full-canvas transparent rect + <see cref="SoundBarStyleRenderer.DrawFrame"/>) and comparing
-        /// every frame's pixels against a fresh-bitmap render of the same frame, at 1080x1080 with
-        /// BarCount 256: <c>Clear()</c> present -> 0 of 60 frames differ; <c>Clear()</c> removed ->
-        /// 59 of 60 differ, the first at frame 1. Independently, a SHA-256 census of frames
-        /// 1/2/17/75/149 of the real <see cref="GenerateOverlayAsync"/> matched byte for byte between
-        /// this path and the per-frame-allocation path it replaced, for five styles at BarCount 40
-        /// and 256. So the clear is load-bearing, not decorative: <see cref="BitmapSource.Clear"/>
-        /// returns the surface to exactly the state a freshly constructed target is in.
-        /// <para>
-        /// ONE ANOMALY, recorded because it was observed and not explained. Deleting the
-        /// <see cref="BitmapSource.Clear"/> call from THIS method and re-rendering all ten
-        /// style/bar-count combinations through the real <see cref="GenerateOverlayAsync"/> produced
-        /// PNG hashes identical to the run with the clear present - both builds hash-verified, cache
-        /// purged, frame mtimes confirmed fresh. The direct loop reproduction above, which differs
-        /// from this method only in running on the harness's own STA thread rather than the one
-        /// <see cref="RunOnStaThreadAsync"/> creates, does show the corruption. Whatever makes this
-        /// particular call site currently immune is not something to depend on, and the clear costs
-        /// one memset of the target, so it stays. Do not remove it on the strength of that anomaly.
-        /// </summary>
-        private static RenderTargetBitmap RentFrameTarget(int width, int height)
-            => new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-
-        /// <summary>
-        /// Renders the full PNG sequence (or reuses the cached one). Never throws: failures are logged and
-        /// null is returned so the pipeline can continue without a soundbar.
-        /// <para>
-        /// A render that is cancelled or that throws leaves a directory of PNGs with NO manifest. The
-        /// manifest is what makes a directory a usable cache, and nothing else ever lists a directory
-        /// for cleanup, so without <see cref="DeletePartialTempRoot"/> those frames accumulated in the
-        /// temp tree forever (a 150-frame 1280x720 sequence is tens of MB). The partial directory is
-        /// deleted on both failure paths; whether a SUCCESSFUL directory should be cleaned up at all is
-        /// a separate question, answered by whoever owns <see cref="SoundBarGeneratedOverlay.TempArtifacts"/>.
-        /// </para>
-        /// </summary>
-        public static async Task<SoundBarGeneratedOverlay?> GenerateOverlayAsync(
-            AudioAnalysisResult analysis,
-            SoundBarSettings settings,
-            ColorPreset palette,
-            int canvasWidth,
-            int canvasHeight,
-            string? tag,
-            Action<string> onLog,
-            CancellationToken token)
-        {
-            // Non-null from the moment the cache directory is chosen until the manifest is committed.
-            // Cleared on success so the catch blocks below leave the finished cache alone.
-            string? pendingTempRoot = null;
-
-            try
-            {
-                if (onLog == null)
-                    onLog = _ => { };
-
-                if (analysis == null)
-                {
-                    onLog("[SOUNDBAR] No audio analysis supplied; skipping the soundbar overlay.");
-                    return null;
-                }
-
-                AudioFrameData[] source = analysis.Frames ?? Array.Empty<AudioFrameData>();
-                if (source.Length == 0)
-                {
-                    onLog("[SOUNDBAR] Audio analysis contains zero frames; skipping the soundbar overlay.");
-                    return null;
-                }
-
-                SoundBarSettings safeSettings = settings is null ? new SoundBarSettings() : settings.Clone();
-                ColorPreset safePalette = palette ?? ColorPresets.GetOrDefault(null);
-
-                int safeW = Math.Max(2, canvasWidth);
-                int safeH = Math.Max(2, canvasHeight);
-                double safeFps = ResolveFrameRate(safeSettings);
-                int frameCount = ResolveFrameCount(safeSettings);
-                ResolveRenderSize(safeW, safeH, out int renderW, out int renderH);
-
-                string styleId = NormalizeStyleId(safeSettings.Style.ToString());
-                string cacheKey = BuildCacheKey(safeSettings, safePalette, safeW, safeH, analysis.AudioFingerprint);
-                string safeTag = string.IsNullOrWhiteSpace(tag)
-                    ? cacheKey
-                    : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-
-                string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_cache", styleId, cacheKey);
-                pendingTempRoot = tempRoot;
-                string overlayPattern = Path.Combine(tempRoot, "soundbar_%04d.png");
-                string previewDir = Path.Combine(tempRoot, "preview");
-                string manifestPath = Path.Combine(tempRoot, "manifest.json");
-
-                if (TryLoadCache(manifestPath, overlayPattern, previewDir, cacheKey, out SoundBarGeneratedOverlay? cached))
-                {
-                    onLog($"[SOUNDBAR-CACHE] Reusing {styleId} overlay ({cacheKey}) @ {cached!.Width}x{cached.Height}, frames={cached.FrameCount}, preview={cached.PreviewDirectory}");
-                    return cached;
-                }
-
-                // Resample onto the exact PNG count so the ffmpeg loop length and the render loop agree.
-                // Only references are copied - the band/waveform arrays are shared, never duplicated.
-                var renderFrames = new AudioFrameData[frameCount];
-                int sourceCount = source.Length;
-                for (int i = 0; i < frameCount; i++)
-                {
-                    int sourceIndex = (int)Math.Floor((i / (double)frameCount) * sourceCount);
-                    renderFrames[i] = source[Math.Clamp(sourceIndex, 0, sourceCount - 1)];
-                }
-
-                var state = new SoundBarRenderState();
-
-                await RunOnStaThreadAsync(() =>
-                {
-                    Directory.CreateDirectory(tempRoot);
-                    Directory.CreateDirectory(previewDir);
-
-                    // ONE target for the whole pass, cleared per frame. See RentFrameTarget.
-                    RenderTargetBitmap overlayBitmap = RentFrameTarget(renderW, renderH);
-
-                    for (int i = 0; i < frameCount; i++)
-                    {
-                        token.ThrowIfCancellationRequested();
-
-                        DrawingVisual overlayVisual = new DrawingVisual();
-                        using (DrawingContext dc = overlayVisual.RenderOpen())
-                        {
-                            dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
-                            SoundBarStyleRenderer.DrawFrame(dc, renderW, renderH, safeSettings, safePalette, renderFrames, i, state);
-                        }
-
-                        // Clear before Render. Render COMPOSITES onto whatever the surface already
-                        // holds, so without this frame N would carry frame N-1's pixels into itself
-                        // wherever this frame draws nothing.
-                        overlayBitmap.Clear();
-                        overlayBitmap.Render(overlayVisual);
-
-                        SaveBitmap(overlayBitmap, FormatSequenceFilePath(overlayPattern, i + 1));
-
-                        if (i < MaxPreviewFrames)
-                        {
-                            string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                            SaveBitmap(overlayBitmap, previewFile);
-                        }
-                    }
-                }, token);
-
-                var overlay = new SoundBarGeneratedOverlay
-                {
-                    TempRoot = tempRoot,
-                    OverlayPattern = overlayPattern,
-                    FrameCount = frameCount,
-                    FrameRate = safeFps,
-                    Width = renderW,
-                    Height = renderH,
-                    PreviewDirectory = previewDir,
-                    TempArtifacts = new List<string> { tempRoot }
-                };
-
-                WriteManifest(manifestPath, overlay, styleId, safePalette.Id, analysis.AudioFingerprint, cacheKey);
-
-                // Committed: the directory is now a valid cache and must survive.
-                pendingTempRoot = null;
-
-                onLog($"[SOUNDBAR] Generated {styleId} overlay ({safeTag}) -> {cacheKey}, palette={safePalette.Id}, target={safeW}x{safeH}, render={renderW}x{renderH}, fps={safeFps.ToString("F3", CultureInfo.InvariantCulture)}, frames={frameCount}, preview={previewDir}");
-                return overlay;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                DeletePartialTempRoot(pendingTempRoot, onLog);
-                onLog?.Invoke("[SOUNDBAR] Cancelled.");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                DeletePartialTempRoot(pendingTempRoot, onLog);
-                onLog?.Invoke($"[SOUNDBAR-ERROR] Soundbar overlay generation failed: {ex.Message}");
-                return null;
-            }
-        }
 
         /// <summary>
         /// Removes a cache directory left behind by a cancelled or failed render. Never throws: the
@@ -650,7 +455,7 @@ namespace TitanEngine
         /// is a strictly larger version of the same hazard.
         /// </para>
         /// </summary>
-        private static void DeletePartialTempRoot(string? tempRoot, Action<string>? onLog)
+        internal static void DeletePartialTempRoot(string? tempRoot, Action<string>? onLog)
         {
             if (string.IsNullOrWhiteSpace(tempRoot))
                 return;
@@ -668,6 +473,7 @@ namespace TitanEngine
                 onLog?.Invoke($"[SOUNDBAR] Could not delete the partial render directory {tempRoot}: {ex.Message}");
             }
         }
+
 
         /// <summary>
         /// Builds the three-section ffmpeg graph: base -> yuv420p, looping overlay scaled to the
@@ -759,6 +565,7 @@ namespace TitanEngine
             return string.Join("+", parts);
         }
 
+
         public static string BuildSingleClipGraph(
             string baseInputLabel,
             string baseVideoFilters,
@@ -807,78 +614,6 @@ namespace TitanEngine
             return $"{baseChain};{overlayChain};{mergeChain}";
         }
 
-        /// <summary>
-        /// Renders a single representative PNG for the picker. Fully deterministic - no audio file needed.
-        /// Returns the file path, or null on any failure. Never throws.
-        /// </summary>
-        public static async Task<string?> GeneratePreviewPngAsync(
-            SoundBarSettings settings,
-            ColorPreset palette,
-            int width,
-            int height,
-            string cacheDirectory,
-            Action<string> onLog,
-            CancellationToken token)
-        {
-            try
-            {
-                SoundBarSettings safeSettings = settings is null ? new SoundBarSettings() : settings.Clone();
-                ColorPreset safePalette = palette ?? ColorPresets.GetOrDefault(null);
-                string styleId = NormalizeStyleId(safeSettings.Style.ToString());
-
-                string directory = string.IsNullOrWhiteSpace(cacheDirectory)
-                    ? Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_cache", "previews")
-                    : cacheDirectory;
-
-                int renderW = Math.Max(16, width);
-                int renderH = Math.Max(16, height);
-
-                // The filename must change whenever ANY tunable changes: the picker re-requests this on a
-                // 250 ms debounce while the user drags sliders, so a styleId__paletteId key returned the
-                // previously written PNG and dragging showed literally no change. The hash covers the
-                // same visual material as the overlay cache key. Old files are simply never hit again.
-                string previewKey = BuildPreviewCacheKey(safeSettings, safePalette, renderW, renderH);
-                string filePath = Path.Combine(directory, $"{styleId}__{safePalette.Id}__{previewKey}.png");
-                if (File.Exists(filePath))
-                    return filePath;
-
-                AudioFrameData[] frames = BuildPreviewFrames();
-                const int PreviewFrameIndex = 6;
-                var state = new SoundBarRenderState();
-
-                await RunOnStaThreadAsync(() =>
-                {
-                    Directory.CreateDirectory(directory);
-
-                    DrawingVisual previewVisual = new DrawingVisual();
-                    using (DrawingContext dc = previewVisual.RenderOpen())
-                    {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
-                        SoundBarStyleRenderer.DrawFrame(dc, renderW, renderH, safeSettings, safePalette, frames, PreviewFrameIndex, state);
-                    }
-
-                    RenderTargetBitmap previewBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
-                    previewBitmap.Render(previewVisual);
-                    if (previewBitmap.CanFreeze)
-                        previewBitmap.Freeze();
-
-                    SaveBitmap(previewBitmap, filePath);
-                }, token);
-
-                onLog?.Invoke($"[SOUNDBAR] Preview written -> {filePath}");
-                return filePath;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                onLog?.Invoke("[SOUNDBAR] Preview cancelled.");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                onLog?.Invoke($"[SOUNDBAR-PREVIEW-ERROR] Preview generation failed: {ex.Message}");
-                return null;
-            }
-        }
 
         // ------------------------------------------------------------------
         // Style catalogue
@@ -917,6 +652,7 @@ namespace TitanEngine
             };
         }
 
+
         private static SoundBarStyleInfo MakeStyle(
             SoundBarStyleId id,
             string styleId,
@@ -942,6 +678,7 @@ namespace TitanEngine
             };
         }
 
+
         private static SoundBarStyleInfo? FindByEnum(SoundBarStyleId id)
         {
             for (int i = 0; i < Styles.Length; i++)
@@ -952,6 +689,7 @@ namespace TitanEngine
 
             return null;
         }
+
 
         private static SoundBarStyleId? ParseStyleId(string? styleId)
         {
@@ -977,6 +715,7 @@ namespace TitanEngine
             return null;
         }
 
+
         private static string NormalizeToken(string value)
         {
             string trimmed = (value ?? string.Empty).Trim().ToLowerInvariant();
@@ -990,14 +729,16 @@ namespace TitanEngine
             return new string(buffer);
         }
 
+
         // ------------------------------------------------------------------
         // Resolution helpers
         // ------------------------------------------------------------------
 
-        private static double ResolveFrameRate(SoundBarSettings settings)
+        internal static double ResolveFrameRate(SoundBarSettings settings)
             => Math.Clamp(SafeDouble(settings.FrameRate, 30.0), 12.0, 60.0);
 
-        private static int ResolveFrameCount(SoundBarSettings settings)
+
+        internal static int ResolveFrameCount(SoundBarSettings settings)
         {
             double fps = ResolveFrameRate(settings);
             double seconds = Math.Clamp(SafeDouble(settings.LoopSeconds, 5.0), 0.25, 30.0);
@@ -1006,7 +747,8 @@ namespace TitanEngine
             return Math.Clamp(clamped, 24, 180);
         }
 
-        private static void ResolveRenderSize(int width, int height, out int renderW, out int renderH)
+
+        internal static void ResolveRenderSize(int width, int height, out int renderW, out int renderH)
         {
             int safeW = Math.Max(2, width);
             int safeH = Math.Max(2, height);
@@ -1016,20 +758,23 @@ namespace TitanEngine
             renderH = EnsureEven(Math.Max(MinRenderDimension, (int)Math.Round(safeH * renderScale)));
         }
 
+
         private static int EnsureEven(int value)
         {
             int safe = Math.Max(2, value);
             return (safe & 1) == 0 ? safe : safe + 1;
         }
 
+
         private static double SafeDouble(double value, double fallback)
             => double.IsNaN(value) || double.IsInfinity(value) ? fallback : value;
+
 
         // ------------------------------------------------------------------
         // Deterministic preview audio
         // ------------------------------------------------------------------
 
-        private static AudioFrameData[] BuildPreviewFrames()
+        internal static AudioFrameData[] BuildPreviewFrames()
         {
             const int FrameTotal = 12;
             const int BandTotal = 64;
@@ -1084,11 +829,12 @@ namespace TitanEngine
             return frames;
         }
 
+
         // ------------------------------------------------------------------
         // Cache plumbing
         // ------------------------------------------------------------------
 
-        private static bool TryLoadCache(
+        internal static bool TryLoadCache(
             string manifestPath,
             string overlayPattern,
             string previewDir,
@@ -1143,7 +889,8 @@ namespace TitanEngine
             }
         }
 
-        private static void WriteManifest(
+
+        internal static void WriteManifest(
             string manifestPath,
             SoundBarGeneratedOverlay overlay,
             string styleId,
@@ -1168,20 +915,8 @@ namespace TitanEngine
             File.WriteAllText(manifestPath, json, Encoding.UTF8);
         }
 
-        // ------------------------------------------------------------------
-        // IO / threading helpers
-        // ------------------------------------------------------------------
 
-        private static void SaveBitmap(BitmapSource bitmap, string path)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            PngBitmapEncoder encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using FileStream stream = File.Create(path);
-            encoder.Save(stream);
-        }
-
-        private static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
+        internal static string FormatSequenceFilePath(string ffmpegPattern, int frameNumber)
         {
             if (string.IsNullOrWhiteSpace(ffmpegPattern))
                 throw new ArgumentException("Sequence pattern cannot be empty.", nameof(ffmpegPattern));
@@ -1191,43 +926,6 @@ namespace TitanEngine
                 csharpPattern = Regex.Replace(ffmpegPattern, @"%0?(\d+)d", m => "{0:D" + m.Groups[1].Value + "}");
 
             return string.Format(CultureInfo.InvariantCulture, csharpPattern, frameNumber);
-        }
-
-        private static Task RunOnStaThreadAsync(Action action, CancellationToken token)
-        {
-            if (token.IsCancellationRequested)
-                return Task.FromCanceled(token);
-
-            var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Thread thread = new Thread(() =>
-            {
-                try
-                {
-                    if (token.IsCancellationRequested)
-                    {
-                        tcs.TrySetCanceled(token);
-                        return;
-                    }
-
-                    action();
-                    tcs.TrySetResult(null);
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken.CanBeCanceled ? oce.CancellationToken : token);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            })
-            {
-                IsBackground = true,
-                Name = "TitanEngine_SoundBar_STA"
-            };
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-            return tcs.Task;
         }
     }
 }

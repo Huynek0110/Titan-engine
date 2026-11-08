@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,7 +9,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Media;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -18,14 +16,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shell;
-using System.Windows.Threading;
 
 namespace TitanEngine
 {
@@ -1155,7 +1145,7 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    rgbPolaroidLedOverlay = await RgbPolaroidLedPreset.GenerateOverlayAsync(
+                    rgbPolaroidLedOverlay = await EngineServices.Images!.GenerateRgbPolaroidLedOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1177,7 +1167,7 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    polaroidScrapbook2Overlay = await PolaroidScrapbook2Preset.GenerateOverlayAsync(
+                    polaroidScrapbook2Overlay = await EngineServices.Images!.GeneratePolaroidScrapbook2OverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1197,7 +1187,7 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    dashedPolaroidOverlay = await DashedPolaroidFramePreset.GenerateOverlayAsync(
+                    dashedPolaroidOverlay = await EngineServices.Images!.GenerateDashedPolaroidOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1218,7 +1208,7 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    scratchVideoOverlay = await ScratchVideoPreset.GenerateOverlayAsync(
+                    scratchVideoOverlay = await EngineServices.Images!.GenerateScratchVideoOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1239,7 +1229,7 @@ namespace TitanEngine
                     int effectWidth = overlayProfile.CanvasWidth;
                     int effectHeight = overlayProfile.CanvasHeight;
 
-                    recipeParticleOverlay = await ParticleOverlayGenerator.GenerateOverlayAsync(
+                    recipeParticleOverlay = await EngineServices.Images!.GenerateParticleOverlayAsync(
                         effectWidth,
                         effectHeight,
                         lightLeakBurnFps,
@@ -1273,7 +1263,7 @@ namespace TitanEngine
                     }
                     else
                     {
-                        dreamyDotOverlay = await DreamyDotOverlayPreset.GenerateOverlayAsync(
+                        dreamyDotOverlay = await EngineServices.Images!.GenerateDreamyDotOverlayAsync(
                             effectWidth,
                             effectHeight,
                             effectLayout,
@@ -1306,7 +1296,7 @@ namespace TitanEngine
                         SnowfallOverlayRecipe snowfallOverlayRecipe = snowfallOverlayRecipes[snowIndex];
                         if (snowfallOverlayRecipe.UseGeneratedOverlay)
                         {
-                            SnowfallGeneratedOverlay snowfallOverlay = await SnowfallOverlayPreset.GenerateOverlayAsync(
+                            SnowfallGeneratedOverlay snowfallOverlay = await EngineServices.Images!.GenerateSnowfallOverlayAsync(
                                 effectWidth,
                                 effectHeight,
                                 effectLayout,
@@ -1531,7 +1521,7 @@ namespace TitanEngine
                             var sbProfile = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
                             string soundBarTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
 
-                            soundBarOverlay = await SoundBarVisualizerPreset.GenerateOverlayAsync(
+                            soundBarOverlay = await EngineServices.Images!.GenerateSoundBarOverlayAsync(
                                 soundBarAnalysis,
                                 sbSettings,
                                 sbPalette,
@@ -5404,7 +5394,7 @@ namespace TitanEngine
             catch (Exception ex)
             {
                 job.StatusDisplay = "FAILED";
-                job.StatusColor = Brushes.Red;
+                job.StatusColor = "Red";
                 onLog($"[ERROR] {ex.Message}");
                 throw;
             }
@@ -6401,7 +6391,7 @@ namespace TitanEngine
             return true;
         }
 
-        private static bool IsImageSourcePath(string path)
+        internal static bool IsImageSourcePath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
                 return false;

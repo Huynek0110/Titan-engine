@@ -1,5 +1,4 @@
 using System;
-using System.Windows;
 
 namespace TitanEngine
 {
@@ -7,7 +6,7 @@ namespace TitanEngine
     {
         public int CanvasWidth { get; init; }
         public int CanvasHeight { get; init; }
-        public Rect ContentRect { get; init; }
+        public PixelRect ContentRect { get; init; }
 
         public double ContentX => ContentRect.X;
         public double ContentY => ContentRect.Y;
@@ -31,7 +30,7 @@ namespace TitanEngine
                 {
                     CanvasWidth = safeCanvasWidth,
                     CanvasHeight = safeCanvasHeight,
-                    ContentRect = new Rect(0, 0, safeCanvasWidth, safeCanvasHeight)
+                    ContentRect = new PixelRect(0, 0, safeCanvasWidth, safeCanvasHeight)
                 };
             }
 
@@ -48,7 +47,7 @@ namespace TitanEngine
             {
                 CanvasWidth = safeCanvasWidth,
                 CanvasHeight = safeCanvasHeight,
-                ContentRect = new Rect(contentX, contentY, contentWidth, contentHeight)
+                ContentRect = new PixelRect(contentX, contentY, contentWidth, contentHeight)
             };
         }
 

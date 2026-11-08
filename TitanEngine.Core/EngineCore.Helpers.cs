@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,7 +9,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Media;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -18,14 +16,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Shell;
-using System.Windows.Threading;
 
 namespace TitanEngine
 {
@@ -347,25 +337,11 @@ namespace TitanEngine
             });
         }
 
+
+        // Phase 2: BitmapDecoder (TryGetStillImageResolution) moved sang WPF qua IImageServices;
+        // headless (Images == null) trả (0, 0) như nhánh catch gốc.
         private static (int Width, int Height) TryGetStillImageResolution(string filePath)
-        {
-            try
-            {
-                if (!IsImageSourcePath(filePath) || !File.Exists(filePath))
-                    return (0, 0);
-
-                using FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                BitmapDecoder decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                BitmapFrame? frame = decoder.Frames.FirstOrDefault();
-                if (frame != null && frame.PixelWidth > 0 && frame.PixelHeight > 0)
-                    return (frame.PixelWidth, frame.PixelHeight);
-            }
-            catch
-            {
-            }
-
-            return (0, 0);
-        }
+            => EngineServices.Images?.TryGetImageDimensions(filePath) ?? (0, 0);
 
         private static (double FadeIn, double FadeOut, double FadeOutStart) NormalizeFadeSettings(RenderJob job, double estimatedOutputDuration, Action<string> onLog)
         {
@@ -399,7 +375,7 @@ namespace TitanEngine
             return (fadeIn, fadeOut, fadeOutStart);
         }
 
-        private static (int CanvasWidth, int CanvasHeight, Rect FrameRect) ResolveBrandLogoFrameReference(RenderJob job)
+        private static (int CanvasWidth, int CanvasHeight, PixelRect FrameRect) ResolveBrandLogoFrameReference(RenderJob job)
         {
             int requestedWidth = job.TargetWidth > 0 ? job.TargetWidth : job.SourceWidth;
             int requestedHeight = job.TargetHeight > 0 ? job.TargetHeight : job.SourceHeight;
@@ -408,7 +384,7 @@ namespace TitanEngine
 
             double minDim = Math.Max(180.0, Math.Min(layout.ContentWidth, layout.ContentHeight));
             double inset = Math.Clamp(minDim * 0.034, 26.0, 42.0);
-            Rect frameRect = new Rect(
+            PixelRect frameRect = new PixelRect(
                 layout.ContentX + inset,
                 layout.ContentY + inset,
                 Math.Max(24.0, layout.ContentWidth - (inset * 2.0)),
@@ -520,7 +496,7 @@ namespace TitanEngine
         private static (double RelativeWidth, double FrameLeft, double FrameTop, double FrameRight, double FrameBottom, double Padding, string Position) ResolveBrandLogoOverlayProfile(RenderJob job)
         {
             var reference = ResolveBrandLogoFrameReference(job);
-            Rect frameRect = reference.FrameRect;
+            PixelRect frameRect = reference.FrameRect;
             const double referenceCanvasWidth = 1080.0;
             const double referenceLogoWidthPixels = 118.0;
             const double referencePaddingPixels = 8.0;
