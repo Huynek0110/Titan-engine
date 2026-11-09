@@ -583,6 +583,10 @@ namespace TitanEngine
             if (encoder == "h264_qsv")
                 return $"-c:v {encoder} -preset {preset} ";
 
+            // Giai đoạn 3: Linux VAAPI — quality qua -qp (CRF-equivalent), preset không áp dụng.
+            if (encoder == "h264_vaapi")
+                return "-c:v h264_vaapi -qp 20 ";
+
             return $"-c:v {encoder} -preset {preset} ";
         }
 
@@ -1704,7 +1708,7 @@ namespace TitanEngine
             onLog($"[UPSCALE-DEBUG] Mode: Fast & Stable");
             
             // STEP 1: FSRCNNX AI Upscaling via libplacebo
-            string shaderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl").Replace("\\", "/").Replace(":", "\\:");
+            string shaderPath = FfmpegPathEscape.EscapeForFilterOption(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl"));
             filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path='{shaderPath}'");
             onLog($"[STEP1] FSRCNNX AI upscaling to {targetW}x{targetH}");
             
@@ -1745,7 +1749,7 @@ namespace TitanEngine
             
             // STEP 2: FSRCNNX AI Upscaling via libplacebo
             filterChain.Append(",");
-            string shaderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl").Replace("\\", "/").Replace(":", "\\:");
+            string shaderPath = FfmpegPathEscape.EscapeForFilterOption(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl"));
             filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path='{shaderPath}'");
             onLog($"[STEP2] FSRCNNX AI upscaling to {targetW}x{targetH}");
             

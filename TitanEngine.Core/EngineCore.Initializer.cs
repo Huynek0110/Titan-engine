@@ -28,10 +28,21 @@ namespace TitanEngine
             if (_isInitialized) return;
 
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            _ffmpegPath = System.IO.Path.Combine(baseDir, "ffmpeg.exe");
-            _ffprobePath = System.IO.Path.Combine(baseDir, "ffprobe.exe");
-            _upscaylPath = System.IO.Path.Combine(baseDir, "upscayl", "Upscayl.exe");
-            _ngxDlvsrPath = System.IO.Path.Combine(baseDir, "dlss", "DLVSR.exe");
+            // Giai đoạn 3: tên binary theo OS (Windows = ffmpeg.exe như bản gốc; Linux = ffmpeg).
+            _ffmpegPath = System.IO.Path.Combine(baseDir, TitanPlatform.BinaryName("ffmpeg"));
+            _ffprobePath = System.IO.Path.Combine(baseDir, TitanPlatform.BinaryName("ffprobe"));
+
+            // Giai đoạn 3 (đề bài): cạnh app → PATH → cấu hình người dùng. Windows giữ hành vi
+            // gốc (chỉ cạnh app + hỏi IUserPrompt); Linux tìm thêm trên PATH/env trước khi hỏi.
+            if (!TitanPlatform.IsWindows)
+            {
+                _ffmpegPath = LocateNonWindowsTool(baseDir, "ffmpeg", "TITAN_FFMPEG_PATH") ?? _ffmpegPath;
+                _ffprobePath = LocateNonWindowsTool(baseDir, "ffprobe", "TITAN_FFPROBE_PATH") ?? _ffprobePath;
+            }
+
+            // Giai đoạn 3: Upscayl/DLSS theo OS (Windows giữ tên cũ; Linux = binary thường + PATH).
+            _upscaylPath = LocateUpscayl(baseDir);
+            _ngxDlvsrPath = System.IO.Path.Combine(baseDir, "dlss", TitanPlatform.BinaryName("DLVSR"));
             RefreshNvidiaUpscaleBackendPaths();
 
             if (!File.Exists(_ffmpegPath))
@@ -45,7 +56,7 @@ namespace TitanEngine
                         _ffmpegPath = selectedFfmpeg;
                         string? dirName = System.IO.Path.GetDirectoryName(_ffmpegPath);
                         if (dirName != null)
-                            _ffprobePath = System.IO.Path.Combine(dirName, "ffprobe.exe");
+                            _ffprobePath = System.IO.Path.Combine(dirName, TitanPlatform.BinaryName("ffprobe"));
                     }
                     else throw new FileNotFoundException("FFmpeg Core Engine not found.");
                 }
@@ -59,7 +70,54 @@ namespace TitanEngine
             if (!string.IsNullOrWhiteSpace(_ngxDlvsrPath))
                 return _ngxDlvsrPath;
 
-            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dlss", "DLVSR.exe");
+            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dlss", TitanPlatform.BinaryName("DLVSR"));
+        }
+
+        /// <summary>
+        /// Giai đoạn 3 (đề bài): trên Linux tool tìm theo cạnh app → PATH → cấu hình người dùng
+        /// (env var). Trả null nếu không tìm thấy đâu (caller giữ đường dẫn cạnh app như cũ để
+        /// log lỗi rõ). Windows không dùng hàm này.
+        /// </summary>
+        private static string? LocateNonWindowsTool(string baseDir, string baseName, string envVarName)
+        {
+            string besideApp = System.IO.Path.Combine(baseDir, TitanPlatform.BinaryName(baseName));
+            if (File.Exists(besideApp) && TitanPlatform.IsExecutable(besideApp))
+                return besideApp;
+
+            string envValue = Environment.GetEnvironmentVariable(envVarName) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(envValue) && File.Exists(envValue))
+                return envValue;
+
+            string? onPath = TitanPlatform.FindOnPath(baseName);
+            if (onPath != null)
+                return onPath;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Giai đoạn 3: đường dẫn Upscayl theo OS. Windows giữ nguyên "upscayl\Upscayl.exe".
+        /// Linux: thử binary cạnh app (upscayl-bin/upscayl) rồi PATH; không có → trả đường dẫn
+        /// cạnh app để RenderPipeline log đúng chỗ cần đặt như bản gốc.
+        /// </summary>
+        private static string LocateUpscayl(string baseDir)
+        {
+            if (TitanPlatform.IsWindows)
+                return System.IO.Path.Combine(baseDir, "upscayl", "Upscayl.exe");
+
+            string[] besideAppNames = { "upscayl-bin", "upscayl" };
+            foreach (string name in besideAppNames)
+            {
+                string candidate = System.IO.Path.Combine(baseDir, "upscayl", name);
+                if (File.Exists(candidate) && TitanPlatform.IsExecutable(candidate))
+                    return candidate;
+            }
+
+            string? onPath = TitanPlatform.FindOnPath("upscayl-bin") ?? TitanPlatform.FindOnPath("upscayl");
+            if (onPath != null)
+                return onPath;
+
+            return System.IO.Path.Combine(baseDir, "upscayl", "upscayl-bin");
         }
 
         public static string GetDlssDirectoryPath()
@@ -87,6 +145,15 @@ namespace TitanEngine
 
         public static async Task<bool> DownloadDlvsrSetupBundleAsync(Action<string> onLog, CancellationToken token)
         {
+            // Giai đoạn 3 (đề bài): DLSS NGX = Windows-only. Trên Linux log rõ rồi rơi xuống
+            // Upscayl / internal đúng docs/10 §7 — không tải bundle, không chạy winget/powershell.
+            if (!TitanPlatform.IsWindows)
+            {
+                onLog("[DLSS-NGX] DLSS NGX (DLVSR/UpscalePipelineApp + winget/VFX SDK) is Windows-only.");
+                onLog("[DLSS-NGX] Skipping auto setup on Linux — falling back to Upscayl/internal upscale.");
+                return false;
+            }
+
             string dlssDir = GetDlssDirectoryPath();
             string expectedDlvsrPath = GetNgxDlssExpectedPath();
             Directory.CreateDirectory(dlssDir);
@@ -1101,6 +1168,29 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private static string ResolveFfmpegFontFile()
         {
+            // Giai đoạn 3: Linux không có C:\Windows\Fonts — lấy font hệ thống hỗ trợ tiếng Việt.
+            if (!TitanPlatform.IsWindows)
+            {
+                string[] linuxCandidates =
+                {
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                    "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+                    "/usr/share/fonts/noto-sans/NotoSans-Regular.ttf",
+                    "/usr/share/fonts/TTF/NotoSans-Regular.ttf",
+                    "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+                };
+                foreach (string candidate in linuxCandidates)
+                {
+                    if (File.Exists(candidate))
+                        return candidate.Replace("\\", "/").Replace(":", "\\:");
+                }
+                return string.Empty;
+            }
+
             string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if (string.IsNullOrWhiteSpace(windowsDir) || !Directory.Exists(windowsDir))
                 return string.Empty;

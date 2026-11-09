@@ -1392,7 +1392,7 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
         {
             string baseDirectory = AppContext.BaseDirectory;
 
-            string besideBinary = Path.Combine(baseDirectory, "ffmpeg.exe");
+            string besideBinary = Path.Combine(baseDirectory, TitanPlatform.BinaryName("ffmpeg"));
             if (File.Exists(besideBinary))
                 return besideBinary;
 
@@ -1403,11 +1403,11 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
             DirectoryInfo? directory = new DirectoryInfo(baseDirectory);
             for (int depth = 0; depth <= FfmpegParentWalkDepth && directory != null; depth++)
             {
-                string nested = Path.Combine(directory.FullName, "ffmpeg", "bin", "ffmpeg.exe");
+                string nested = Path.Combine(directory.FullName, "ffmpeg", "bin", TitanPlatform.BinaryName("ffmpeg"));
                 if (File.Exists(nested))
                     return nested;
 
-                string flat = Path.Combine(directory.FullName, "ffmpeg.exe");
+                string flat = Path.Combine(directory.FullName, TitanPlatform.BinaryName("ffmpeg"));
                 if (File.Exists(flat))
                     return flat;
 

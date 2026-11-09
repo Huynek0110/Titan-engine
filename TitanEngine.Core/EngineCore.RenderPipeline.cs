@@ -850,7 +850,24 @@ namespace TitanEngine
                 }
                 else if (job.HardwareProfile.Contains("AMD"))
                 {
-                    if (job.HardwareProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
+                    // Giai đoạn 3: h264_amf/av1_amf chỉ tồn tại trên Windows FFmpeg — trên Linux
+                    // AMD/Intel đi qua VAAPI (probe test encode thật; fail → libx264 như fallback gốc).
+                    if (!TitanPlatform.IsWindows)
+                    {
+                        if (HasH264VaapiSupport())
+                        {
+                            encoder = "h264_vaapi";
+                            preset = "medium";
+                            onLog($"[ENCODER] Linux VAAPI (h264_vaapi via {GetVaapiRenderNode()})");
+                        }
+                        else
+                        {
+                            encoder = "libx264";
+                            preset = "veryslow";
+                            onLog($"[ENCODER-WARN] Linux: no usable VAAPI encoder. Fallback to CPU libx264.");
+                        }
+                    }
+                    else if (job.HardwareProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
                     {
                         if (HasAv1AmfSupport())
                         {
@@ -874,9 +891,34 @@ namespace TitanEngine
                 }
                 else if (job.HardwareProfile.Contains("Intel"))
                 {
-                    encoder = "h264_qsv";
-                    preset = "veryslow";
-                    onLog($"[ENCODER] Intel QSV (veryslow - GPU)");
+                    // Giai đoạn 3: trên Linux QSV chỉ chọn khi probe test encode thật pass.
+                    if (!TitanPlatform.IsWindows)
+                    {
+                        if (HasH264QsvSupport())
+                        {
+                            encoder = "h264_qsv";
+                            preset = "veryslow";
+                            onLog($"[ENCODER] Intel QSV (veryslow - GPU)");
+                        }
+                        else if (HasH264VaapiSupport())
+                        {
+                            encoder = "h264_vaapi";
+                            preset = "medium";
+                            onLog($"[ENCODER] Linux VAAPI (h264_vaapi via {GetVaapiRenderNode()})");
+                        }
+                        else
+                        {
+                            encoder = "libx264";
+                            preset = "veryslow";
+                            onLog($"[ENCODER-WARN] Linux: no usable QSV/VAAPI encoder. Fallback to CPU libx264.");
+                        }
+                    }
+                    else
+                    {
+                        encoder = "h264_qsv";
+                        preset = "veryslow";
+                        onLog($"[ENCODER] Intel QSV (veryslow - GPU)");
+                    }
                 }
                 else
                 {
@@ -900,7 +942,23 @@ namespace TitanEngine
                 {
                     onLog($"[ENCODER-NVENC] Using VBR mode with quality level 16");
                 }
-                cmd.Append("-pix_fmt yuv420p ");
+                // Giai đoạn 3: VAAPI (Linux) — frames sau hwupload là VAAPI surface, không nhận
+                // -pix_fmt yuv420p; device args + hwupload gỡ ra sạch khi CPU retry (bẫy 12: Insert(0)
+                // đứng đầu chuỗi nên không lệch offset của các Insert số phía sau).
+                string? vaapiDeviceArgs = null;
+                if (encoder == "h264_vaapi")
+                {
+                    string? vaapiNode = GetVaapiRenderNode();
+                    if (!string.IsNullOrEmpty(vaapiNode))
+                    {
+                        vaapiDeviceArgs = $"-init_hw_device vaapi=va0:{vaapiNode} -filter_hw_device va0 ";
+                        cmd.Insert(0, vaapiDeviceArgs);
+                    }
+                }
+                else
+                {
+                    cmd.Append("-pix_fmt yuv420p ");
+                }
 
                 // BITRATE STRATEGY
                 if (job.BitrateStrategy.Contains("Match Source"))
@@ -1945,9 +2003,10 @@ namespace TitanEngine
 
                 if (!string.IsNullOrEmpty(captionAssPath))
                 {
-                    string escapedAssPath = captionAssPath.Replace("\\", "/").Replace(":", "\\:");
+                    // Giai đoạn 3: escape path qua FfmpegPathEscape (Windows = thuật toán gốc nguyên vẹn).
+                    string escapedAssPath = FfmpegPathEscape.EscapeForFilterOption(captionAssPath);
                     string fontsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts");
-                    string escapedFontsDir = fontsDir.Replace("\\", "/").Replace(":", "\\:");
+                    string escapedFontsDir = FfmpegPathEscape.EscapeForFilterOption(fontsDir);
                     string subtitleFilter = $"ass='{escapedAssPath}':fontsdir='{escapedFontsDir}'";
 
                     if (filterChain.Length > 0) filterChain.Append(",");
@@ -5100,7 +5159,10 @@ namespace TitanEngine
 
                     if (filterChain.Length > 0)
                     {
-                        cmd.Append($"-vf \"{filterChain}\" ");
+                        // Giai đoạn 3: VAAPI cần upload frame lên GPU cuối chuỗi (-vf path đơn giản;
+                        // đường filter_complex đã được che bởi CPU retry bên dưới).
+                        string vaapiOutputChain = encoder == "h264_vaapi" ? filterChain + ",format=nv12,hwupload" : filterChain.ToString();
+                        cmd.Append($"-vf \"{vaapiOutputChain}\" ");
                     }
 
                     cmd.Append("-map 0:v:0 ");
@@ -5264,6 +5326,16 @@ namespace TitanEngine
                     string recoveryCodecArgs = BuildVideoCodecArgs("libx264", "slow");
                     string primaryArgs = cmd.ToString();
                     string recoveryArgs = primaryArgs.Replace(videoCodecArgs, recoveryCodecArgs);
+
+                    // Giai đoạn 3: VAAPI fail → gỡ sạch device args + hwupload và trả lại -pix_fmt
+                    // cho lệnh retry libx264 (thiết bị/hardware frame không liên quan CPU encode).
+                    if (encoder == "h264_vaapi")
+                    {
+                        if (vaapiDeviceArgs != null)
+                            recoveryArgs = recoveryArgs.Replace(vaapiDeviceArgs, string.Empty);
+                        recoveryArgs = recoveryArgs.Replace(",format=nv12,hwupload", string.Empty)
+                                                   .Replace(videoCodecArgs, recoveryCodecArgs + "-pix_fmt yuv420p ");
+                    }
 
                     if (string.Equals(primaryArgs, recoveryArgs, StringComparison.Ordinal))
                         throw new Exception($"FFmpeg failed with exit code: {failedExitCode}");

@@ -28,6 +28,22 @@ namespace TitanEngine
             if (_hasNvencChecked) return _hasNvencSupport;
             _hasNvencChecked = true;
 
+            // Giai đoạn 3 (đề bài): Linux probe bằng test encode thật ~1s (bảng -encoders lừa trên
+            // GPU không hỗ trợ, ví dụ av1_nvenc liệt kê nhưng Pascal không encode được).
+            // Windows giữ nguyên probe "-encoders" như bản gốc.
+            if (!TitanPlatform.IsWindows)
+            {
+                EncoderProbe.LinuxResult probe = EncoderProbe.ProbeLinux(_ffmpegPath ?? string.Empty);
+                _hasNvencSupport = probe.H264Nvenc;
+                _hasHevcNvencSupport = probe.HevcNvenc;
+                _hasAv1NvencSupport = probe.Av1Nvenc;
+                _hasAv1AmfSupport = false;
+                _hasH264VaapiSupport = probe.H264Vaapi;
+                _hasH264QsvSupport = probe.H264Qsv;
+                _vaapiRenderNode = probe.VaapiRenderNode;
+                return _hasNvencSupport;
+            }
+
             try
             {
                 if (string.IsNullOrEmpty(_ffmpegPath) || !File.Exists(_ffmpegPath))
@@ -58,6 +74,39 @@ namespace TitanEngine
             catch { }
 
             return _hasNvencSupport;
+        }
+
+        // ── Giai đoạn 3: cờ encoder Linux (VAAPI/QSV) + render node cho -vaapi_device ──
+        private static bool _hasH264VaapiSupport = false;
+        private static bool _hasH264QsvSupport = false;
+        private static string? _vaapiRenderNode;
+        private static bool _linuxProbeDone = false;
+
+        /// <summary>Chạy probe Linux một lần (dùng chung cho encoder selection + doctor). Windows trả false.</summary>
+        public static bool HasH264VaapiSupport()
+        {
+            RunLinuxProbeOnce();
+            return _hasH264VaapiSupport;
+        }
+
+        public static bool HasH264QsvSupport()
+        {
+            RunLinuxProbeOnce();
+            return _hasH264QsvSupport;
+        }
+
+        public static string? GetVaapiRenderNode()
+        {
+            RunLinuxProbeOnce();
+            return _vaapiRenderNode;
+        }
+
+        private static void RunLinuxProbeOnce()
+        {
+            if (_linuxProbeDone || TitanPlatform.IsWindows)
+                return;
+            _linuxProbeDone = true;
+            _ = HasNvencSupport();
         }
 
         public static bool HasHevcNvencSupport()

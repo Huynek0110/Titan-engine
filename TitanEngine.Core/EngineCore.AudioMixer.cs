@@ -264,7 +264,8 @@ namespace TitanEngine
             CancellationToken token, Action<double> onProgress, Action<string> onLog)
         {
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
-            string whisperExe = Path.Combine(appDir, "Assets", "Whisper", "whisper-cli.exe");
+            // Giai đoạn 3: whisper-cli theo OS (Windows .exe như bản gốc; Linux binary thường).
+            string whisperExe = Path.Combine(appDir, "Assets", "Whisper", TitanPlatform.BinaryName("whisper-cli"));
             
             string modelSize = job.CaptionSyncModelSize ?? "Small";
             string modelFileName = "ggml-small.bin";
