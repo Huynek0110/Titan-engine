@@ -39,6 +39,9 @@ namespace TitanEngine
         /// </summary>
         internal static bool IsFfprobeAvailable
             => !string.IsNullOrEmpty(_ffprobePath) && File.Exists(_ffprobePath);
+
+        /// <summary>Phase 2 facade (ITitanEngineService) đọc trạng thái Initialize — chỉ expose field _isInitialized có sẵn.</summary>
+        public static bool IsInitialized => _isInitialized;
         private static string? _upscaylPath;
         private static string? _ngxDlvsrPath;
         private static string? _vfxUpscaleExePath;

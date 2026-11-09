@@ -43,6 +43,9 @@ HostApiServer,Helpers}.cs` (partial class `EngineCore`), `MainWindow.Models.cs`,
 các preset overlay/soundbar (model + settings + BuildSingleClipGraph/BuildAssetClipGraph… — logic filter graph).
 `EngineServices.cs` định nghĩa các interface `IUserPrompt / IUiDispatcher / IEngineLogSink / ITextMetrics /
 IImageServices` + service locator `EngineServices` — **Core gọi UI/ảnh vẽ CHỈ qua đây**, không gọi ngược project WPF.
+`TitanEngineService.cs` = facade `ITitanEngineService` (phase 2): host không phải WPF (CLI/Avalonia) dùng để
+thêm/xoá/chạy/huỷ job, đọc trạng thái engine, nhận progress (`IProgress<RenderProgress>`) và log stream —
+bọc nguyên API tĩnh `EngineCore`, không đổi logic engine.
 `PixelRect.cs` = struct `PixelRect`/`Vector` (double, semantics giống WPF; `Vector.Normalize` chia 1/max(|x|,|y|)
 trước rồi chia Length — số học phải khớp bản Windows vì seed/particle/cache SHA-256 phụ thuộc).
 
