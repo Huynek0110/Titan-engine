@@ -1166,6 +1166,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return SnowfallOverlayPreset.NormalizePreset(v);
         }
 
+        /// <summary>Giai đoạn 3: doctor đọc font drawtext đã resolve (không chạy lại logic).</summary>
+        public static string ResolveFontFileForDoctor() => ResolveFfmpegFontFile();
+
         private static string ResolveFfmpegFontFile()
         {
             // Giai đoạn 3: Linux không có C:\Windows\Fonts — lấy font hệ thống hỗ trợ tiếng Việt.

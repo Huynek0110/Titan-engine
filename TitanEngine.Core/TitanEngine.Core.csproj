@@ -7,8 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- EngineCore giữ các member internal như bản gốc; WPF assembly cần nhìn thấy. -->
+    <!-- EngineCore giữ các member internal như bản gốc; WPF assembly cần nhìn thấy.
+         Giai đoạn 3: CLI host cũng dùng mapper (GetFeatureBool...) → thêm friend. -->
     <InternalsVisibleTo Include="TitanEngine" />
+    <InternalsVisibleTo Include="TitanEngine.Cli" />
   </ItemGroup>
 
 </Project>

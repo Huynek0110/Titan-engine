@@ -2003,11 +2003,10 @@ namespace TitanEngine
 
                 if (!string.IsNullOrEmpty(captionAssPath))
                 {
-                    // Giai đoạn 3: escape path qua FfmpegPathEscape (Windows = thuật toán gốc nguyên vẹn).
-                    string escapedAssPath = FfmpegPathEscape.EscapeForFilterOption(captionAssPath);
+                    // Giai đoạn 3: escape path qua FfmpegPathEscape (hàm trả giá trị option hoàn chỉnh,
+                    // gồm quote bọc trên Windows — chuỗi Windows byte-identical bản gốc).
                     string fontsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Fonts");
-                    string escapedFontsDir = FfmpegPathEscape.EscapeForFilterOption(fontsDir);
-                    string subtitleFilter = $"ass='{escapedAssPath}':fontsdir='{escapedFontsDir}'";
+                    string subtitleFilter = $"ass={FfmpegPathEscape.EscapeForFilterOption(captionAssPath)}:fontsdir={FfmpegPathEscape.EscapeForFilterOption(fontsDir)}";
 
                     if (filterChain.Length > 0) filterChain.Append(",");
                     filterChain.Append(subtitleFilter);

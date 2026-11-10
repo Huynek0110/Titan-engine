@@ -42,6 +42,11 @@ namespace TitanEngine
 
         /// <summary>Phase 2 facade (ITitanEngineService) đọc trạng thái Initialize — chỉ expose field _isInitialized có sẵn.</summary>
         public static bool IsInitialized => _isInitialized;
+
+        // Giai đoạn 3: đường dẫn tool đã resolve (doctor/CLI đọc, không tự đoán lại).
+        public static string GetFfmpegPath() => _ffmpegPath ?? string.Empty;
+        public static string GetFfprobePath() => _ffprobePath ?? string.Empty;
+        public static string GetUpscaylExecutablePath() => _upscaylPath ?? string.Empty;
         private static string? _upscaylPath;
         private static string? _ngxDlvsrPath;
         private static string? _vfxUpscaleExePath;

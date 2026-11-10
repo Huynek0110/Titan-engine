@@ -1709,7 +1709,7 @@ namespace TitanEngine
             
             // STEP 1: FSRCNNX AI Upscaling via libplacebo
             string shaderPath = FfmpegPathEscape.EscapeForFilterOption(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl"));
-            filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path='{shaderPath}'");
+            filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path={shaderPath}");
             onLog($"[STEP1] FSRCNNX AI upscaling to {targetW}x{targetH}");
             
             // STEP 2: Light unsharp for final edge enhancement
@@ -1750,7 +1750,7 @@ namespace TitanEngine
             // STEP 2: FSRCNNX AI Upscaling via libplacebo
             filterChain.Append(",");
             string shaderPath = FfmpegPathEscape.EscapeForFilterOption(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shaders", "FSRCNNX.glsl"));
-            filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path='{shaderPath}'");
+            filterChain.Append($"libplacebo=w={targetW}:h={targetH}:custom_shader_path={shaderPath}");
             onLog($"[STEP2] FSRCNNX AI upscaling to {targetW}x{targetH}");
             
             // STEP 3: Strong unsharp for edge reconstruction
