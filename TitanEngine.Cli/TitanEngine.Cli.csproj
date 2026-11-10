@@ -12,4 +12,43 @@
     <ProjectReference Include="../TitanEngine.Core/TitanEngine.Core.csproj" />
   </ItemGroup>
 
+  <!-- Giai đoạn 3: assets engine cần cạnh exe khi chạy headless (CLI/Core không tự có
+       assets — nguồn thật nằm ở TitanEngine/ như WPF). Đường dẫn dùng "/" và đúng
+       hoa/thường (điều kiện commit D). Overlay assets cần cho render có overlay;
+       shaders cần cho upscale internal; Fonts cho caption/drawtext; Whisper tuỳ chọn. -->
+  <ItemGroup>
+    <Content Include="../TitanEngine/shaders/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>shaders/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Fonts/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Fonts/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Whisper/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Whisper/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Effects/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Effects/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Overlays/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Overlays/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Content/Overlays/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Content/Overlays/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Content/Branding/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Content/Branding/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../BAS_LOCALHOST_API_GUIDE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>BAS_LOCALHOST_API_GUIDE.txt</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>
