@@ -42,12 +42,20 @@ Expand-Archive -LiteralPath $zipFile -DestinationPath $extractPath -Force
 Write-Host ">>> DANG CAI DAT VAO PROJECT..." -ForegroundColor Yellow
 $ffmpegExe = Get-ChildItem -Path $extractPath -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
 $ffprobeExe = Get-ChildItem -Path $extractPath -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+$ffplayExe = Get-ChildItem -Path $extractPath -Recurse -Filter "ffplay.exe" | Select-Object -First 1
 
 if ($ffmpegExe -and $ffprobeExe) {
     Copy-Item -Path $ffmpegExe.FullName -Destination $binPath -Force
     Copy-Item -Path $ffprobeExe.FullName -Destination $binPath -Force
     Write-Host ">>> DA CHEP FFMPEG.EXE VAO: $binPath" -ForegroundColor Cyan
     Write-Host ">>> DA CHEP FFPROBE.EXE VAO: $binPath" -ForegroundColor Cyan
+    # ffplay can cho Audio Editor (nghe thu preview) — diem 2a da duyet
+    if ($ffplayExe) {
+        Copy-Item -Path $ffplayExe.FullName -Destination $binPath -Force
+        Write-Host ">>> DA CHEP FFPLAY.EXE VAO: $binPath" -ForegroundColor Cyan
+    } else {
+        Write-Host ">>> CANH BAO: Khong tim thay ffplay.exe trong goi — Audio Editor se bao thieu ffplay" -ForegroundColor Yellow
+    }
 } else {
     Write-Host ">>> LOI: Khong tim thay file exe trong goi tai ve!" -ForegroundColor Red
 }

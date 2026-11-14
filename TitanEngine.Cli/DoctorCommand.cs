@@ -45,7 +45,8 @@ internal static class DoctorCommand
             Check(true, "ffmpeg version", FirstLine(ffmpeg, "-version"));
 
         string ffplay = TitanPlatform.FindOnPath("ffplay") ?? Path.Combine(AppContext.BaseDirectory, TitanPlatform.BinaryName("ffplay"));
-        Check(File.Exists(ffplay), "ffplay (tuỳ chọn)", ffplay);
+        // Điểm 2a đã duyệt: ffplay là player của Audio Editor (Avalonia) — thiếu thì editor báo rõ khi mở.
+        Check(File.Exists(ffplay), "ffplay (tuỳ chọn — thiếu thì Audio Editor không nghe thử được)", ffplay);
 
         string upscayl = EngineCore.GetUpscaylExecutablePath();
         Check(File.Exists(upscayl) && TitanPlatform.IsExecutable(upscayl), "upscayl (tuỳ chọn — không có thì fallback internal)", upscayl);
