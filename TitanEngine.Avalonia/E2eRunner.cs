@@ -90,6 +90,18 @@ public static class E2eRunner
                 Check(job.StatusDisplay == "DONE", $"render xong (status={job.StatusDisplay})");
                 Check(job.ResultPath != null && File.Exists(job.ResultPath), $"file output tồn tại: {job.ResultPath}");
 
+                // Đợi batch HOÀN TOÀN kết thúc (IsBatchRunning về false) trước khi toggle host:
+                // StartBatchAsync còn Task.Delay(500) + Alert trong try, IsBatchRunning chỉ về
+                // false trong finally (sau đó). Gọi ToggleHostAsync sớm → "Cannot toggle host
+                // mode while batch is running."
+                var batchDeadline = TimeSpan.FromSeconds(30);
+                while (vm.QueueLogs.IsBatchRunning && batchDeadline > TimeSpan.Zero)
+                {
+                    await Task.Delay(200);
+                    batchDeadline -= TimeSpan.FromMilliseconds(200);
+                }
+                Check(!vm.QueueLogs.IsBatchRunning, "batch hoàn toàn kết thúc (IsBatchRunning=false)");
+
                 if (job.ResultPath != null && File.Exists(job.ResultPath))
                 {
                     string dur = Run("ffprobe", $"-v error -show_entries format=duration -of csv=p=0 \"{job.ResultPath}\"");
