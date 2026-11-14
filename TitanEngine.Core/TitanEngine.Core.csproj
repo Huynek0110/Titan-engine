@@ -11,6 +11,7 @@
          Giai đoạn 3: CLI host cũng dùng mapper (GetFeatureBool...) → thêm friend. -->
     <InternalsVisibleTo Include="TitanEngine" />
     <InternalsVisibleTo Include="TitanEngine.Cli" />
+    <InternalsVisibleTo Include="TitanEngine.Avalonia" />
   </ItemGroup>
 
 </Project>

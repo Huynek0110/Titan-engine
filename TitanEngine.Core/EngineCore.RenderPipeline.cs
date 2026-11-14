@@ -1203,7 +1203,10 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    rgbPolaroidLedOverlay = await EngineServices.Images!.GenerateRgbPolaroidLedOverlayAsync(
+                    if (EngineServices.Images is null)
+                        throw new InvalidOperationException("RGB Polaroid LED overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                    rgbPolaroidLedOverlay = await EngineServices.Images.GenerateRgbPolaroidLedOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1225,7 +1228,10 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    polaroidScrapbook2Overlay = await EngineServices.Images!.GeneratePolaroidScrapbook2OverlayAsync(
+                    if (EngineServices.Images is null)
+                        throw new InvalidOperationException("Polaroid Scrapbook 2 overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                    polaroidScrapbook2Overlay = await EngineServices.Images.GeneratePolaroidScrapbook2OverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1245,7 +1251,10 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    dashedPolaroidOverlay = await EngineServices.Images!.GenerateDashedPolaroidOverlayAsync(
+                    if (EngineServices.Images is null)
+                        throw new InvalidOperationException("Dashed Polaroid frame overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                    dashedPolaroidOverlay = await EngineServices.Images.GenerateDashedPolaroidOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1266,7 +1275,10 @@ namespace TitanEngine
                     int effectHeight = overlayProfile.CanvasHeight;
                     OverlayContentLayout effectLayout = overlayProfile.Layout;
 
-                    scratchVideoOverlay = await EngineServices.Images!.GenerateScratchVideoOverlayAsync(
+                    if (EngineServices.Images is null)
+                        throw new InvalidOperationException("Dust & Scratches overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                    scratchVideoOverlay = await EngineServices.Images.GenerateScratchVideoOverlayAsync(
                         effectWidth,
                         effectHeight,
                         effectLayout,
@@ -1287,7 +1299,10 @@ namespace TitanEngine
                     int effectWidth = overlayProfile.CanvasWidth;
                     int effectHeight = overlayProfile.CanvasHeight;
 
-                    recipeParticleOverlay = await EngineServices.Images!.GenerateParticleOverlayAsync(
+                    if (EngineServices.Images is null)
+                        throw new InvalidOperationException("Particle overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                    recipeParticleOverlay = await EngineServices.Images.GenerateParticleOverlayAsync(
                         effectWidth,
                         effectHeight,
                         lightLeakBurnFps,
@@ -1319,9 +1334,13 @@ namespace TitanEngine
                         dreamyDotOverlay = cachedDreamyDotOverlay;
                         onLog($"[DREAMY-DOT] Reusing cached overlay asset @ {dreamyDotOverlay.Width}x{dreamyDotOverlay.Height} / {dreamyDotOverlay.FrameRate:F2}fps for {effectWidth}x{effectHeight} output (content {effectLayout.ContentWidth:F0}x{effectLayout.ContentHeight:F0} @ {effectLayout.ContentX:F0},{effectLayout.ContentY:F0})");
                     }
+                    else if (EngineServices.Images is null)
+                    {
+                        throw new InvalidOperationException("Dreamy Dot overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+                    }
                     else
                     {
-                        dreamyDotOverlay = await EngineServices.Images!.GenerateDreamyDotOverlayAsync(
+                        dreamyDotOverlay = await EngineServices.Images.GenerateDreamyDotOverlayAsync(
                             effectWidth,
                             effectHeight,
                             effectLayout,
@@ -1354,7 +1373,10 @@ namespace TitanEngine
                         SnowfallOverlayRecipe snowfallOverlayRecipe = snowfallOverlayRecipes[snowIndex];
                         if (snowfallOverlayRecipe.UseGeneratedOverlay)
                         {
-                            SnowfallGeneratedOverlay snowfallOverlay = await EngineServices.Images!.GenerateSnowfallOverlayAsync(
+                            if (EngineServices.Images is null)
+                                throw new InvalidOperationException("Snowfall overlay generation requires the overlay painter (image services), which is unavailable in this build.");
+
+                            SnowfallGeneratedOverlay snowfallOverlay = await EngineServices.Images.GenerateSnowfallOverlayAsync(
                                 effectWidth,
                                 effectHeight,
                                 effectLayout,
@@ -1579,15 +1601,23 @@ namespace TitanEngine
                             var sbProfile = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
                             string soundBarTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
 
-                            soundBarOverlay = await EngineServices.Images!.GenerateSoundBarOverlayAsync(
-                                soundBarAnalysis,
-                                sbSettings,
-                                sbPalette,
-                                sbProfile.CanvasWidth,
-                                sbProfile.CanvasHeight,
-                                soundBarTag,
-                                onLog,
-                                token);
+                            if (EngineServices.Images is null)
+                            {
+                                soundBarAnalysisFailed = true;
+                                onLog("[SOUNDBAR] Overlay generation unavailable in this build (no image services) - soundbar layer skipped.");
+                            }
+                            else
+                            {
+                                soundBarOverlay = await EngineServices.Images.GenerateSoundBarOverlayAsync(
+                                    soundBarAnalysis,
+                                    sbSettings,
+                                    sbPalette,
+                                    sbProfile.CanvasWidth,
+                                    sbProfile.CanvasHeight,
+                                    soundBarTag,
+                                    onLog,
+                                    token);
+                            }
 
                             if (soundBarOverlay == null)
                             {
