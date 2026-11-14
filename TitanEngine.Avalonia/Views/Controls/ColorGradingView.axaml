@@ -3,20 +3,20 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.ColorGradingView"
              x:DataType="vm:ColorGradingViewModel">
-  <HeaderedContentControl Header="COLOR GRADING" Foreground="#4CC3FF">
+  <HeaderedContentControl Header="COLOR GRADING" Foreground="{DynamicResource AccentBrush}">
     <StackPanel>
       <ComboBox ItemsSource="{Binding FilterOptions}" SelectedItem="{Binding Filter}" HorizontalAlignment="Stretch"/>
       <Grid Margin="0,5,0,0" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Intensity" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding IntensityDisplay}" Foreground="#4CC3FF"/>
+        <TextBlock Text="Intensity" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding IntensityDisplay}" Foreground="{DynamicResource AccentBrush}"/>
       </Grid>
       <Slider Minimum="0" Maximum="100" Value="{Binding Intensity}"/>
       <Grid Margin="0,8,0,0" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Brightness" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding BrightnessDisplay}" Foreground="#4CC3FF"/>
+        <TextBlock Text="Brightness" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding BrightnessDisplay}" Foreground="{DynamicResource AccentBrush}"/>
       </Grid>
       <Slider Minimum="-100" Maximum="100" Value="{Binding Brightness}" TickFrequency="10"/>
-      <TextBlock Text="-100 dark | 0 original | +100 bright" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+      <TextBlock Text="-100 dark | 0 original | +100 bright" Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" Margin="0,3,0,0"/>
     </StackPanel>
   </HeaderedContentControl>
 </UserControl>
