@@ -1896,6 +1896,18 @@ public sealed class AvaloniaImageServices : IImageServices
                 SKColor coreColor = ParseHex(palette.Core);
                 SKColor glowColor = ParseHex(palette.Glow);
 
+                using var barPaint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill,
+                };
+                using var glowPaint = new SKPaint
+                {
+                    Color = glowColor.WithAlpha((byte)(120 * opacity)),
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill,
+                };
+
                 for (int bi = 0; bi < barCount; bi++)
                 {
                     float band = bi < bands.Length ? bands[bi] : 0f;
@@ -1909,24 +1921,13 @@ public sealed class AvaloniaImageServices : IImageServices
                     double barY = baseY - barH;
 
                     SKColor barColor = LerpPalette(palette, level);
+                    barPaint.Color = barColor.WithAlpha((byte)(255 * opacity));
 
-                    using var barPaint = new SKPaint
-                    {
-                        Color = barColor.WithAlpha((byte)(255 * opacity)),
-                        IsAntialias = true,
-                        Style = SKPaintStyle.Fill,
-                    };
                     float cornerRadius = (float)(Math.Min(innerW, (float)barH) * 0.25);
                     canvas.DrawRoundRect(
                         (float)barX, (float)barY, (float)innerW, (float)barH,
                         cornerRadius, cornerRadius, barPaint);
 
-                    using var glowPaint = new SKPaint
-                    {
-                        Color = glowColor.WithAlpha((byte)(120 * opacity)),
-                        IsAntialias = true,
-                        Style = SKPaintStyle.Fill,
-                    };
                     canvas.DrawRoundRect(
                         (float)(barX - 1), (float)(barY - 1), (float)(innerW + 2), (float)(barH + 2),
                         cornerRadius + 1, cornerRadius + 1, glowPaint);
