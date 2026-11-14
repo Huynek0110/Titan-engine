@@ -1266,10 +1266,364 @@ public sealed class AvaloniaImageServices : IImageServices
         string? tag, CancellationToken token, Action<string> onLog)
         => throw new NotSupportedException(NotSupported);
 
+    // ── Giai đoạn 4: vẽ thật bằng SkiaSharp (không cần WPF/STA) ──
     public Task<ParticleOverlaySequence> GenerateParticleOverlayAsync(int width, int height,
         double frameRate, double outputDurationSeconds, ParticleEffectRecipe recipe, string? tag,
         CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        if (recipe == null)
+            throw new ArgumentNullException(nameof(recipe));
+
+        int safeWidth = Math.Max(2, width);
+        int safeHeight = Math.Max(2, height);
+        double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
+        double cycleSeconds = ParticleOverlayGenerator.ResolveCycleSeconds(recipe, outputDurationSeconds);
+        string cacheKey = recipe.BuildCacheKey(safeWidth, safeHeight, safeFps, cycleSeconds);
+        string safeTag = string.IsNullOrWhiteSpace(tag)
+            ? cacheKey
+            : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+        string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "particle_cache", recipe.Id, cacheKey);
+        string overlayPattern = Path.Combine(tempRoot, "particle_overlay_%04d.png");
+        string previewDir = Path.Combine(tempRoot, "preview");
+        string manifestPath = Path.Combine(tempRoot, "manifest.json");
+        double renderScale = Math.Min(1.0, 1440.0 / Math.Max(safeWidth, safeHeight));
+        int renderW = ParticleOverlayGenerator.EnsureEven(Math.Max(360, (int)Math.Round(safeWidth * renderScale)));
+        int renderH = ParticleOverlayGenerator.EnsureEven(Math.Max(360, (int)Math.Round(safeHeight * renderScale)));
+        int frameCount = Math.Clamp((int)Math.Ceiling(cycleSeconds * safeFps), 24, 180);
+
+        if (ParticleOverlayGenerator.TryLoadCache(manifestPath, overlayPattern, previewDir, out var cached))
+        {
+            var cachedOverlay = cached!;
+            cachedOverlay.CacheKey = cacheKey;
+            cachedOverlay.FromCache = true;
+            onLog($"[PARTICLE-CACHE] Reusing {recipe.Name} overlay ({cacheKey}) @ {cachedOverlay.Width}x{cachedOverlay.Height}, frames={cachedOverlay.FrameCount}, preview={cachedOverlay.PreviewDirectory}");
+            return Task.FromResult(cachedOverlay);
+        }
+
+        var particles = BuildParticles(recipe, renderW, renderH, ParticleOverlayGenerator.DeriveSeed(recipe.Id, cacheKey));
+
+        Directory.CreateDirectory(tempRoot);
+        Directory.CreateDirectory(previewDir);
+
+        using var bitmap = new SKBitmap(renderW, renderH);
+        using var canvas = new SKCanvas(bitmap);
+
+        for (int i = 0; i < frameCount; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
+            double timeSeconds = progress * cycleSeconds;
+            canvas.Clear(SKColors.Transparent);
+
+            foreach (var particle in particles)
+                DrawParticle(canvas, renderW, renderH, recipe, particle, timeSeconds, cycleSeconds);
+
+            string overlayFile = ParticleOverlayGenerator.FormatSequenceFilePath(overlayPattern, i + 1);
+            SavePng(bitmap, overlayFile);
+
+            if (i < 8)
+            {
+                string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                SavePng(bitmap, previewFile);
+            }
+        }
+
+        var result = new ParticleOverlaySequence
+        {
+            CacheKey = cacheKey,
+            TempRoot = tempRoot,
+            OverlayPattern = overlayPattern,
+            FrameCount = frameCount,
+            FrameRate = safeFps,
+            Width = renderW,
+            Height = renderH,
+            PreviewDirectory = previewDir,
+            FromCache = false,
+            TempArtifacts = new List<string>(),
+        };
+
+        ParticleOverlayGenerator.WriteManifest(manifestPath, result);
+        onLog($"[PARTICLE-CACHE] Generated {recipe.Name} overlay ({safeTag}) -> {cacheKey}, target={safeWidth}x{safeHeight}, render={renderW}x{renderH}, frames={frameCount}, preview={previewDir}");
+        return Task.FromResult(result);
+    }
+
+    private sealed class ParticleInstance
+    {
+        public ParticleLayerRecipe Layer { get; init; } = new();
+        public double BaseX { get; init; }
+        public double BaseY { get; init; }
+        public double Size { get; init; }
+        public double Opacity { get; init; }
+        public double SpeedX { get; init; }
+        public double SpeedY { get; init; }
+        public double Wind { get; init; }
+        public double Blur { get; init; }
+        public double RotationDegrees { get; init; }
+        public double AngularVelocity { get; init; }
+        public double Phase { get; init; }
+        public double LifeOffset { get; init; }
+        public SKColor Color { get; init; }
+    }
+
+    private static List<ParticleInstance> BuildParticles(ParticleEffectRecipe recipe, int width, int height, int baseSeed)
+    {
+        // Giữ nguyên thứ tự gọi Random.NextDouble() với cùng seed để determinism identical với WPF.
+        var particles = new List<ParticleInstance>();
+        IReadOnlyList<string> palette = recipe.ColorPalette.Count > 0
+            ? recipe.ColorPalette
+            : new[] { "#FFFFFF" };
+
+        int layerIndex = 0;
+        foreach (ParticleLayerRecipe layer in recipe.Layers)
+        {
+            Random rng = new Random(baseSeed + (layerIndex * 7919));
+            int count = Math.Max(1, layer.Count);
+
+            for (int i = 0; i < count; i++)
+            {
+                double baseX;
+                double baseY;
+                if (recipe.ParticleType == ParticleType.Confetti)
+                {
+                    baseX = width * (0.35 + (rng.NextDouble() * 0.30));
+                    baseY = height * (0.62 + (rng.NextDouble() * 0.16));
+                }
+                else
+                {
+                    baseX = rng.NextDouble() * width;
+                    baseY = rng.NextDouble() * height;
+                }
+
+                particles.Add(new ParticleInstance
+                {
+                    Layer = layer,
+                    BaseX = baseX,
+                    BaseY = baseY,
+                    Size = ParticleOverlayGenerator.Lerp(layer.SizeRange, rng.NextDouble()),
+                    Opacity = ParticleOverlayGenerator.Lerp(layer.OpacityRange, rng.NextDouble()),
+                    SpeedX = ParticleOverlayGenerator.Lerp(layer.SpeedXRange, rng.NextDouble()),
+                    SpeedY = ParticleOverlayGenerator.Lerp(layer.SpeedYRange, rng.NextDouble()),
+                    Wind = ParticleOverlayGenerator.Lerp(layer.WindRange, rng.NextDouble()),
+                    Blur = ParticleOverlayGenerator.Lerp(layer.BlurRange, rng.NextDouble()),
+                    RotationDegrees = rng.NextDouble() * 360.0,
+                    AngularVelocity = (rng.NextDouble() - 0.5) * 140.0,
+                    Phase = rng.NextDouble() * Math.PI * 2.0,
+                    LifeOffset = rng.NextDouble(),
+                    Color = ParseSkColor(palette[rng.Next(palette.Count)])
+                });
+            }
+
+            layerIndex++;
+        }
+
+        return particles;
+    }
+
+    private static void DrawParticle(SKCanvas canvas, int width, int height,
+        ParticleEffectRecipe recipe, ParticleInstance particle, double timeSeconds, double cycleSeconds)
+    {
+        double visualBoost = recipe.ParticleType switch
+        {
+            ParticleType.Rain => 5.0,
+            ParticleType.Sparkle => 6.2,
+            ParticleType.Confetti => 3.6,
+            ParticleType.Bokeh => 4.2,
+            _ => 4.2
+        };
+        double opacity = Math.Clamp(particle.Opacity * visualBoost, 0.0, 0.95);
+        double size = particle.Size;
+        double sway = particle.Wind * Math.Sin((timeSeconds * 0.85) + particle.Phase);
+
+        double x;
+        double y;
+        if (recipe.ParticleType == ParticleType.Confetti)
+        {
+            double t = ((timeSeconds / Math.Max(0.8, cycleSeconds)) + particle.LifeOffset) % 1.0;
+            double localSeconds = t * cycleSeconds;
+            x = particle.BaseX + (particle.SpeedX * localSeconds * 0.35) + (particle.Wind * Math.Sin((localSeconds * 2.4) + particle.Phase));
+            y = particle.BaseY + (particle.SpeedY * localSeconds * 0.35) + (90.0 * localSeconds * localSeconds);
+            opacity *= Math.Clamp(1.20 - t, 0.0, 1.0);
+        }
+        else
+        {
+            x = ParticleOverlayGenerator.Wrap(particle.BaseX + (particle.SpeedX * timeSeconds) + sway + (particle.LifeOffset * width), -size * 2.0, width + (size * 2.0));
+            y = ParticleOverlayGenerator.Wrap(particle.BaseY + (particle.SpeedY * timeSeconds) + (particle.LifeOffset * height), -size * 2.0, height + (size * 2.0));
+        }
+
+        if (recipe.ParticleType == ParticleType.Sparkle)
+        {
+            double twinkle = 0.62 + (0.38 * (0.5 + (0.5 * Math.Sin((timeSeconds * 5.2) + particle.Phase))));
+            opacity *= twinkle;
+        }
+        else if (recipe.ParticleType == ParticleType.Bokeh)
+        {
+            opacity *= 0.72 + (0.28 * (0.5 + (0.5 * Math.Sin((timeSeconds * 0.9) + particle.Phase))));
+        }
+
+        SKColor color = particle.Color;
+
+        switch (particle.Layer.Shape)
+        {
+            case ParticleShape.Streak:
+                DrawStreak(canvas, x, y, particle, opacity);
+                break;
+            case ParticleShape.Star:
+                DrawStar(canvas, x, y, particle, opacity, timeSeconds);
+                break;
+            case ParticleShape.Rectangle:
+                DrawConfetti(canvas, x, y, particle, opacity, timeSeconds);
+                break;
+            default:
+                DrawSoftCircle(canvas, x, y, particle, opacity, color);
+                break;
+        }
+    }
+
+    private static void DrawSoftCircle(SKCanvas canvas, double x, double y, ParticleInstance particle, double opacity, SKColor color)
+    {
+        SKColor coreColor = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.62 * 255.0), 0, 255));
+        double radius = Math.Max(0.8, particle.Size);
+        double haloRadius = radius * (1.55 + (particle.Blur * 0.42));
+
+        using var haloPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Shader = SKShader.CreateRadialGradient(
+                new SKPoint((float)x, (float)y), (float)Math.Max(1.0, haloRadius),
+                new SKColor[]
+                {
+                    color.WithAlpha((byte)Math.Clamp(Math.Round(opacity * 0.42 * 255.0), 0, 255)),
+                    color.WithAlpha((byte)Math.Clamp(Math.Round(opacity * 0.18 * 255.0), 0, 255)),
+                    new SKColor(color.Red, color.Green, color.Blue, 0),
+                },
+                new float[] { 0.0f, 0.56f, 1.0f },
+                SKShaderTileMode.Clamp),
+        };
+        canvas.DrawCircle((float)x, (float)y, (float)haloRadius, haloPaint);
+
+        using var corePaint = new SKPaint { IsAntialias = true, Color = coreColor };
+        canvas.DrawCircle((float)x, (float)y, (float)(radius * 0.55), corePaint);
+    }
+
+    private static void DrawStreak(SKCanvas canvas, double x, double y, ParticleInstance particle, double opacity)
+    {
+        double length = Math.Max(4.0, particle.Size);
+        double angle = Math.Atan2(particle.SpeedY, particle.SpeedX == 0.0 ? -1.0 : particle.SpeedX);
+        double dx = Math.Cos(angle) * length * 0.5;
+        double dy = Math.Sin(angle) * length * 0.5;
+        double thickness = Math.Max(0.6, length * 0.08);
+
+        using var glowPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)(thickness + (particle.Blur * 0.8) + 0.6),
+            Color = particle.Color.WithAlpha((byte)Math.Clamp(Math.Round(opacity * 0.36 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        using var linePaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)thickness,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.68 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawLine((float)(x - dx), (float)(y - dy), (float)(x + dx), (float)(y + dy), glowPaint);
+        canvas.DrawLine((float)(x - dx), (float)(y - dy), (float)(x + dx), (float)(y + dy), linePaint);
+    }
+
+    private static void DrawStar(SKCanvas canvas, double x, double y, ParticleInstance particle, double opacity, double timeSeconds)
+    {
+        double outerRadius = Math.Max(1.4, particle.Size * 0.52);
+        double innerRadius = outerRadius * 0.42;
+        double rotation = particle.RotationDegrees + (particle.AngularVelocity * timeSeconds * 0.18);
+        using var star = BuildStarPath((float)x, (float)y, (float)outerRadius, (float)innerRadius, (float)rotation, 4);
+
+        using var glowPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = particle.Color.WithAlpha((byte)Math.Clamp(Math.Round(opacity * 0.34 * 255.0), 0, 255)),
+        };
+        using var corePaint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.78 * 255.0), 0, 255)),
+        };
+
+        double glowR = outerRadius * (1.55 + (particle.Blur * 0.35));
+        canvas.DrawCircle((float)x, (float)y, (float)glowR, glowPaint);
+        canvas.DrawPath(star, corePaint);
+    }
+
+    private static SKPath BuildStarPath(float cx, float cy, float outerRadius, float innerRadius, float rotationDegrees, int spikes)
+    {
+        var path = new SKPath();
+        float rotation = rotationDegrees * (float)(Math.PI / 180.0);
+        int pointCount = spikes * 2;
+        for (int i = 0; i < pointCount; i++)
+        {
+            float angle = rotation + ((float)(Math.PI * 2.0 * i) / pointCount);
+            float radius = (i % 2 == 0) ? outerRadius : innerRadius;
+            float px = cx + (float)(Math.Cos(angle) * radius);
+            float py = cy + (float)(Math.Sin(angle) * radius);
+            if (i == 0)
+                path.MoveTo(px, py);
+            else
+                path.LineTo(px, py);
+        }
+        path.Close();
+        return path;
+    }
+
+    private static void DrawConfetti(SKCanvas canvas, double x, double y, ParticleInstance particle, double opacity, double timeSeconds)
+    {
+        double width = Math.Max(2.4, particle.Size);
+        double height = Math.Max(1.8, particle.Size * 0.42);
+        double angle = particle.RotationDegrees + (particle.AngularVelocity * timeSeconds);
+        SKColor color = particle.Color.WithAlpha((byte)Math.Clamp(Math.Round(opacity * 255.0), 0, 255));
+        SKColor glowColor = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.18 * 255.0), 0, 255));
+
+        using var glowPaint = new SKPaint { Style = SKPaintStyle.Fill, Color = glowColor, IsAntialias = true };
+        using var brushPaint = new SKPaint { Style = SKPaintStyle.Fill, Color = color, IsAntialias = true };
+
+        canvas.Save();
+        canvas.Translate((float)x, (float)y);
+        canvas.RotateDegrees((float)angle);
+
+        float gx = (float)(-(width * 0.55));
+        float gy = (float)(-(height * 0.55));
+        float gw = (float)(width * 1.10);
+        float gh = (float)(height * 1.10);
+        float gr = (float)(height * 0.35);
+        canvas.DrawRoundRect(new SKRect(gx, gy, gx + gw, gy + gh), gr, gr, glowPaint);
+
+        float cx = (float)(-(width * 0.5));
+        float cy = (float)(-(height * 0.5));
+        float cw = (float)width;
+        float ch = (float)height;
+        float cr = (float)(height * 0.28);
+        canvas.DrawRoundRect(new SKRect(cx, cy, cx + cw, cy + ch), cr, cr, brushPaint);
+
+        canvas.Restore();
+    }
+
+    private static SKColor ParseSkColor(string value)
+    {
+        string normalized = (value ?? "#FFFFFF").Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return SKColors.White;
+        if (normalized.StartsWith("#", StringComparison.Ordinal))
+            normalized = normalized[1..];
+        try
+        {
+            return SKColor.Parse("#" + normalized);
+        }
+        catch
+        {
+            return SKColors.White;
+        }
+    }
 
     public Task<SoundBarGeneratedOverlay?> GenerateSoundBarOverlayAsync(AudioAnalysisResult analysis,
         SoundBarSettings settings, ColorPreset palette, int canvasWidth, int canvasHeight, string? tag,
