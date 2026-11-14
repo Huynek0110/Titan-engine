@@ -1,0 +1,51 @@
+<Window x:Class="TitanEngine.Avalonia.Views.MainWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
+        xmlns:v="using:TitanEngine.Avalonia.Views.Controls"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Titan Engine V193 UI+Soundbar Update" Height="920" Width="1280"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        Background="{StaticResource WindowBackgroundBrush}"
+        WindowStartupLocation="CenterScreen">
+
+  <!-- Mirror MainWindow.xaml WPF: Grid Margin 25, cột 420/25/*; trái = brand + 12 khu, phải = queue + logs -->
+  <Grid Margin="25" ColumnDefinitions="420,25,*">
+
+    <!-- LEFT PANEL -->
+    <Grid Grid.Row="0" RowDefinitions="Auto,*">
+      <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+        <Border Width="4" Height="40" CornerRadius="2" Margin="0,0,15,0" Background="#4CC3FF"/>
+        <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
+          <TextBlock Text="TITAN ENGINE" FontSize="25" FontWeight="Bold" Foreground="White"/>
+          <TextBlock FontSize="11" Foreground="#4CC3FF" Opacity="0.8" FontWeight="Bold" Text="V193 UI+Soundbar Update"/>
+          <TextBlock FontSize="10" Foreground="#8B95A5" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520"
+                     Text="Changelog: + Hiệu ứng chữ Text Overlay (từ Caption Sync) | + Hiệu ứng Audio 1 Voice FX | + Thanh cường độ Audio FX | + Lọc file build GitHub | + Không xóa tính năng cũ"/>
+        </StackPanel>
+      </StackPanel>
+
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,10,10">
+        <StackPanel Spacing="10">
+          <v:SourceTrimView DataContext="{Binding SourceTrim}" />
+          <v:FxStudioView DataContext="{Binding FxStudio}" />
+          <v:SoundbarView DataContext="{Binding Soundbar}" />
+          <v:SlowMotionView DataContext="{Binding SlowMotion}" />
+          <v:UpscaleView DataContext="{Binding Upscale}" />
+          <v:MotionEditorView DataContext="{Binding MotionEditor}" />
+          <v:TextVibeView DataContext="{Binding TextVibe}" />
+          <v:CaptionSyncView DataContext="{Binding CaptionSync}" />
+          <v:AudioMixerView DataContext="{Binding AudioMixer}" />
+          <v:WatermarkView DataContext="{Binding Watermark}" />
+          <v:ColorGradingView DataContext="{Binding ColorGrading}" />
+          <v:ExportView DataContext="{Binding Export}" />
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- RIGHT PANEL: queue + progress + log + nút -->
+    <Grid Grid.Column="2">
+      <v:QueueLogsView DataContext="{Binding QueueLogs}" />
+    </Grid>
+
+  </Grid>
+</Window>

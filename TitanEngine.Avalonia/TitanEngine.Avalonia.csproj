@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Giai đoạn 5: compiled bindings theo spec, pin version đúng spec -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.2" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.2" Condition="'$(Configuration)' == 'Debug'" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../TitanEngine.Core/TitanEngine.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Assets engine cần cạnh exe (mirror TitanEngine.Cli — nguồn thật ở ../TitanEngine/) -->
+  <ItemGroup>
+    <Content Include="../TitanEngine/shaders/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>shaders/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Fonts/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Fonts/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Effects/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Effects/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Assets/Overlays/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Assets/Overlays/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="../TitanEngine/Content/Overlays/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Content/Overlays/%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
+             x:Class="TitanEngine.Avalonia.Views.Controls.SourceTrimView"
+             x:DataType="vm:SourceTrimViewModel">
+  <StackPanel>
+    <HeaderedContentControl Header="SOURCE &amp; TRIM" Foreground="#4CC3FF">
+      <StackPanel>
+        <TextBlock Text="Source Media (Video/Image)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
+        <Grid Margin="0,0,0,15" ColumnDefinitions="*,50">
+          <TextBox x:Name="txtVideoPath" Text="{Binding VideoPathDisplay}" Watermark="Drop Video/Image Here..."
+                   FontStyle="Italic" LostFocus="VideoPath_LostFocus" KeyDown="VideoPath_KeyDown"/>
+          <Button Grid.Column="1" Content="..." Margin="8,0,0,0" Command="{Binding BrowseVideoCommand}"/>
+        </Grid>
+
+        <CheckBox Content="Merge Videos Into One Output (Concat)" Foreground="#8B95A5" Margin="0,-5,0,5"
+                  IsChecked="{Binding MergeVideos}"/>
+
+        <StackPanel Margin="0,0,0,10">
+          <CheckBox Content="⚡ CapCut Cross-Clip Transitions" Foreground="#8B95A5" FontWeight="Bold" Margin="0,0,0,5"
+                    IsChecked="{Binding EnableCrossTransitions}"/>
+          <Grid Margin="15,0,0,0" ColumnDefinitions="*,10,65">
+            <ComboBox ItemsSource="{Binding CrossTransitionOptions}" SelectedItem="{Binding CrossTransitionType}"
+                      Height="28" FontSize="11" HorizontalAlignment="Stretch"/>
+            <TextBox Grid.Column="2" Text="{Binding CrossTransitionDuration}" Height="28" FontSize="12" FontWeight="Bold"
+                     Foreground="#4CC3FF" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                     ToolTip.Tip="Transition Duration in seconds (e.g. 0.6)"/>
+          </Grid>
+        </StackPanel>
+
+        <Grid Margin="0,0,0,15" ColumnDefinitions="*,15,*">
+          <StackPanel>
+            <TextBlock Text="Start (00:00:00)" Foreground="#4CC3FF" FontSize="11"/>
+            <TextBox Text="{Binding TrimStart}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Text="Duration" Foreground="#4CC3FF" FontSize="11"/>
+            <TextBox Text="{Binding TrimDuration}" ToolTip.Tip="Empty = Full"/>
+          </StackPanel>
+        </Grid>
+
+        <StackPanel Margin="0,0,0,15">
+          <TextBlock Text="Split Duration (sec)" Foreground="#4CC3FF" FontSize="11" Margin="0,0,0,5"/>
+          <TextBox Text="{Binding SplitDuration}"
+                   ToolTip.Tip="Split rendered video into segments of this duration (seconds). Leave empty to skip splitting."/>
+        </StackPanel>
+
+        <StackPanel Margin="0,0,0,15">
+          <TextBlock Text="Image Timeline Duration (sec)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
+          <TextBox Text="{Binding ImageTimelineDuration}"
+                   ToolTip.Tip="Total duration shared across all selected image inputs. Leave empty to keep default per-image timing."/>
+        </StackPanel>
+
+        <TextBlock Text="Audio 1 (Opt)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
+        <Grid ColumnDefinitions="*,50">
+          <TextBox x:Name="txtAudioPath" Text="{Binding AudioPathDisplay}" Watermark="Select Audio 1..."
+                   FontStyle="Italic" LostFocus="AudioPath_LostFocus" KeyDown="AudioPath_KeyDown"/>
+          <Button Grid.Column="1" Content="..." Margin="8,0,0,0" Command="{Binding BrowseAudioCommand}"/>
+        </Grid>
+        <TextBlock Text="Audio 2 (Overlay)" Foreground="#8B95A5" FontSize="11" Margin="0,10,0,5"/>
+        <Grid ColumnDefinitions="*,50">
+          <TextBox x:Name="txtAudioPath2" Text="{Binding AudioPath2Display}" Watermark="Select Audio 2..."
+                   FontStyle="Italic" LostFocus="AudioPath2_LostFocus" KeyDown="AudioPath2_KeyDown"/>
+          <Button Grid.Column="1" Content="..." Margin="8,0,0,0" Command="{Binding BrowseAudio2Command}"/>
+        </Grid>
+        <CheckBox Content="Merge Audio Tracks Into One Output (Concat)" Foreground="#C9D2DE" Margin="0,8,0,0"
+                  IsChecked="{Binding MergeAudios}"/>
+        <Button Content="{Binding RandomButtonLabel}" IsVisible="{Binding RandomVisible}"
+                Background="#2A2110" BorderBrush="#4CC3FF" Foreground="#F2D27E" FontWeight="Bold"
+                Margin="0,8,0,0" Height="44" Command="{Binding RandomCombosCommand}"
+                ToolTip.Tip="Tạo mọi tổ hợp Video/Image × Audio thành nhiều queue, giữ nguyên toàn bộ setting hiện tại"/>
+        <Button Content="EDIT AUDIO DURATIONS" Background="#241E38" BorderBrush="#8B7CF6" Margin="0,10,0,0"
+                Command="{Binding EditAudioCommand}"/>
+        <TextBlock Text="{Binding AudioEditSummary}" Foreground="#6B7480" FontSize="9" Margin="0,4,0,0"/>
+
+        <Grid Margin="0,12,0,5" ColumnDefinitions="*,Auto">
+          <TextBlock Text="Added Audio Speed" Foreground="#C9D2DE" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding ExternalAudioSpeedDisplay}" Foreground="#C9D2DE" FontWeight="Bold"/>
+        </Grid>
+        <Slider Minimum="0.25" Maximum="4.0" Value="{Binding ExternalAudioSpeed}" TickFrequency="0.25"/>
+        <TextBlock Text="Only the optional audio track is affected" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+      </StackPanel>
+    </HeaderedContentControl>
+
+    <!-- BUTTON ADD TO QUEUE (đúng vị trí WPF: giữa SOURCE & TRIM và FX STUDIO) -->
+    <Button Command="{Binding AddToQueueCommand}" Height="50" Margin="0,0,0,10">
+      <Button.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#3B82F6" Offset="0"/>
+          <GradientStop Color="#1D5FD6" Offset="1"/>
+        </LinearGradientBrush>
+      </Button.Background>
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="+" FontSize="20" FontWeight="Bold" Margin="0,0,10,0"/>
+        <TextBlock Text="ADD TO QUEUE" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+      </StackPanel>
+    </Button>
+  </StackPanel>
+</UserControl>

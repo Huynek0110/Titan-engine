@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
+             x:Class="TitanEngine.Avalonia.Views.Controls.SlowMotionView"
+             x:DataType="vm:SlowMotionViewModel">
+  <HeaderedContentControl Header="⏱ SLOW MOTION" Foreground="#FF6600">
+    <StackPanel>
+      <TextBlock Text="Speed Mode" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
+      <ComboBox ItemsSource="{Binding SpeedOptions}" SelectedItem="{Binding Speed}" Margin="0,0,0,10" HorizontalAlignment="Stretch"/>
+
+      <TextBox Text="{Binding CustomSpeedText}" IsVisible="{Binding ShowCustom}" Margin="0,0,0,10"
+               ToolTip.Tip="Input speed (0.1-8.0, accepts 0.5 or 0,5)"/>
+
+      <Grid ColumnDefinitions="Auto,*">
+        <CheckBox IsChecked="{Binding AudioStretch}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+        <TextBlock Grid.Column="1" Text="Stretch audio with video (uncheck to keep original speed)" Foreground="#8B95A5" FontSize="11" VerticalAlignment="Center"/>
+      </Grid>
+
+      <Grid Margin="0,12,0,5" ColumnDefinitions="*,Auto">
+        <TextBlock Text="Source Audio Speed" Foreground="#C9D2DE" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding SourceAudioSpeedDisplay}" Foreground="#C9D2DE" FontWeight="Bold"/>
+      </Grid>
+      <Slider Minimum="0.25" Maximum="4.0" Value="{Binding SourceAudioSpeed}" TickFrequency="0.25"/>
+      <TextBlock Text="Only the source video's own audio is affected" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+    </StackPanel>
+  </HeaderedContentControl>
+</UserControl>

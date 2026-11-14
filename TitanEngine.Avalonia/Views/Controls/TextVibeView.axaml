@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
+             x:Class="TitanEngine.Avalonia.Views.Controls.TextVibeView"
+             x:DataType="vm:TextVibeViewModel">
+  <HeaderedContentControl Header="✏️ TEXT OVERLAY &amp; VIBE" Foreground="#4CC3FF">
+    <StackPanel>
+
+      <CheckBox Content="Enable Text Overlay" Foreground="#F0F4F8" Margin="0,0,0,8"
+                ToolTip.Tip="Chèn chữ lên video với hiệu ứng gõ chữ Typewriter nghệ thuật" IsChecked="{Binding Enable}"/>
+
+      <TextBlock Text="Nội dung văn bản" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBox Height="60" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,8" Text="{Binding Text}"
+               ToolTip.Tip="Nhập nội dung chữ (hỗ trợ xuống dòng)"/>
+
+      <CheckBox Content="&quot; &quot; Thêm ngoặc kép nghệ thuật" Foreground="#8B95A5" Margin="0,0,0,8"
+                ToolTip.Tip="Tự động thêm dấu ngoặc kép ở đầu và cuối văn bản giống video mẫu Reels/TikTok" IsChecked="{Binding AddQuotes}"/>
+
+      <CheckBox Content="🛑 Cố định chữ (Không chạy trượt lên)" Foreground="#4CC3FF" Margin="0,0,0,8"
+                ToolTip.Tip="Giữ chữ cố định một vị trí, không tự động cuộn/chạy trượt lên trên" IsChecked="{Binding DisableScroll}"/>
+
+      <CheckBox Content="✨ Hiệu ứng Chữ Phát Sáng (Glowing)" Foreground="#4CC3FF" Margin="0,0,0,4"
+                ToolTip.Tip="Tạo quầng sáng Neon Glow rực rỡ xung quanh chữ" IsChecked="{Binding EnableGlow}"/>
+      <Grid Margin="0,0,0,8" ColumnDefinitions="*,120">
+        <TextBlock Text="Màu Phát Sáng:" Foreground="#9AA3B2" FontSize="11" VerticalAlignment="Center"/>
+        <ComboBox Grid.Column="1" Height="24" ItemsSource="{Binding GlowColorOptions}" SelectedItem="{Binding GlowColor}" HorizontalAlignment="Stretch"/>
+      </Grid>
+
+      <TextBlock Text="Phong cách &amp; Font chữ" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <ComboBox ItemsSource="{Binding StyleOptions}" SelectedItem="{Binding Style}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
+
+      <TextBlock Text="Vị trí" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <ComboBox ItemsSource="{Binding PositionOptions}" SelectedItem="{Binding Position}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
+
+      <TextBlock Text="Căn lề (Align)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <ComboBox ItemsSource="{Binding AlignOptions}" SelectedItem="{Binding Align}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
+
+      <Grid Margin="0,0,0,8" ColumnDefinitions="*,8,*">
+        <StackPanel>
+          <TextBlock Text="Tọa độ X (%)" Foreground="#9AA3B2" FontSize="11" Margin="0,0,0,3"/>
+          <TextBox Text="{Binding XPercent}" Height="28" FontSize="12" FontWeight="Bold" Foreground="#4CC3FF"
+                   HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Tọa độ X (0 - 100%)"/>
+        </StackPanel>
+        <StackPanel Grid.Column="2">
+          <TextBlock Text="Tọa độ Y (%)" Foreground="#9AA3B2" FontSize="11" Margin="0,0,0,3"/>
+          <TextBox Text="{Binding YPercent}" Height="28" FontSize="12" FontWeight="Bold" Foreground="#4CC3FF"
+                   HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Tọa độ Y (0 - 100%)"/>
+        </StackPanel>
+      </Grid>
+
+      <TextBlock Text="Font Size" Foreground="#8B95A5" FontSize="11"/>
+      <Grid Margin="0,0,0,8" ColumnDefinitions="*,Auto">
+        <Slider Minimum="16" Maximum="150" Value="{Binding FontSize}" TickFrequency="2"/>
+        <TextBlock Grid.Column="1" Text="{Binding FontSizeDisplay}" Foreground="#4CC3FF" FontWeight="Bold"/>
+      </Grid>
+
+      <Separator Margin="0,4,0,8" Background="#2A2440"/>
+
+      <TextBlock Text="Hiệu ứng chữ (giống Caption Sync)" Foreground="#4CC3FF" FontSize="11" Margin="0,0,0,3" FontWeight="Bold"/>
+      <ComboBox ItemsSource="{Binding AnimationOptions}" SelectedItem="{Binding Animation}" Margin="0,0,0,8" HorizontalAlignment="Stretch"
+                ToolTip.Tip="Bộ hiệu ứng chữ được chuyển từ Caption Sync. Chọn 'Drawtext cũ' để dùng chế độ Typewriter + chạy trượt lên + Neon Glow như trước."/>
+
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,4" Spacing="6">
+        <TextBlock Text="Thời lượng hiệu ứng (giây):" Foreground="#9AA3B2" FontSize="11" VerticalAlignment="Center"/>
+        <TextBox Text="{Binding EffectDuration}" Width="56" Height="24" FontSize="12" FontWeight="Bold" Foreground="#4CC3FF"
+                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                 ToolTip.Tip="Tổng thời gian chạy hiệu ứng. Mỗi dòng chữ chiếm 1 phần nhỏ của khoảng thời gian này. Sau đó chữ giữ nguyên tới cuối video."/>
+      </StackPanel>
+      <TextBlock Text="Hiệu ứng Typewriter + Aesthetic Serif + Shadow + Sóng nhạc" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+    </StackPanel>
+  </HeaderedContentControl>
+</UserControl>
