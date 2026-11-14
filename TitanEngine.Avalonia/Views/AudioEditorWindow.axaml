@@ -5,24 +5,24 @@
         Title="AUDIO EDITOR"
         Width="1120" Height="780" MinWidth="980" MinHeight="680"
         WindowStartupLocation="CenterOwner"
-        Background="#0E0E12">
+        Background="{DynamicResource WindowBgBrush}">
   <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*,Auto">
     <StackPanel Grid.Row="0" Margin="0,0,0,12">
-      <TextBlock Text="AUDIO EDITOR" FontSize="24" FontWeight="Black" Foreground="#FFD166"/>
-      <TextBlock x:Name="txtAudioMeta" Text="No audio loaded" Foreground="#9A9AA5" FontSize="12" Margin="0,4,0,0"/>
+      <TextBlock Text="AUDIO EDITOR" FontSize="24" FontWeight="Black" Foreground="{StaticResource AudioEditorTitleBrush}"/>
+      <TextBlock x:Name="txtAudioMeta" Text="No audio loaded" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" Margin="0,4,0,0"/>
     </StackPanel>
 
-    <Border Grid.Row="1" Background="#16161D" BorderBrush="#30303A" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
+    <Border Grid.Row="1" Background="{DynamicResource InputBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
       <StackPanel>
-        <TextBlock Text="PREVIEW" Foreground="#D7D7FF" FontWeight="SemiBold" Margin="0,0,0,8"/>
-        <Border Background="#09090C" BorderBrush="#30303A" BorderThickness="1" CornerRadius="4" Padding="8">
-          <Canvas x:Name="cvsTimeline" Background="#0B0B10" Height="64" VerticalAlignment="Center"
+        <TextBlock Text="PREVIEW" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <Border Background="{StaticResource AudioEditorInsetBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="8">
+          <Canvas x:Name="cvsTimeline" Background="{StaticResource AudioEditorCanvasBrush}" Height="64" VerticalAlignment="Center"
                   PointerPressed="CvsTimeline_PointerPressed"/>
         </Border>
         <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,*,Auto">
-          <TextBlock x:Name="txtCurrentTime" Text="00:00:00.000" Foreground="#FFD166" VerticalAlignment="Center" Margin="0,0,10,0"/>
+          <TextBlock x:Name="txtCurrentTime" Text="00:00:00.000" Foreground="{StaticResource AudioEditorTitleBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
           <Slider x:Name="sldPlayback" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="sldPlayback_ValueChanged"/>
-          <TextBlock x:Name="txtTotalTime" Grid.Column="2" Text="00:00:00.000" Foreground="#8CCBFF" VerticalAlignment="Center" Margin="10,0,0,0"/>
+          <TextBlock x:Name="txtTotalTime" Grid.Column="2" Text="00:00:00.000" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="10,0,0,0"/>
         </Grid>
         <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Spacing="8">
           <Button x:Name="btnPlayPause" Content="Play" Click="btnPlayPause_Click"/>
@@ -33,14 +33,14 @@
       </StackPanel>
     </Border>
 
-    <Border Grid.Row="2" Background="#16161D" BorderBrush="#30303A" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
+    <Border Grid.Row="2" Background="{DynamicResource InputBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
       <Grid ColumnDefinitions="*,*,Auto">
         <StackPanel Margin="0,0,12,0">
-          <TextBlock Text="Start" Foreground="#8CCBFF" FontSize="11" Margin="0,0,0,4"/>
+          <TextBlock Text="Start" Foreground="{DynamicResource AccentBrush}" FontSize="11" Margin="0,0,0,4"/>
           <TextBox x:Name="txtRangeStart" Text="00:00:00"/>
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="0,0,12,0">
-          <TextBlock Text="End" Foreground="#8CCBFF" FontSize="11" Margin="0,0,0,4"/>
+          <TextBlock Text="End" Foreground="{DynamicResource AccentBrush}" FontSize="11" Margin="0,0,0,4"/>
           <TextBox x:Name="txtRangeEnd" Text="00:00:05"/>
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="8">
@@ -51,31 +51,31 @@
       </Grid>
     </Border>
 
-    <TabControl x:Name="tabMode" Grid.Row="3" Background="#0E0E12" BorderBrush="#30303A">
+    <TabControl x:Name="tabMode" Grid.Row="3" Background="{DynamicResource WindowBgBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}">
       <TabItem Header="Single Trim">
         <Grid Margin="10" RowDefinitions="Auto,Auto,*">
-          <TextBlock Text="Use one range to keep only a single part of the audio. This is useful when you want audio from 15s to 20s only." Foreground="#AFAFC0" TextWrapping="Wrap" Margin="0,0,0,10"/>
+          <TextBlock Text="Use one range to keep only a single part of the audio. This is useful when you want audio from 15s to 20s only." Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"/>
           <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
             <Button Content="Apply Single Trim" Click="btnApplySingleTrim_Click"/>
             <Button Content="Clear Cuts" Click="btnClearCuts_Click"/>
           </StackPanel>
-          <Border Grid.Row="2" Margin="0,10,0,0" Background="#101016" BorderBrush="#30303A" BorderThickness="1" CornerRadius="4" Padding="10">
+          <Border Grid.Row="2" Margin="0,10,0,0" Background="{DynamicResource WindowBgBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10">
             <StackPanel>
-              <TextBlock Text="Single trim result will be stored as one cut segment." Foreground="#7D7D8A" FontSize="11"/>
-              <TextBlock Text="Tip: use the current range box above and click Apply Single Trim." Foreground="#7D7D8A" FontSize="11" Margin="0,4,0,0"/>
+              <TextBlock Text="Single trim result will be stored as one cut segment." Foreground="{DynamicResource TextDisabledBrush}" FontSize="11"/>
+              <TextBlock Text="Tip: use the current range box above and click Apply Single Trim." Foreground="{DynamicResource TextDisabledBrush}" FontSize="11" Margin="0,4,0,0"/>
             </StackPanel>
           </Border>
         </Grid>
       </TabItem>
       <TabItem Header="Segment Cuts">
         <Grid Margin="10" RowDefinitions="*,Auto">
-          <ListBox x:Name="dgSegments" Background="#111116" BorderBrush="#30303A" BorderThickness="1" Margin="0,0,0,10">
+          <ListBox x:Name="dgSegments" Background="{DynamicResource PanelBgBrush}" BorderBrush="{StaticResource AudioEditorBorderBrush}" BorderThickness="1" Margin="0,0,0,10">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="core:AudioEditSegment">
                 <Grid ColumnDefinitions="*,*,160" Margin="2">
                   <TextBox Text="{Binding StartText, Mode=TwoWay}" Watermark="00:00:00"/>
                   <TextBox Grid.Column="1" Text="{Binding EndText, Mode=TwoWay}" Watermark="00:00:05" Margin="4,0"/>
-                  <TextBlock Grid.Column="2" Text="{Binding DurationText}" Foreground="#7D7D8A" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="2" Text="{Binding DurationText}" Foreground="{DynamicResource TextDisabledBrush}" VerticalAlignment="Center"/>
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -90,7 +90,7 @@
     </TabControl>
 
     <Grid Grid.Row="4" Margin="0,16,0,0" ColumnDefinitions="*,Auto,Auto">
-      <TextBlock x:Name="txtHelp" Text="Segments are sorted and concatenated in render order." Foreground="#7D7D8A" VerticalAlignment="Center"/>
+      <TextBlock x:Name="txtHelp" Text="Segments are sorted and concatenated in render order." Foreground="{DynamicResource TextDisabledBrush}" VerticalAlignment="Center"/>
       <Button Grid.Column="1" Content="Cancel" Width="120" Margin="0,0,8,0" Click="btnCancel_Click"/>
       <Button Grid.Column="2" Content="Save Audio Edit" Width="160" Click="btnSave_Click"/>
     </Grid>

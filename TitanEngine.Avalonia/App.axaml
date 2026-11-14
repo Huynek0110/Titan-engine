@@ -301,6 +301,11 @@
                 <GradientStop Color="#22C55E" Offset="0" />
                 <GradientStop Color="#149E44" Offset="1" />
             </LinearGradientBrush>
+            <!-- Màu đặc thù migrate từ AudioEditorWindow (không giữ hardcode) -->
+            <SolidColorBrush x:Key="AudioEditorTitleBrush" Color="#FFD166" />
+            <SolidColorBrush x:Key="AudioEditorBorderBrush" Color="#30303A" />
+            <SolidColorBrush x:Key="AudioEditorCanvasBrush" Color="#0B0B10" />
+            <SolidColorBrush x:Key="AudioEditorInsetBrush" Color="#09090C" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
