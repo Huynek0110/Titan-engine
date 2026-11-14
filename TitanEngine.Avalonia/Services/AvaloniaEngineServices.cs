@@ -1893,7 +1893,6 @@ public sealed class AvaloniaImageServices : IImageServices
                 using var canvas = new SKCanvas(bitmap);
                 canvas.Clear(SKColors.Transparent);
 
-                SKColor coreColor = ParseHex(palette.Core);
                 SKColor glowColor = ParseHex(palette.Glow);
 
                 using var barPaint = new SKPaint
