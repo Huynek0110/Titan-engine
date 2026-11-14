@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media;
@@ -78,7 +79,139 @@ public sealed class AvaloniaImageServices : IImageServices
 
     public Task<PolaroidScrapbook2GeneratedOverlay> GeneratePolaroidScrapbook2OverlayAsync(int width, int height,
         OverlayContentLayout? layout, RenderJob job, string? tag, CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        // Phase 4: vẽ thật bằng SkiaSharp (không cần WPF/STA). Giữ nguyên contract DTO +
+        // pattern polaroid2_%04d.png, FrameCount = 1, FrameRate = 1.0.
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"polaroid2_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "polaroid2_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+            OverlayContentLayout safeLayout = layout ?? OverlayLayoutHelper.Create(safeW, safeH, safeW, safeH);
+            var settings = PolaroidScrapbook2Preset.FromJob(job, safeLayout);
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            double contentX = safeLayout.ContentX;
+            double contentY = safeLayout.ContentY;
+            double contentW = safeLayout.ContentWidth;
+            double contentH = safeLayout.ContentHeight;
+            float inset = (float)settings.Inset;
+            float cornerRadius = (float)settings.CornerRadius;
+
+            float frameLeft = (float)(contentX + inset);
+            float frameTop = (float)(contentY + inset);
+            float frameW = (float)Math.Max(24.0, contentW - inset * 2.0);
+            float frameH = (float)Math.Max(24.0, contentH - inset * 2.0);
+            SKRect frameRect = new SKRect(frameLeft, frameTop, frameLeft + frameW, frameTop + frameH);
+
+            float shadowOffset = (float)settings.ShadowOffset;
+            SKRect shadowRect = new SKRect(
+                frameLeft + shadowOffset, frameTop + shadowOffset,
+                frameLeft + shadowOffset + frameW, frameTop + shadowOffset + frameH);
+
+            using var bitmap = new SKBitmap(safeW, safeH);
+            using var canvas = new SKCanvas(bitmap);
+            canvas.Clear(SKColors.Transparent);
+
+            // Shadow (stroke only, offset xuống phải so khung).
+            using var shadowPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = (float)settings.ShadowThickness,
+                Color = new SKColor(0, 0, 0, (byte)Math.Round(settings.ShadowOpacity * 255.0)),
+                IsAntialias = true,
+            };
+            canvas.DrawRoundRect(shadowRect, cornerRadius, cornerRadius, shadowPaint);
+
+            // Khung (stroke only).
+            using var framePaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = (float)settings.StrokeThickness,
+                Color = new SKColor(255, 249, 240, (byte)Math.Round(settings.FrameOpacity * 255.0)),
+                IsAntialias = true,
+            };
+            canvas.DrawRoundRect(frameRect, cornerRadius, cornerRadius, framePaint);
+
+            // Tape (fill, xoay -6.5° quanh tâm của nó).
+            using var tapePaint = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(231, 211, 168, (byte)Math.Round(settings.TapeOpacity * 255.0)),
+                IsAntialias = true,
+            };
+            float tapeX = frameLeft + inset * 0.65f;
+            float tapeY = Math.Max(10.0f, frameTop - (float)settings.TapeHeight * 0.35f);
+            float tapeW = (float)settings.TapeWidth;
+            float tapeH = (float)settings.TapeHeight;
+            SKRect tapeRect = new SKRect(tapeX, tapeY, tapeX + tapeW, tapeY + tapeH);
+            SKPoint tapeCenter = new SKPoint(tapeX + tapeW * 0.5f, tapeY + tapeH * 0.5f);
+            DrawRotatedRoundRect(canvas, tapeRect, tapeH * 0.22f, tapeH * 0.22f, -6.5f, tapeCenter, tapePaint);
+
+            // Sticky (fill, xoay 4° quanh tâm của nó).
+            using var stickyPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(214, 240, 228, (byte)Math.Round(settings.StickyOpacity * 255.0)),
+                IsAntialias = true,
+            };
+            float stickyX = frameLeft + frameW - (float)settings.StickyWidth - inset * 0.7f;
+            float stickyY = frameTop + frameH - (float)settings.StickyHeight - Math.Max(18.0f, inset * 0.35f);
+            float stickyW = (float)settings.StickyWidth;
+            float stickyH = (float)settings.StickyHeight;
+            SKRect stickyRect = new SKRect(stickyX, stickyY, stickyX + stickyW, stickyY + stickyH);
+            SKPoint stickyCenter = new SKPoint(stickyX + stickyW * 0.5f, stickyY + stickyH * 0.5f);
+            DrawRotatedRoundRect(canvas, stickyRect, stickyH * 0.18f, stickyH * 0.18f, 4.0f, stickyCenter, stickyPaint);
+
+            string outputFile = PolaroidScrapbook2Preset.FormatSequenceFilePath(overlayPattern, 1);
+            SavePng(bitmap, outputFile);
+            SavePng(bitmap, Path.Combine(previewDir, "preview_01.png"));
+
+            onLog($"[POLAROID-2] Generated rounded scrapbook overlay @ {safeW}x{safeH}. Preview={previewDir}");
+
+            return Task.FromResult(new PolaroidScrapbook2GeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = 1,
+                FrameRate = 1.0,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[POLAROID-2-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new PolaroidScrapbook2GeneratedOverlay());
+        }
+    }
+
+    private static void DrawRotatedRoundRect(SKCanvas canvas, SKRect rect, float rx, float ry, float degrees,
+        SKPoint center, SKPaint paint)
+    {
+        canvas.Save();
+        canvas.Translate(center.X, center.Y);
+        canvas.RotateDegrees(degrees);
+        canvas.Translate(-center.X, -center.Y);
+        canvas.DrawRoundRect(rect, rx, ry, paint);
+        canvas.Restore();
+    }
+
+    private static void SavePng(SKBitmap bitmap, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        using var fs = File.Create(path);
+        data.SaveTo(fs);
+    }
 
     public Task<DashedPolaroidGeneratedOverlay> GenerateDashedPolaroidOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, RenderJob job, string? tag,
