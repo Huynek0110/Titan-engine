@@ -280,6 +280,12 @@
             <SolidColorBrush x:Key="TimelinePreviewBgBrush" Color="#0D1014" />
             <SolidColorBrush x:Key="FadePanelBgBrush" Color="#131019" />
             <SolidColorBrush x:Key="FadePanelBorderBrush" Color="#2A2440" />
+            <!-- Màu đặc thù migrate từ SoundbarView (không giữ hardcode) -->
+            <SolidColorBrush x:Key="SoundbarBorderBrush" Color="#262D38" />
+            <LinearGradientBrush x:Key="SoundbarPanelBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#101724" Offset="0" />
+                <GradientStop Color="#090B10" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -3,88 +3,83 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.SoundbarView"
              x:DataType="vm:SoundbarViewModel">
-  <HeaderedContentControl Header="🎵 SOUNDBAR (AUDIO VISUALIZER)" Foreground="#4CC3FF"
+  <HeaderedContentControl Header="🎵 SOUNDBAR (AUDIO VISUALIZER)" Foreground="{DynamicResource AccentBrush}"
                           ToolTip.Tip="Dải sóng nhạc phản ứng theo audio, cộng thêm vào MỌI hiệu ứng khác">
     <StackPanel>
       <!-- Quy tắc Giai đoạn 5 (user): feature WPF-stay → control hiện nhưng DISABLE + tooltip.
            Bỏ chọn soundbar = trạng thái WPF mặc định (pnlSoundBarSettings disabled, preview 0.45). -->
-      <CheckBox Content="Bật SOUNDBAR" Foreground="#4CC3FF" IsChecked="{Binding EnableSoundBar}"
+      <CheckBox Content="Bật SOUNDBAR" Foreground="{DynamicResource AccentBrush}" IsChecked="{Binding EnableSoundBar}"
                 ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ ghi log và bỏ qua lớp soundbar" Margin="0,0,0,8"/>
       <StackPanel>
-        <Border Height="144" BorderBrush="#262D38" BorderThickness="1" CornerRadius="6" Margin="0,0,0,8">
-          <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-              <GradientStop Color="#101724" Offset="0"/>
-              <GradientStop Color="#090B10" Offset="1"/>
-            </LinearGradientBrush>
-          </Border.Background>
+        <Border Height="144" BorderBrush="{StaticResource SoundbarBorderBrush}" BorderThickness="1" CornerRadius="6" Margin="0,0,0,8"
+                Background="{StaticResource SoundbarPanelBrush}">
           <Panel>
             <TextBlock Text="Chưa hỗ trợ trên bản này (renderer soundbar là WPF-stay, chưa port sang Avalonia)"
-                       Foreground="#FF6B6B" FontSize="10" FontWeight="SemiBold"
+                       Foreground="{DynamicResource ErrorBrush}" FontSize="10" FontWeight="SemiBold"
                        HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="130"/>
           </Panel>
         </Border>
-        <TextBlock Text="{Binding Description}" Foreground="#7A7A8A" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,10"/>
-        <TextBlock Text="KIỂU HIỂN THỊ" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,10"/>
+        <TextBlock Text="KIỂU HIỂN THỊ" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <ComboBox ItemsSource="{Binding StyleOptions}" SelectedItem="{Binding SelectedStyle}" Height="28" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
-        <TextBlock Text="BẢNG MÀU" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="BẢNG MÀU" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <ComboBox ItemsSource="{Binding PaletteOptions}" SelectedItem="{Binding SelectedPalette}" Height="28" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
-        <TextBlock Text="NGUỒN ÂM THANH" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="NGUỒN ÂM THANH" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <ComboBox ItemsSource="{Binding AudioSourceOptions}" SelectedItem="{Binding SelectedAudioSource}" Height="28" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
         <Grid Margin="0,0,0,6" ColumnDefinitions="*,Auto">
-          <TextBlock Text="Độ đục" Foreground="#C9D2DE" FontSize="11"/>
-          <TextBlock Grid.Column="1" Text="{Binding Opacity, StringFormat={}{0:F2}}" Foreground="#4CC3FF" FontWeight="Bold"/>
+          <TextBlock Text="Độ đục" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding Opacity, StringFormat={}{0:F2}}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
         </Grid>
         <Slider Minimum="0.1" Maximum="1.0" Value="{Binding Opacity}" Margin="0,0,0,8"
                 ToolTip.Tip="API chấp nhận 0.05 - 1.0. Thấp hơn = dải sáng trong suốt hơn."/>
         <Grid Margin="0,0,0,6" ColumnDefinitions="*,Auto">
-          <TextBlock Text="Độ nhạy" Foreground="#C9D2DE" FontSize="11"/>
-          <TextBlock Grid.Column="1" Text="{Binding Sensitivity, StringFormat={}{0:F2}}" Foreground="#4CC3FF" FontWeight="Bold"/>
+          <TextBlock Text="Độ nhạy" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding Sensitivity, StringFormat={}{0:F2}}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
         </Grid>
         <Slider Minimum="0.0" Maximum="3.0" Value="{Binding Sensitivity}" Margin="0,0,0,8"
                 ToolTip.Tip="API chấp nhận 0.0 - 3.0 (đây là cả dải thật của bộ dựng hình). Cao hơn = thanh cao, nhạy hơn."/>
         <Grid Margin="0,0,0,6" ColumnDefinitions="*,Auto">
-          <TextBlock Text="Mượt (smoothing)" Foreground="#C9D2DE" FontSize="11"/>
-          <TextBlock Grid.Column="1" Text="{Binding Smoothing, StringFormat={}{0:F2}}" Foreground="#4CC3FF" FontWeight="Bold"/>
+          <TextBlock Text="Mượt (smoothing)" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding Smoothing, StringFormat={}{0:F2}}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
         </Grid>
         <Slider Minimum="0.0" Maximum="1.0" Value="{Binding Smoothing}" Margin="0,0,0,8"
                 ToolTip.Tip="API chấp nhận 0.0 - 1.0 (đây là cả dải thật của bộ dựng hình). 0 = không lọc, 1 = mượt nhất. Trên 1.0 trước đây không làm gì khác 1.0."/>
         <Grid Margin="0,0,0,6" ColumnDefinitions="*,Auto">
-          <TextBlock Text="Số thanh" Foreground="#C9D2DE" FontSize="11"/>
-          <TextBlock Grid.Column="1" Text="{Binding BarCount, StringFormat={}{0:0}}" Foreground="#4CC3FF" FontWeight="Bold"/>
+          <TextBlock Text="Số thanh" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding BarCount, StringFormat={}{0:0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
         </Grid>
         <Slider Minimum="8" Maximum="256" Value="{Binding BarCount}" TickFrequency="8" IsSnapToTickEnabled="True" Margin="0,0,0,8"/>
 
-        <TextBlock Text="KÍCH THƯỚC SOUNDBAR" Foreground="#4CC3FF" FontSize="12" FontWeight="Bold" Margin="0,4,0,4"/>
+        <TextBlock Text="KÍCH THƯỚC SOUNDBAR" Foreground="{DynamicResource AccentBrush}" FontSize="12" FontWeight="Bold" Margin="0,4,0,4"/>
         <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-          <TextBlock Text="Cỡ" Foreground="#C9D2DE" FontSize="11"/>
-          <TextBlock Grid.Column="1" x:Name="txtSoundBarSizeValue" Text="{Binding SizeValueText}" Foreground="#4CC3FF" FontWeight="Bold" FontSize="12"/>
+          <TextBlock Text="Cỡ" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+          <TextBlock Grid.Column="1" x:Name="txtSoundBarSizeValue" Text="{Binding SizeValueText}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold" FontSize="12"/>
         </Grid>
         <Slider x:Name="sldSoundBarSize" Minimum="20" Maximum="146.77" Value="{Binding Size}" TickFrequency="10" IsSnapToTickEnabled="False" Margin="0,0,0,4"
                 ToolTip.Tip="Kéo để phóng to / thu nhỏ toàn bộ soundbar. Giữ nguyên tỉ lệ rộng:cao 62:26. Tối đa 146.77% - trên đó dải rộng hơn mức khung còn chừa được 4.5% mỗi bên, nên các vị trí dựng sẵn (trên/dưới - trái/phải) sẽ dồn về giữa và dải sát mép khung."/>
         <Grid Margin="0,0,0,8" ColumnDefinitions="*,10,Auto">
           <ComboBox ItemsSource="{Binding SizePresetOptions}" SelectedItem="{Binding SelectedSizePreset}" Height="26" HorizontalAlignment="Stretch"/>
-          <TextBlock Grid.Column="2" Text="%" Foreground="#8B95A5" FontSize="11" VerticalAlignment="Center"/>
+          <TextBlock Grid.Column="2" Text="%" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
         </Grid>
 
-        <TextBlock Text="Vị trí" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="Vị trí" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <ComboBox ItemsSource="{Binding PositionOptions}" SelectedItem="{Binding SelectedPosition}" Height="28" Margin="0,0,0,8"
                   HorizontalAlignment="Stretch" ToolTip.Tip="{Binding PositionTooltip}"/>
-        <TextBlock Text="Vị trí X (%)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="Vị trí X (%)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <TextBox x:Name="txtSoundBarXPercent" Text="{Binding XPercent}" Height="28" FontSize="12" FontWeight="Bold"
-                 Foreground="#4CC3FF" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                 Foreground="{DynamicResource AccentBrush}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                  ToolTip.Tip="Tọa độ X (0 - 100%) - CHÍNH GIỮA ngang của dải, không phải mép trái. Sửa tay ô này sẽ chuyển ô Vị trí sang 'Tuỳ chỉnh'." Margin="0,0,0,8"/>
-        <TextBlock Text="Vị trí Y (%)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="Vị trí Y (%)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <TextBox x:Name="txtSoundBarYPercent" Text="{Binding YPercent}" Height="28" FontSize="12" FontWeight="Bold"
-                 Foreground="#4CC3FF" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                 Foreground="{DynamicResource AccentBrush}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                  ToolTip.Tip="Tọa độ Y (0 - 100%) - cạnh DƯỚI của dải; thanh mọc lên từ đây. Với 6 kiểu vẽ hình vuông (Radial Ring, Dual Rings, Ripple Rings, Spoke Lines, Center Column, Audio Ring) bộ dựng hình bóp dải thành hình vuông trước, nên Y là cạnh dưới của hình vuông đã bóp. Mép trên có cao hơn ô Cao hay không thì tùy: cao hơn khi khung hình hẹp hơn tỉ lệ Cao:Rộng (mặc định 26/62 ≈ 0.42, tức khung dọc như 1080x1920); bằng đúng ô Cao, hoặc thấp hơn, khi khung rộng hơn tỉ lệ đó (1920x1080, 1080x1080). Sửa tay ô này cũng sẽ chuyển ô Vị trí sang 'Tuỳ chỉnh'." Margin="0,0,0,8" TextWrapping="NoWrap"/>
-        <TextBlock Text="Rộng (% cạnh ngang)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="Rộng (% cạnh ngang)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <TextBox x:Name="txtSoundBarWidthPercent" Text="{Binding WidthPercent}" Height="28" FontSize="12" FontWeight="Bold"
-                 Foreground="#4CC3FF" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                 Foreground="{DynamicResource AccentBrush}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                  ToolTip.Tip="Bề rộng dải sóng (% chiều ngang khung hình). Ô Cao là ô chính: thang Cỡ và các cỡ dựng sẵn đều tính từ nó, rồi bề rộng đi theo tỉ lệ 62:26. Nếu nhập một giá trị mà thanh Cỡ không diễn tả được (ví dụ gõ '5' khi đang viết '50'), hai ô sẽ được ghi lại theo thanh Cỡ sau khoảng lặng 0.7s. Ô này cũng có trần riêng là 91%: trên đó dải rộng hơn mức khung còn chừa được 4.5% mỗi bên, nên các vị trí dựng sẵn (trên/dưới - trái/phải) sẽ dồn về giữa - giá trị vượt trần sẽ bị kẹp lại và ghi log sau khoảng lặng 0.7s." Margin="0,0,0,8" TextWrapping="NoWrap"/>
-        <TextBlock Text="Cao (% cạnh dọc)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+        <TextBlock Text="Cao (% cạnh dọc)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,4"/>
         <TextBox x:Name="txtSoundBarHeightPercent" Text="{Binding HeightPercent}" Height="28" FontSize="12" FontWeight="Bold"
-                 Foreground="#4CC3FF" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                 Foreground="{DynamicResource AccentBrush}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                  ToolTip.Tip="Chiều cao dải sóng (% chiều dọc khung hình). Ô này là ô chính của cả nhóm KÍCH THƯỚC: thang Cỡ và các cỡ dựng sẵn đều tính từ nó. Nếu nhập một giá trị mà thanh Cỡ không diễn tả được (ví dụ gõ '5' khi đang viết '50'), hai ô sẽ được ghi lại theo thanh Cỡ sau khoảng lặng 0.7s và có ghi log - để không còn ô nói 5 trong khi thanh Cỡ nói 20 và khung hình dựng ra một dải 62 x 5. Ô này sẽ KHÔNG bị ghi lại khi bạn đang gõ trong nó; việc sửa lại diễn ra khi bạn chuyển sang ô khác. Trần của ô là 95.5%: trên đó mép trên không còn chừa được 4.5%." Margin="0,0,0,8" TextWrapping="NoWrap"/>
       </StackPanel>
     </StackPanel>
