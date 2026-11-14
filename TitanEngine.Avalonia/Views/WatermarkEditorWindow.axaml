@@ -4,12 +4,12 @@
         Title="VISUAL EDITOR"
         Width="920" Height="640" MinWidth="760" MinHeight="520"
         WindowStartupLocation="CenterOwner"
-        Background="#12151C">
+        Background="{StaticResource DialogBgBrush}">
   <Grid Margin="15" RowDefinitions="Auto,*,Auto,Auto">
-    <TextBlock Grid.Row="0" Text="VISUAL EDITOR" FontSize="18" FontWeight="Bold" Foreground="#F43F5E" HorizontalAlignment="Center"/>
-    <Border Grid.Row="1" BorderBrush="#2A3340" BorderThickness="1" Background="Black" Margin="0,10" ClipToBounds="True">
+    <TextBlock Grid.Row="0" Text="VISUAL EDITOR" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource WatermarkAccentBrush}" HorizontalAlignment="Center"/>
+    <Border Grid.Row="1" BorderBrush="{StaticResource ButtonBorderBrush}" BorderThickness="1" Background="{StaticResource WatermarkPreviewBgBrush}" Margin="0,10" ClipToBounds="True">
       <Viewbox Stretch="Uniform">
-        <Canvas x:Name="cvsWatermarkPreview" Width="1920" Height="1080" Background="#101010">
+        <Canvas x:Name="cvsWatermarkPreview" Width="1920" Height="1080" Background="{StaticResource WatermarkCanvasBgBrush}">
           <Image x:Name="imgWatermarkVideoFrame" Width="1920" Height="1080" Stretch="Fill"/>
           <Image x:Name="imgWatermarkPreview" Width="150" Height="150" Cursor="SizeAll"
                  PointerPressed="Logo_PointerPressed" PointerMoved="Logo_PointerMoved"
@@ -18,11 +18,11 @@
       </Viewbox>
     </Border>
     <StackPanel Grid.Row="2" Spacing="4">
-      <TextBlock Text="Scale" Foreground="White"/>
+      <TextBlock Text="Scale" Foreground="{StaticResource WhiteTextBrush}"/>
       <Slider x:Name="sldWmkScale" Minimum="0.1" Maximum="3.0" Value="1.0" ValueChanged="Sld_ValueChanged"/>
-      <TextBlock Text="Rotation" Foreground="White"/>
+      <TextBlock Text="Rotation" Foreground="{StaticResource WhiteTextBrush}"/>
       <Slider x:Name="sldWmkRotate" Minimum="-180" Maximum="180" Value="0" ValueChanged="Sld_ValueChanged"/>
-      <TextBlock Text="Opacity" Foreground="White"/>
+      <TextBlock Text="Opacity" Foreground="{StaticResource WhiteTextBrush}"/>
       <Slider x:Name="sldWmkOpacity" Minimum="0.1" Maximum="1.0" Value="1.0" ValueChanged="Sld_ValueChanged"/>
     </StackPanel>
     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0" Spacing="10">
