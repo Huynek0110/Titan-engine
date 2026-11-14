@@ -3,34 +3,34 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.AudioMixerView"
              x:DataType="vm:AudioMixerViewModel">
-  <HeaderedContentControl Header="AUDIO MIXER" Foreground="#4CC3FF">
+  <HeaderedContentControl Header="AUDIO MIXER" Foreground="{DynamicResource AccentBrush}">
     <StackPanel>
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Video Volume" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding VideoVolumeDisplay}" Foreground="#4CC3FF" FontWeight="Bold"/>
+        <TextBlock Text="Video Volume" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding VideoVolumeDisplay}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
       </Grid>
       <Slider Minimum="0" Maximum="200" Value="{Binding VideoVolume}" Margin="0,0,0,15"/>
 
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Audio 1 Volume" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding AudioVolumeDisplay}" Foreground="#4CC3FF" FontWeight="Bold"/>
+        <TextBlock Text="Audio 1 Volume" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding AudioVolumeDisplay}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
       </Grid>
       <Slider Minimum="0" Maximum="200" Value="{Binding AudioVolume}" TickFrequency="25" Margin="0,0,0,12"/>
 
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Audio 2 Volume" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding Audio2VolumeDisplay}" Foreground="#4CC3FF" FontWeight="Bold"/>
+        <TextBlock Text="Audio 2 Volume" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding Audio2VolumeDisplay}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
       </Grid>
       <Slider Minimum="0" Maximum="200" Value="{Binding Audio2Volume}" TickFrequency="25"/>
 
-      <TextBlock Text="Hiệu ứng Audio 1 (Voice FX)" Foreground="#4CC3FF" FontSize="12" FontWeight="Bold" Margin="0,12,0,3"/>
+      <TextBlock Text="Hiệu ứng Audio 1 (Voice FX)" Foreground="{DynamicResource AccentBrush}" FontSize="12" FontWeight="Bold" Margin="0,12,0,3"/>
       <ComboBox ItemsSource="{Binding Audio1FxOptions}" SelectedItem="{Binding Audio1Fx}" Margin="0,0,0,4" HorizontalAlignment="Stretch"
                 ToolTip.Tip="Áp dụng hiệu ứng giọng nói lên Audio 1 (giọng nói gốc của video). Để trống = giữ nguyên."/>
-      <TextBlock Text="Áp dụng cho Audio 1 (giọng nói gốc). Các track Audio 2 giữ nguyên." Foreground="#8B95A5" FontSize="10" Margin="0,0,0,4" TextWrapping="Wrap"/>
+      <TextBlock Text="Áp dụng cho Audio 1 (giọng nói gốc). Các track Audio 2 giữ nguyên." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="0,0,0,4" TextWrapping="Wrap"/>
 
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Cường độ hiệu ứng Audio 1" Foreground="#C9D2DE" FontSize="11"/>
-        <TextBlock Grid.Column="1" Text="{Binding Audio1FxIntensityDisplay}" Foreground="#4CC3FF" FontWeight="Bold"/>
+        <TextBlock Text="Cường độ hiệu ứng Audio 1" Foreground="{DynamicResource ToolTipTextBrush}" FontSize="11"/>
+        <TextBlock Grid.Column="1" Text="{Binding Audio1FxIntensityDisplay}" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
       </Grid>
       <Slider Minimum="0" Maximum="100" Value="{Binding Audio1FxIntensity}" TickFrequency="10" Margin="0,0,0,8"/>
     </StackPanel>
