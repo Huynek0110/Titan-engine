@@ -3,9 +3,9 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.FxStudioView"
              x:DataType="vm:FxStudioViewModel">
-  <HeaderedContentControl Header="FX STUDIO" Foreground="#8B7CF6">
+  <HeaderedContentControl Header="FX STUDIO" Foreground="{DynamicResource FxHeaderBrush}">
     <StackPanel>
-      <TextBlock Text="Effect" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Effect" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <ComboBox ItemsSource="{Binding FxTypeOptions}" SelectedItem="{Binding FxType}" Margin="0,0,0,10" HorizontalAlignment="Stretch">
         <!-- Avalonia 11: ItemContainerStyle không còn — dùng Styles scoped trong ComboBox;
              binding per-item (ComboOption.Enabled) cần reflection → tắt compile cho style này -->
@@ -17,33 +17,33 @@
         </ComboBox.Styles>
       </ComboBox>
 
-      <TextBlock Text="Template (CapCut Style)" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Template (CapCut Style)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <ComboBox ItemsSource="{Binding TemplateStyleOptions}" SelectedItem="{Binding TemplateStyle}" Margin="0,0,0,10" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Overlay" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Overlay" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <StackPanel Margin="0,0,0,12">
         <!-- Snowfall cần bộ vẽ overlay (IImageServices) — bật được nhưng thiếu bộ vẽ thì render
              dừng với thông báo rõ (guard ở RenderPipeline) -->
-        <CheckBox Content="Overlay 1" Foreground="#8B95A5" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay1}"
+        <CheckBox Content="Overlay 1" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay1}"
                   ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
-        <CheckBox Content="Overlay 2" Foreground="#8B95A5" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay2}"
+        <CheckBox Content="Overlay 2" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay2}"
                   ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
-        <CheckBox Content="Overlay 3" Foreground="#8B95A5" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay3}"
+        <CheckBox Content="Overlay 3" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay3}"
                   ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
-        <CheckBox Content="Overlay Intro" Foreground="#8B95A5" IsChecked="{Binding OverlayIntro}"
+        <CheckBox Content="Overlay Intro" Foreground="{DynamicResource TextSecondaryBrush}" IsChecked="{Binding OverlayIntro}"
                   ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
       </StackPanel>
 
       <!-- pnlRainOverlaySettings: bản gốc cũng luôn collapsed (không có code nào hiện nó) -->
       <StackPanel IsVisible="False" Margin="0,-4,0,12">
-        <TextBlock Text="Rain Preset" Foreground="#8B95A5" FontSize="11"/>
+        <TextBlock Text="Rain Preset" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
         <ComboBox ItemsSource="{Binding RainPresetOptions}" SelectedItem="{Binding RainPreset}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
-        <TextBlock Text="Rain Intensity" Foreground="#8B95A5" FontSize="11"/>
+        <TextBlock Text="Rain Intensity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
         <ComboBox ItemsSource="{Binding RainIntensityOptions}" SelectedItem="{Binding RainIntensity}" Margin="0,0,0,4" HorizontalAlignment="Stretch"/>
-        <TextBlock Text="Uses real rain video assets from Assets/Overlays/Rain" Foreground="#5C6672" FontSize="9" TextWrapping="Wrap"/>
+        <TextBlock Text="Uses real rain video assets from Assets/Overlays/Rain" Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" TextWrapping="Wrap"/>
       </StackPanel>
 
-      <TextBlock Text="Border" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Border" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <ComboBox ItemsSource="{Binding BorderTypeOptions}" SelectedItem="{Binding BorderType}" Margin="0,0,0,12" HorizontalAlignment="Stretch">
         <ComboBox.Styles>
           <Style x:CompileBindings="False" Selector="ComboBoxItem">
@@ -56,88 +56,88 @@
       <StackPanel IsVisible="{Binding ShowSnowfallOpacity}" Margin="0,-4,0,12">
         <StackPanel IsVisible="{Binding ShowSnowOverlay1Opacity}" Margin="0,0,0,8">
           <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-            <TextBlock Text="Overlay 1 Opacity" Foreground="#8B95A5" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="55%" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+            <TextBlock Text="Overlay 1 Opacity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="55%" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
           </Grid>
         </StackPanel>
         <StackPanel IsVisible="{Binding ShowSnowOverlay2Opacity}" Margin="0,0,0,8">
           <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-            <TextBlock Text="Overlay 2 Opacity" Foreground="#8B95A5" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="55%" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+            <TextBlock Text="Overlay 2 Opacity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="55%" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
           </Grid>
         </StackPanel>
         <StackPanel IsVisible="{Binding ShowSnowOverlay3Opacity}" Margin="0,0,0,8">
           <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-            <TextBlock Text="Overlay 3 Opacity" Foreground="#8B95A5" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="55%" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+            <TextBlock Text="Overlay 3 Opacity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="55%" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
           </Grid>
         </StackPanel>
         <StackPanel IsVisible="{Binding ShowOverlayIntroOpacity}" Margin="0,0,0,8">
           <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-            <TextBlock Text="Intro Opacity" Foreground="#8B95A5" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="100%" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+            <TextBlock Text="Intro Opacity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="100%" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
           </Grid>
         </StackPanel>
         <StackPanel IsVisible="{Binding ShowSharedSnowOpacity}" Margin="0,0,0,8">
           <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-            <TextBlock Text="Snow Opacity" Foreground="#8B95A5" FontSize="11"/>
-            <TextBlock Grid.Column="1" Text="55%" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+            <TextBlock Text="Snow Opacity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
+            <TextBlock Grid.Column="1" Text="55%" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
           </Grid>
         </StackPanel>
-        <TextBlock Text="Overlay 1, 2, 3, and Intro use separate opacity sliders." Foreground="#5C6672" FontSize="9" TextWrapping="Wrap"/>
+        <TextBlock Text="Overlay 1, 2, 3, and Intro use separate opacity sliders." Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" TextWrapping="Wrap"/>
       </StackPanel>
 
-      <CheckBox Content="Use TITAN Logo" Foreground="#8B95A5" Margin="0,-4,0,8" IsChecked="{Binding EnableBrandLogo}"/>
+      <CheckBox Content="Use TITAN Logo" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,-4,0,8" IsChecked="{Binding EnableBrandLogo}"/>
 
-      <TextBlock Text="Logo Position" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Logo Position" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <ComboBox ItemsSource="{Binding BrandLogoPositionOptions}" SelectedItem="{Binding BrandLogoPosition}" Margin="0,0,0,12" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Intensity" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Intensity" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <Slider Minimum="0" Maximum="100" Value="{Binding FxIntensity}" Margin="0,0,0,15"/>
 
-      <TextBlock Text="Magazine Cover Title" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Magazine Cover Title" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <TextBox Text="{Binding MagazineCoverTitle}" Margin="0,0,0,8"/>
 
-      <TextBlock Text="Magazine Cover Subtitle" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Magazine Cover Subtitle" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <TextBox Text="{Binding MagazineCoverSubtitle}" Margin="0,0,0,12"/>
 
-      <TextBlock Text="Crop Zoom (9:16)" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Crop Zoom (9:16)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <Grid Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-        <TextBlock Text="Center crop and zoom in automatically" Foreground="#5C6672" FontSize="10"/>
-        <TextBlock Grid.Column="1" Text="{Binding CropZoomDisplay}" Foreground="#4CC3FF" FontSize="11" FontWeight="SemiBold"/>
+        <TextBlock Text="Center crop and zoom in automatically" Foreground="{DynamicResource TextDisabledBrush}" FontSize="10"/>
+        <TextBlock Grid.Column="1" Text="{Binding CropZoomDisplay}" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
       </Grid>
       <Slider Minimum="0" Maximum="80" Value="{Binding CropZoom}" TickFrequency="1" Margin="0,0,0,4"/>
-      <TextBlock Text="0% = no crop, 50% = medium zoom crop. Output is kept in 9:16." Foreground="#5C6672" FontSize="10" Margin="0,0,0,12" TextWrapping="Wrap"/>
+      <TextBlock Text="0% = no crop, 50% = medium zoom crop. Output is kept in 9:16." Foreground="{DynamicResource TextDisabledBrush}" FontSize="10" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
-      <TextBlock Text="Timeline Preview (Phạm vi áp dụng)" Foreground="#4CC3FF" FontSize="11" Margin="0,0,0,5"/>
-      <Border BorderBrush="#2A3340" BorderThickness="1" Height="25" Background="#0D1014" Margin="0,0,0,10" CornerRadius="3">
-        <Panel x:Name="gridTimelinePreview" Background="#0D1014">
-          <Border x:Name="bdrFxRange" Background="#4CC3FF" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+      <TextBlock Text="Timeline Preview (Phạm vi áp dụng)" Foreground="{DynamicResource AccentBrush}" FontSize="11" Margin="0,0,0,5"/>
+      <Border BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" Height="25" Background="{StaticResource TimelinePreviewBgBrush}" Margin="0,0,0,10" CornerRadius="3">
+        <Panel x:Name="gridTimelinePreview" Background="{StaticResource TimelinePreviewBgBrush}">
+          <Border x:Name="bdrFxRange" Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" VerticalAlignment="Stretch"
                   Opacity="0.9" CornerRadius="2" Width="0"/>
         </Panel>
       </Border>
 
       <Grid ColumnDefinitions="*,*">
         <StackPanel Margin="0,0,5,0">
-          <TextBlock Text="Start %" Foreground="#8B95A5" FontSize="11"/>
+          <TextBlock Text="Start %" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
           <Slider Minimum="0" Maximum="100" Value="{Binding FxStart}"/>
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="5,0,0,0">
-          <TextBlock Text="End %" Foreground="#8B95A5" FontSize="11"/>
+          <TextBlock Text="End %" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
           <Slider Minimum="0" Maximum="100" Value="{Binding FxEnd}"/>
         </StackPanel>
       </Grid>
 
-      <Border BorderBrush="#2A2440" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,14,0,0" Background="#131019">
+      <Border BorderBrush="{StaticResource FadePanelBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,14,0,0" Background="{StaticResource FadePanelBgBrush}">
         <StackPanel>
-          <CheckBox Content="Enable Fade In / Out" Foreground="#8B95A5" Margin="0,0,0,8" IsChecked="{Binding EnableFade}"/>
+          <CheckBox Content="Enable Fade In / Out" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" IsChecked="{Binding EnableFade}"/>
           <Grid ColumnDefinitions="*,12,*">
             <StackPanel>
-              <TextBlock Text="Fade In (sec)" Foreground="#8B95A5" FontSize="11"/>
+              <TextBlock Text="Fade In (sec)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
               <TextBox Text="{Binding FadeInSeconds}"/>
             </StackPanel>
             <StackPanel Grid.Column="2">
-              <TextBlock Text="Fade Out (sec)" Foreground="#8B95A5" FontSize="11"/>
+              <TextBlock Text="Fade Out (sec)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
               <TextBox Text="{Binding FadeOutSeconds}"/>
             </StackPanel>
           </Grid>

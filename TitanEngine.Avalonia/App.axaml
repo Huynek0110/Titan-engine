@@ -275,6 +275,11 @@
                 <GradientStop Color="#3B82F6" Offset="0" />
                 <GradientStop Color="#1D5FD6" Offset="1" />
             </LinearGradientBrush>
+            <!-- Màu đặc thù migrate từ FxStudioView (không giữ hardcode) -->
+            <SolidColorBrush x:Key="FxHeaderBrush" Color="#8B7CF6" />
+            <SolidColorBrush x:Key="TimelinePreviewBgBrush" Color="#0D1014" />
+            <SolidColorBrush x:Key="FadePanelBgBrush" Color="#131019" />
+            <SolidColorBrush x:Key="FadePanelBorderBrush" Color="#2A2440" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
