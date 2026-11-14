@@ -19,8 +19,9 @@
             </LinearGradientBrush>
           </Border.Background>
           <Panel>
-            <TextBlock Text="Chọn kiểu + màu để xem trước" Foreground="#5C6672" FontSize="11"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock Text="Chưa hỗ trợ trên bản này (renderer soundbar là WPF-stay, chưa port sang Avalonia)"
+                       Foreground="#FF6B6B" FontSize="10" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="130"/>
           </Panel>
         </Border>
         <TextBlock Text="{Binding Description}" Foreground="#7A7A8A" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,10"/>

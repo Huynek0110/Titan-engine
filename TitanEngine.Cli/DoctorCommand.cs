@@ -59,7 +59,8 @@ internal static class DoctorCommand
         if (ffmpegOk)
         {
             bool nvenc = EngineCore.HasNvencSupport();
-            Check(nvenc, "h264_nvenc", nvenc ? "encode test pass" : "probe fail");
+            string nvencDetail = nvenc ? "encode test pass" : NvencFailReason();
+            Check(nvenc, "h264_nvenc", nvencDetail);
             Check(EngineCore.HasHevcNvencSupport(), "hevc_nvenc", "");
             Check(EngineCore.HasAv1NvencSupport(), "av1_nvenc (RTX trở lên)", "");
             Check(EngineCore.HasH264VaapiSupport(), "h264_vaapi (AMD/Intel)", $"node={EngineCore.GetVaapiRenderNode() ?? "none"}");
@@ -137,6 +138,42 @@ internal static class DoctorCommand
         {
             Console.WriteLine($"          vulkan test error: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>Chạy test encode thật h264_nvenc 1s, trả dòng stderr đầu tiên là lý do nếu fail.</summary>
+    private static string NvencFailReason()
+    {
+        string ffmpeg = EngineCore.GetFfmpegPath();
+        if (string.IsNullOrEmpty(ffmpeg) || !File.Exists(ffmpeg))
+            return "ffmpeg không tìm thấy";
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                Arguments = "-hide_banner -loglevel error -f lavfi -i color=c=black:s=320x240:r=30 -t 1 -c:v h264_nvenc -preset medium -cq 18 -f null -",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return "khởi chạy ffmpeg thất bại";
+            string err = p.StandardError.ReadToEnd();
+            p.WaitForExit(15000);
+            if (p.ExitCode == 0) return "encode test pass";
+            foreach (string line in err.Split('\n'))
+            {
+                string t = line.Trim();
+                if (t.Length > 0 && !t.StartsWith("ffmpeg version", StringComparison.OrdinalIgnoreCase))
+                    return t;
+            }
+            return $"ffmpeg exit {p.ExitCode} (không có stderr chi tiết)";
+        }
+        catch (Exception ex)
+        {
+            return $"lỗi probe: {ex.Message}";
         }
     }
 
