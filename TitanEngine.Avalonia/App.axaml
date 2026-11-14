@@ -266,6 +266,15 @@
             <x:Double x:Key="FontSizeMd">13</x:Double>
             <x:Double x:Key="FontSizeLg">15</x:Double>
             <x:Double x:Key="FontSizeXl">20</x:Double>
+            <!-- Màu nút đặc thù migrate từ SourceTrimView (không giữ hardcode) -->
+            <SolidColorBrush x:Key="RandomButtonBgBrush" Color="#2A2110" />
+            <SolidColorBrush x:Key="RandomButtonFgBrush" Color="#F2D27E" />
+            <SolidColorBrush x:Key="EditAudioButtonBgBrush" Color="#241E38" />
+            <SolidColorBrush x:Key="EditAudioButtonBorderBrush" Color="#8B7CF6" />
+            <LinearGradientBrush x:Key="AddToQueueButtonBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#3B82F6" Offset="0" />
+                <GradientStop Color="#1D5FD6" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
