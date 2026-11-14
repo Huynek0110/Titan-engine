@@ -15,11 +15,11 @@
     <!-- LEFT PANEL -->
     <Grid Grid.Row="0" RowDefinitions="Auto,*">
       <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
-        <Border Width="4" Height="40" CornerRadius="2" Margin="0,0,15,0" Background="#4CC3FF"/>
+        <Border Width="4" Height="40" CornerRadius="2" Margin="0,0,15,0" Background="{StaticResource AccentBrush}"/>
         <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
-          <TextBlock Text="TITAN ENGINE" FontSize="25" FontWeight="Bold" Foreground="White"/>
-          <TextBlock FontSize="11" Foreground="#4CC3FF" Opacity="0.8" FontWeight="Bold" Text="V193 UI+Soundbar Update"/>
-          <TextBlock FontSize="10" Foreground="#8B95A5" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520"
+          <TextBlock Text="TITAN ENGINE" FontSize="25" FontWeight="Bold" Foreground="{StaticResource WhiteTextBrush}"/>
+          <TextBlock FontSize="11" Foreground="{DynamicResource AccentBrush}" Opacity="0.8" FontWeight="Bold" Text="V193 UI+Soundbar Update"/>
+          <TextBlock FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" TextWrapping="Wrap" MaxWidth="520"
                      Text="Changelog: + Hiệu ứng chữ Text Overlay (từ Caption Sync) | + Hiệu ứng Audio 1 Voice FX | + Thanh cường độ Audio FX | + Lọc file build GitHub | + Không xóa tính năng cũ"/>
         </StackPanel>
       </StackPanel>
