@@ -5,12 +5,12 @@
         Width="360" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="#12151C">
+        Background="{DynamicResource DialogBgBrush}">
   <StackPanel Margin="18" Spacing="10">
-    <TextBlock Text="PORT API" Foreground="#4CC3FF" FontWeight="Bold" FontSize="12"/>
+    <TextBlock Text="PORT API" Foreground="{DynamicResource AccentBrush}" FontWeight="Bold" FontSize="12"/>
     <TextBox x:Name="PortBox" Text="5555" Watermark="Port (1-65535)"/>
     <TextBlock Text="Host API lắng nghe tại http://127.0.0.1:&lt;port>&gt;/ (POST /api/render, /api/queue/add...)"
-               Foreground="#8B95A5" FontSize="11" TextWrapping="Wrap"/>
+               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
       <Button Content="CANCEL" Width="100" Click="Cancel_Click"/>
       <Button Content="START HOST" Width="130" Click="Ok_Click"/>
