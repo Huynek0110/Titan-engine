@@ -57,12 +57,13 @@ public sealed class AvaloniaTextMetrics : ITextMetrics
 /// </summary>
 public sealed class AvaloniaImageServices : IImageServices
 {
-    private const string NotSupported =
-        "Chưa hỗ trợ trên bản này: tính năng sinh overlay/hình ảnh cần bộ vẽ WPF (chờ Giai đoạn 4). " +
-        "Hãy tắt hiệu ứng này hoặc dùng bản Windows.";
-
-    // ── 8 khả năng vẽ WPF-stay → lỗi rõ ràng ──
-    // ── Giai đoạn 4: vẽ thật bằng SkiaSharp (không cần WPF/STA) ──
+    // ── Tất cả 11 thành viên IImageServices đã port thật bằng SkiaSharp (không cần WPF/STA) ──
+    // 7 overlay generation (Snowfall, Dreamy Dot, RGB Polaroid Led, Polaroid Scrapbook 2,
+    // Dashed Polaroid Frame, Scratch Video, Particle) + SoundBar (neon-bars) + codec
+    // SanitizeBrandLogoAsset + TryGetImageDimensions + SampleOverlayFrame.
+    // Không còn throw NotSupportedException.
+    // Light Leak / Light Leak Burn / Rain là asset-only theo AGENTS.md luật 3:
+    // thiếu asset → fail nhanh, cấm thêm lại procedural fallback.
     public Task<SnowfallGeneratedOverlay> GenerateSnowfallOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, SnowfallOverlayRecipe recipe, string? tag,
         CancellationToken token, Action<string> onLog)
