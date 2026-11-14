@@ -382,7 +382,193 @@ public sealed class AvaloniaImageServices : IImageServices
     public Task<RgbPolaroidLedGeneratedOverlay> GenerateRgbPolaroidLedOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
         string? tag, CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        // Phase 4: vẽ thật bằng SkiaSharp (không cần WPF/STA). Giữ contract DTO
+        // (TempRoot, OverlayPattern rgb_border_%04d.png, FrameCount=Clamp(Ceiling(CycleSeconds*fps),42,96),
+        // FrameRate=safeFps, CycleSeconds=settings.CycleSeconds) + preview_01..preview_06.png.
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"rgbpolaroid_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "rgb_border_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+            double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
+            OverlayContentLayout safeLayout = layout ?? OverlayLayoutHelper.Create(safeW, safeH, safeW, safeH);
+            var settings = RgbPolaroidLedPreset.FromJob(job, safeLayout);
+            int frameCount = Math.Clamp((int)Math.Ceiling(settings.CycleSeconds * safeFps), 42, 96);
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            double contentX = safeLayout.ContentX;
+            double contentY = safeLayout.ContentY;
+            double contentW = safeLayout.ContentWidth;
+            double contentH = safeLayout.ContentHeight;
+
+            double inset = settings.Inset;
+            double w = Math.Max(32.0, contentW - inset * 2.0);
+            double h = Math.Max(32.0, contentH - inset * 2.0);
+            double radius = Math.Min(settings.CornerRadius, Math.Min(w, h) * 0.25);
+            var frameLayout = new FrameLayoutData(contentX + inset, contentY + inset, w, h, radius);
+
+            double sampleCount = Math.Max(260.0, Math.Ceiling(frameLayout.Perimeter / settings.SampleSpacing));
+
+            double outerStroke = OverlayLayoutHelper.ScaleFromHdReference(safeLayout, 5.6, 2.0, 16.0);
+            double shadowStroke = OverlayLayoutHelper.ScaleFromHdReference(safeLayout, 6.6, 2.0, 18.0);
+            SKColor paperColor = new SKColor(255, 249, 240, 238);
+            SKColor shadowColor = new SKColor(0, 0, 0, 38);
+
+            using var bitmap = new SKBitmap(safeW, safeH);
+            using var canvas = new SKCanvas(bitmap);
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                canvas.Clear(SKColors.Transparent);
+
+                double progress = frameCount <= 1 ? 0.0 : (double)i / frameCount;
+                double travel = (progress * settings.AnimationSpeed) % 1.0;
+                double hueBands = Math.Max(1.05, settings.HueSpeed);
+
+                // Khung giấy (màu giấy + bóng đệm) — vẽ 1 lần/frame, không phụ thuộc progress.
+                DrawRgbPaperFrame(canvas, frameLayout, settings, outerStroke, shadowStroke, paperColor, shadowColor);
+
+                for (int si = 0; si < sampleCount; si++)
+                {
+                    double distance = (si / sampleCount) * frameLayout.Perimeter;
+                    SKPoint point = frameLayout.GetPointAt(distance);
+                    double frac = distance / frameLayout.Perimeter;
+                    double hue = (((frac * hueBands) + travel) % 1.0) * 360.0;
+                    double wave = 0.5 + (0.5 * Math.Sin(((frac * Math.PI * 2.0 * 3.0) - (travel * Math.PI * 2.0))));
+                    double vibrance = 0.90 + (0.10 * wave);
+                    double glowAlpha = settings.GlowOpacity * (0.88 + (0.20 * wave));
+                    double coreAlpha = settings.CoreOpacity * (0.92 + (0.10 * wave));
+                    double bloomRadius = settings.GlowSize * (1.02 + (0.14 * wave));
+                    double glowRadius = Math.Max(settings.BorderThickness * 1.22, settings.GlowSize * (0.70 + (0.08 * wave)));
+                    double coreRadius = Math.Max(1.8, settings.BorderThickness * (0.44 + (0.06 * wave)));
+
+                    SKColor baseColor = ColorFromHsv(hue, 0.98, vibrance);
+                    SKColor glowColor = ColorFromHsv(hue + 10.0, 0.94, Math.Min(1.0, 0.94 + (0.04 * wave)));
+                    SKColor coreColor = ColorFromHsv(hue, 0.82, 1.0);
+
+                    DrawSoftDisc(canvas, point, bloomRadius, baseColor, (float)(glowAlpha * 0.26 * 255.0));
+                    DrawSoftDisc(canvas, point, glowRadius, glowColor, (float)(glowAlpha * 255.0));
+                    DrawSoftDisc(canvas, point, coreRadius, coreColor, (float)(coreAlpha * 255.0));
+                }
+
+                string overlayFile = RgbPolaroidLedPreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                SavePng(bitmap, overlayFile);
+
+                if (i < 6)
+                {
+                    string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                    SavePng(bitmap, previewFile);
+                }
+            }
+
+            onLog($"[RGB-POLAROID] Generated {frameCount} LED border frames @ {safeW}x{safeH}. Preview={previewDir}");
+
+            return Task.FromResult(new RgbPolaroidLedGeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = frameCount,
+                FrameRate = safeFps,
+                CycleSeconds = settings.CycleSeconds,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[RGB-POLAROID-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new RgbPolaroidLedGeneratedOverlay());
+        }
+    }
+
+    private static void DrawRgbPaperFrame(SKCanvas canvas, FrameLayoutData layout, RgbPolaroidLedSettings settings,
+        double outerStroke, double shadowStroke, SKColor paperColor, SKColor shadowColor)
+    {
+        double offset = Math.Max(2.0, settings.BorderThickness * 0.40);
+        SKRect shadowRect = new SKRect(
+            (float)(layout.X + offset), (float)(layout.Y + offset),
+            (float)(layout.X + offset + layout.W), (float)(layout.Y + offset + layout.H));
+        using var shadowPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)shadowStroke,
+            Color = shadowColor,
+            IsAntialias = true,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawRoundRect(shadowRect, (float)layout.R, (float)layout.R, shadowPaint);
+
+        SKRect paperRect = new SKRect(
+            (float)layout.X, (float)layout.Y,
+            (float)(layout.X + layout.W), (float)(layout.Y + layout.H));
+        using var paperPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)outerStroke,
+            Color = paperColor,
+            IsAntialias = true,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawRoundRect(paperRect, (float)layout.R, (float)layout.R, paperPaint);
+    }
+
+    private static void DrawSoftDisc(SKCanvas canvas, SKPoint center, double radius, SKColor color, float alpha)
+    {
+        if (radius <= 0.1 || alpha <= 0.0f) return;
+
+        using var paint = new SKPaint { IsAntialias = true };
+        SKColor[] colors =
+        {
+            color.WithAlpha((byte)Math.Clamp(Math.Round(alpha), 0, 255)),
+            color.WithAlpha((byte)Math.Clamp(Math.Round(alpha * 0.62), 0, 255)),
+            color.WithAlpha((byte)Math.Clamp(Math.Round(alpha * 0.16), 0, 255)),
+            new SKColor(color.Red, color.Green, color.Blue, 0),
+        };
+        float[] positions = { 0.0f, 0.38f, 0.72f, 1.0f };
+        paint.Shader = SKShader.CreateRadialGradient(center, (float)radius, colors, positions, SKShaderTileMode.Clamp);
+        canvas.DrawCircle(center.X, center.Y, (float)radius, paint);
+    }
+
+    private static SKColor ColorFromHsv(double hue, double saturation, double value)
+    {
+        double h = hue % 360.0;
+        if (h < 0) h += 360.0;
+        double s = Math.Clamp(saturation, 0.0, 1.0);
+        double v = Math.Clamp(value, 0.0, 1.0);
+        double c = v * s;
+        double x = c * (1.0 - Math.Abs(((h / 60.0) % 2.0) - 1.0));
+        double m = v - c;
+
+        double r, g, b;
+        if (h < 60)
+            (r, g, b) = (c, x, 0);
+        else if (h < 120)
+            (r, g, b) = (x, c, 0);
+        else if (h < 180)
+            (r, g, b) = (0, c, x);
+        else if (h < 240)
+            (r, g, b) = (0, x, c);
+        else if (h < 300)
+            (r, g, b) = (x, 0, c);
+        else
+            (r, g, b) = (c, 0, x);
+
+        return new SKColor(
+            (byte)Math.Clamp(Math.Round((r + m) * 255.0), 0, 255),
+            (byte)Math.Clamp(Math.Round((g + m) * 255.0), 0, 255),
+            (byte)Math.Clamp(Math.Round((b + m) * 255.0), 0, 255));
+    }
 
     public Task<PolaroidScrapbook2GeneratedOverlay> GeneratePolaroidScrapbook2OverlayAsync(int width, int height,
         OverlayContentLayout? layout, RenderJob job, string? tag, CancellationToken token, Action<string> onLog)
