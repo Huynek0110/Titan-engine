@@ -377,7 +377,307 @@ public sealed class AvaloniaImageServices : IImageServices
     public Task<DreamyDotGeneratedOverlay> GenerateDreamyDotOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
         string? tag, CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        // Phase 4: vẽ thật bằng SkiaSharp (không cần WPF/STA). Giữ contract DTO
+        // (TempRoot, OverlayPattern dreamy_dot_overlay_%04d.png, FrameCount/FrameRate/Width/Height/Variant/AssetCacheKey)
+        // + preview_01..preview_08.png. Determinism giữ nguyên: cùng HashSeed(layer, index) → cùng
+        // thứ tự Random.NextDouble → cùng vị trí/chất particle của bản WPF.
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"dreamydot_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "dreamy_dot_overlay_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+
+            var plan = DreamyDotOverlayPreset.CreateOverlayPlan(safeW, safeH, frameRate, outputDurationSeconds, job);
+            var settings = plan.Settings;
+            double safeFps = plan.SafeFps;
+            int renderW = plan.RenderWidth;
+            int renderH = plan.RenderHeight;
+            int frameCount = plan.FrameCount;
+            string assetCacheKey = plan.AssetCacheKey;
+
+            var renderLayout = new OverlayContentLayout
+            {
+                CanvasWidth = renderW,
+                CanvasHeight = renderH,
+                ContentRect = new PixelRect(0, 0, renderW, renderH)
+            };
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            using var bitmap = new SKBitmap(renderW, renderH);
+            using var canvas = new SKCanvas(bitmap);
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
+                canvas.Clear(SKColors.Transparent);
+
+                DrawDotLayers(canvas, renderW, renderH, settings, progress);
+
+                string overlayFile = DreamyDotOverlayPreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                SavePng(bitmap, overlayFile);
+
+                if (i < 8)
+                {
+                    string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                    SavePng(bitmap, previewFile);
+                }
+            }
+
+            onLog($"[DREAMY-DOT] Generated dreamy dot drift overlay @ {renderW}x{renderH}, fps={safeFps:0.00}, frames={frameCount}, preview={previewDir}");
+
+            return Task.FromResult(new DreamyDotGeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = frameCount,
+                FrameRate = safeFps,
+                Width = renderW,
+                Height = renderH,
+                Variant = settings.Variant,
+                AssetCacheKey = assetCacheKey,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[DREAMY-DOT-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new DreamyDotGeneratedOverlay());
+        }
+    }
+
+    private static void DrawDotLayers(SKCanvas canvas, int canvasW, int canvasH,
+        DreamyDotOverlaySettings settings, double progress)
+    {
+        foreach (DreamyDotLayerRecipe layer in settings.Layers)
+        {
+            for (int i = 0; i < layer.Count; i++)
+                DrawParticle(canvas, canvasW, canvasH, settings, layer, i, progress);
+        }
+    }
+
+    private static void DrawParticle(SKCanvas canvas, int canvasW, int canvasH,
+        DreamyDotOverlaySettings settings, DreamyDotLayerRecipe layer, int particleIndex, double progress)
+    {
+        // Giữ nguyên thứ tự gọi Random.NextDouble() với cùng seed để determinism identical với WPF.
+        var rng = new Random(DreamyDotOverlayPreset.HashSeed(layer.Name, particleIndex));
+        double radius = DreamyDotOverlayPreset.Lerp(layer.MinRadius, layer.MaxRadius, rng.NextDouble());
+        double opacityPulse = 0.90 + (0.24 * Math.Sin((progress * Math.PI * 2.0 * (0.55 + (rng.NextDouble() * 1.4))) + (rng.NextDouble() * Math.PI * 2.0)));
+        double opacity = Math.Clamp(
+            DreamyDotOverlayPreset.Lerp(layer.MinOpacity, layer.MaxOpacity, rng.NextDouble()) * opacityPulse,
+            0.01, 1.0);
+        double travelLoops = DreamyDotOverlayPreset.Lerp(layer.MinTravelLoops, layer.MaxTravelLoops, rng.NextDouble());
+        double stretch = DreamyDotOverlayPreset.Lerp(layer.MinStretch, layer.MaxStretch, rng.NextDouble());
+        SKPoint particleCenter;
+        SKPoint direction;
+
+        if (settings.Variant.Equals("chaos", StringComparison.OrdinalIgnoreCase))
+        {
+            particleCenter = ResolveChaosParticleCenter(canvasW, canvasH, settings, layer, particleIndex, progress, radius, travelLoops, out direction);
+        }
+        else
+        {
+            direction = ResolveParticleDirection(settings, layer, particleIndex, progress, rng);
+            SKPoint perpendicular = new SKPoint((float)(-direction.Y), (float)direction.X);
+            double diagonal = Math.Sqrt((canvasW * canvasW) + (canvasH * canvasH));
+            double margin = Math.Max(radius * (5.0 + layer.GlowScale), 24.0);
+            double pathSpan = diagonal + (margin * 2.0);
+            double acrossSpan = diagonal + (margin * 2.0);
+            double centerX = canvasW * 0.5;
+            double centerY = canvasH * 0.5;
+            double alongStart = (rng.NextDouble() * pathSpan) - (pathSpan * 0.5);
+            double acrossStart = (rng.NextDouble() * acrossSpan) - (acrossSpan * 0.5);
+            double alongPosition = DreamyDotOverlayPreset.PositiveMod(alongStart + (progress * travelLoops * pathSpan) + (pathSpan * 0.5), pathSpan) - (pathSpan * 0.5);
+            double driftPulse = Math.Sin((progress * Math.PI * 2.0 * (0.24 + (rng.NextDouble() * 0.42))) + (rng.NextDouble() * Math.PI * 2.0)) * radius * 0.45;
+            particleCenter = new SKPoint(
+                (float)(centerX + (direction.X * alongPosition) + (perpendicular.X * (acrossStart + driftPulse))),
+                (float)(centerY + (direction.Y * alongPosition) + (perpendicular.Y * (acrossStart + driftPulse))));
+        }
+
+        double angleDegrees = Math.Atan2(direction.Y, direction.X) * (180.0 / Math.PI);
+
+        int paletteIndex = SelectPaletteIndex(layer.Name, particleIndex);
+        SKColor color = DreamyPalette[paletteIndex];
+
+        double haloRadiusX = radius * stretch * (2.0 + (layer.GlowScale * 0.45));
+        double haloRadiusY = radius * (2.0 + (layer.GlowScale * 0.45));
+        double coreRadiusX = radius * stretch;
+        double coreRadiusY = radius;
+
+        float haloAlpha = (float)Math.Clamp(Math.Round(opacity * (0.56 + (layer.GlowScale * 0.12)) * 255.0), 0, 255);
+        float coreAlpha = (float)Math.Clamp(Math.Round(opacity * 1.12 * 255.0), 0, 255);
+
+        using var haloPaint = MakeRadialPaint(color, 0.84, 0.28, 0.08, Math.Max(haloRadiusX, haloRadiusY), (byte)haloAlpha);
+        using var corePaint = MakeRadialPaint(color, 1.00, 0.80, 0.20, Math.Max(coreRadiusX, coreRadiusY), (byte)coreAlpha);
+
+        canvas.Save();
+        canvas.Translate(particleCenter.X, particleCenter.Y);
+        canvas.RotateDegrees((float)angleDegrees);
+
+        canvas.DrawOval(new SKRect((float)(-haloRadiusX), (float)(-haloRadiusY), (float)haloRadiusX, (float)haloRadiusY), haloPaint);
+        canvas.DrawOval(new SKRect((float)(-coreRadiusX), (float)(-coreRadiusY), (float)coreRadiusX, (float)coreRadiusY), corePaint);
+
+        if (layer.DrawCore)
+        {
+            double coreGlowRadius = Math.Max(1.2, radius * 0.28);
+            using var sparkPaint = MakeSolidPaint(color, opacity * 1.06);
+            canvas.DrawOval(
+                new SKRect(
+                    (float)(-coreGlowRadius * Math.Max(1.0, stretch * 0.75)),
+                    (float)(-coreGlowRadius),
+                    (float)(coreGlowRadius * Math.Max(1.0, stretch * 0.75)),
+                    (float)coreGlowRadius),
+                sparkPaint);
+        }
+
+        canvas.Restore();
+    }
+
+    private static SKPoint ResolveChaosParticleCenter(int canvasW, int canvasH,
+        DreamyDotOverlaySettings settings, DreamyDotLayerRecipe layer, int particleIndex, double progress,
+        double radius, double travelLoops, out SKPoint direction)
+    {
+        double margin = Math.Max(radius * (6.0 + layer.GlowScale), 28.0);
+        double spanX = canvasW + (margin * 2.0);
+        double spanY = canvasH + (margin * 2.0);
+        double sampleStep = 0.0025;
+        int stableSeed = DreamyDotOverlayPreset.HashSeed(layer.Name, particleIndex);
+
+        SKPoint current = EvaluateChaosParticlePosition(canvasW, canvasH, settings, layer, progress, radius, travelLoops, new Random(stableSeed), spanX, spanY, margin);
+        SKPoint ahead = EvaluateChaosParticlePosition(canvasW, canvasH, settings, layer, DreamyDotOverlayPreset.PositiveMod(progress + sampleStep, 1.0), radius, travelLoops, new Random(stableSeed), spanX, spanY, margin);
+        direction = NormalizeDirection(new SKPoint((float)(ahead.X - current.X), (float)(ahead.Y - current.Y)));
+        return current;
+    }
+
+    private static SKPoint EvaluateChaosParticlePosition(int canvasW, int canvasH,
+        DreamyDotOverlaySettings settings, DreamyDotLayerRecipe layer, double progress,
+        double radius, double travelLoops, Random rng, double spanX, double spanY, double margin)
+    {
+        double diagonal = Math.Sqrt((canvasW * canvasW) + (canvasH * canvasH));
+        double layerBias = DreamyDotOverlayPreset.GetChaosLayerBias(layer.Name);
+        double phase = rng.NextDouble();
+        double localProgress = DreamyDotOverlayPreset.PositiveMod((progress * travelLoops) + phase, 1.0);
+        double anchorX = (rng.NextDouble() * spanX) - margin;
+        double anchorY = (rng.NextDouble() * spanY) - margin;
+
+        double driftAngle = (rng.NextDouble() * Math.PI * 2.0) + layerBias;
+        double driftDistance = diagonal * (0.10 + (rng.NextDouble() * 0.38) + (travelLoops * 0.18));
+        double driftSpeed = 0.40 + (rng.NextDouble() * 0.90);
+
+        double ampX1 = radius * (3.2 + settings.SwirlAmount + (rng.NextDouble() * 3.2));
+        double ampX2 = radius * (1.8 + (rng.NextDouble() * 2.6));
+        double ampY1 = radius * (3.0 + (settings.SwirlAmount * 1.15) + (rng.NextDouble() * 3.6));
+        double ampY2 = radius * (1.7 + (rng.NextDouble() * 2.9));
+
+        double freqX1 = 0.45 + (rng.NextDouble() * 1.75);
+        double freqX2 = 0.70 + (rng.NextDouble() * 2.20);
+        double freqY1 = 0.42 + (rng.NextDouble() * 1.82);
+        double freqY2 = 0.66 + (rng.NextDouble() * 2.10);
+
+        double phaseX1 = rng.NextDouble() * Math.PI * 2.0;
+        double phaseX2 = rng.NextDouble() * Math.PI * 2.0;
+        double phaseY1 = rng.NextDouble() * Math.PI * 2.0;
+        double phaseY2 = rng.NextDouble() * Math.PI * 2.0;
+
+        double drift = localProgress * Math.PI * 2.0 * driftSpeed;
+        double driftX = Math.Cos(driftAngle) * driftDistance * Math.Sin(drift + phaseX1) * 0.55;
+        double driftY = Math.Sin(driftAngle) * driftDistance * Math.Cos(drift + phaseY1) * 0.55;
+
+        double motionX =
+            (Math.Sin((localProgress * Math.PI * 2.0 * freqX1) + phaseX1) * ampX1) +
+            (Math.Cos((localProgress * Math.PI * 2.0 * freqX2) + phaseX2) * ampX2);
+        double motionY =
+            (Math.Cos((localProgress * Math.PI * 2.0 * freqY1) + phaseY1) * ampY1) +
+            (Math.Sin((localProgress * Math.PI * 2.0 * freqY2) + phaseY2) * ampY2);
+
+        double x = DreamyDotOverlayPreset.PositiveMod(anchorX + driftX + motionX, spanX) - margin;
+        double y = DreamyDotOverlayPreset.PositiveMod(anchorY + driftY + motionY, spanY) - margin;
+        return new SKPoint((float)(x), (float)(y));
+    }
+
+    private static SKPoint ResolveParticleDirection(DreamyDotOverlaySettings settings,
+        DreamyDotLayerRecipe layer, int particleIndex, double progress, Random rng)
+    {
+        SKPoint baseDirection = new SKPoint((float)settings.Direction.X, (float)settings.Direction.Y);
+        if (!settings.Variant.Equals("chaos", StringComparison.OrdinalIgnoreCase))
+            return baseDirection;
+
+        double baseAngle = Math.Atan2(settings.Direction.Y, settings.Direction.X);
+        double randomAngle = (rng.NextDouble() * Math.PI * 2.0) - Math.PI;
+        double wobble = Math.Sin((progress * Math.PI * 2.0 * (0.42 + (rng.NextDouble() * 0.86))) + (particleIndex * 0.37)) * settings.DirectionJitter;
+        double layerBias = layer.Name switch
+        {
+            "dust" => -0.22,
+            "soft" => 0.18,
+            "bokeh" => -0.10,
+            _ => 0.0
+        };
+
+        double finalAngle = baseAngle + randomAngle + wobble + layerBias;
+        return NormalizeDirection(new SKPoint((float)Math.Cos(finalAngle), (float)Math.Sin(finalAngle)));
+    }
+
+    private static SKPoint NormalizeDirection(SKPoint direction)
+    {
+        double len = Math.Sqrt(direction.X * direction.X + direction.Y * direction.Y);
+        if (len < 0.0001)
+            return new SKPoint(1.0f, 0.0f);
+        return new SKPoint((float)(direction.X / len), (float)(direction.Y / len));
+    }
+
+    private static readonly SKColor[] DreamyPalette =
+    {
+        new SKColor(255, 255, 255),
+        new SKColor(247, 239, 219),
+        new SKColor(221, 242, 255),
+        new SKColor(255, 231, 214),
+    };
+
+    private static SKPaint MakeRadialPaint(SKColor color, double centerAlpha, double midAlpha, double outerAlpha, double radius, byte alpha)
+    {
+        SKColor[] colors =
+        {
+            color.WithAlpha((byte)Math.Clamp(Math.Round(centerAlpha * 255.0), 0, 255)),
+            color.WithAlpha((byte)Math.Clamp(Math.Round(midAlpha * 255.0), 0, 255)),
+            color.WithAlpha((byte)Math.Clamp(Math.Round(outerAlpha * 255.0), 0, 255)),
+            new SKColor(color.Red, color.Green, color.Blue, 0),
+        };
+        float[] positions = { 0.0f, 0.34f, 0.76f, 1.0f };
+        return new SKPaint
+        {
+            IsAntialias = true,
+            Color = new SKColor(255, 255, 255, alpha),
+            Shader = SKShader.CreateRadialGradient(SKPoint.Empty, (float)Math.Max(1.0, radius), colors, positions, SKShaderTileMode.Clamp),
+        };
+    }
+
+    private static SKPaint MakeSolidPaint(SKColor color, double alpha)
+    {
+        return new SKPaint
+        {
+            IsAntialias = true,
+            Color = color.WithAlpha((byte)Math.Clamp(Math.Round(alpha * 255.0), 0, 255)),
+        };
+    }
+
+    private static int SelectPaletteIndex(string layerName, int particleIndex)
+    {
+        int hash = Math.Abs(DreamyDotOverlayPreset.HashSeed(layerName, particleIndex));
+        if (layerName.Equals("dust", StringComparison.OrdinalIgnoreCase))
+            return hash % 2;
+        if (layerName.Equals("soft", StringComparison.OrdinalIgnoreCase))
+            return hash % 3;
+        return hash % DreamyPalette.Length;
+    }
 
     public Task<RgbPolaroidLedGeneratedOverlay> GenerateRgbPolaroidLedOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
