@@ -66,10 +66,13 @@ RgbPolaroid/Scratch/LightLeakBurn/SoundBar + DashedPolaroid), `SoundBarStyleRend
 **`TitanEngine.Avalonia/` (net8.0, Avalonia 11.3):** UI cross-platform thay WPF, cùng `TitanEngine.Core`.
 13 khu `UserControl` + ViewModel (mirror 12 khu WPF + QueueLogs), `JobBuilder.cs` (dựng `RenderJob` từ VM —
 mirror `BtnAddJob_Click`), `UiLogic.cs` (helper), `Services/`: `AvaloniaImageServices` (decode/probe thật bằng
-SkiaSharp; 8 capability vẽ WPF-stay throw `NotSupportedException` với thông điệp rõ), `AvaloniaTextMetrics`
-(đo chữ bằng TextLayout), `FfplayAudioPreview` (ffplay subprocess thay MediaPlayer), `UserPrompt` (StorageProvider),
+SkiaSharp; 7 overlay generation + codec `SanitizeBrandLogoAsset` đã port SkiaSharp (không cần WPF/STA),
+soundbar renderer vẫn WPF-stay throw rõ ràng khi bật), `AvaloniaTextMetrics` (đo chữ bằng TextLayout),
+`FfplayAudioPreview` (ffplay subprocess thay MediaPlayer), `UserPrompt` (StorageProvider),
 `LocalApiHost` (HOST: OFF/ON bọc `LocalHostServer`). Verify harness: `--screenshot <dir>` (chụp 13 khu PNG)
-và `--e2e <dir>` (thêm job → render → ffprobe → host API — chạy đúng command của UI).
+và `--e2e <dir>` (thêm job → render → ffprobe → host API — chạy đúng command của UI). Toàn bộ 13 khu UI
+đã migrate hardcoded màu sang `{DynamicResource}`/`{StaticResource}` token trong `App.axaml` (29 brush/gradient
+token), giữ `FluentTheme` làm nền theme.
 
 ### Lõi (WPF project)
 
@@ -235,5 +238,7 @@ dotnet publish TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release -r li
 - Header comment trong `MainWindow.xaml.cs` vẫn ghi **V106** — đã lệch, chỉ là comment lịch sử,
   đừng dùng làm nguồn sự thật.
 - Soundbar renderer: **`soundbar-r39`** (bump khi đổi pixel soundbar, quy tắc AGENTS.md #4).
-- Nhánh: `master` (WPF gốc) và `port/linux` (port cross-platform). Port đang chạy Giai đoạn 5
-  (Avalonia); tiến độ chi tiết trong `PORT-PROGRESS.md` (không commit).
+- Nhánh: `master` (WPF gốc) và `port/linux` (port cross-platform). Giai đoạn 5 (Avalonia): 7 overlay +
+  codec SanitizeBrandLogoAsset đã port SkiaSharp (soundbar-r39, verify quick PASS=9 FAIL=0); UI restyle toàn
+  bộ 13 khu đã hoàn tất (migrate hardcoded màu sang {DynamicResource} token, 17 commit, push port/linux).
+  Tiến độ chi tiết trong `PORT-PROGRESS.md` (không commit).

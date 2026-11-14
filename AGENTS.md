@@ -29,7 +29,9 @@ Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn 
    (`normalize=1`) chia đôi mỗi input, làm volume 200% thành 100%.
 7. **Build Release với app đã đóng.** Không đóng sẽ ra `MSB3026/MSB3027` (khoá file exe),
    không phải lỗi code.
-8. **Report cho user trước khi commit. Chỉ push khi user bảo rõ ràng.**
+8. **Continuous work (user AFK):** commit/push sau mỗi stable milestone (build 0/0 + verify quick PASS),
+   không chờ "tiếp tục". Không report từng commit trước khi push — chỉ report tổng hợp khi đạt mốc ổn định
+   hoặc khi cần user quyết định (drag-drop Hyprland, Windows thật, NVENC, Upscayl/whisper, ảnh reference).
 9. **Avalonia: KHÔNG bỏ `FluentTheme` làm nền theme.** Các control không có style tuỳ biến
    (ScrollViewer, ScrollBar, dropdown ComboBox/ListBox, ToolTip, ContextMenu, dialog
    IUserPrompt) sẽ mất template mặc định → lăn chuột không tác động, dropdown không hiển
@@ -38,6 +40,12 @@ Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn 
    `App.axaml` được nạp sau và ghi đè từng control cần đổi vỏ. Luôn có kiểm tra cuộn tự động
    trong `ScreenshotRunner` (duyệt cây trực quan, ScrollViewer có `Extent > Viewport` thì
    `LineDown()` phải đổi `Offset` → in PASS/FAIL).
+10. **UI restyle (Avalonia):** không giữ hardcode màu hex trong file AXAML view. Migrate sang
+    `{DynamicResource}`/`{StaticResource}` token đã định nghĩa trong `App.axaml`; nếu màu chưa
+    có token thì bổ sung token mới đặt tên rõ nghĩa vào `App.axaml` (`<Application.Resources>`),
+    sau đó dùng trong view. Giữ `FluentTheme` làm nền (luật 9), chỉ ghi đè từng control cần đổi
+    vỏ. Mỗi view restyle xong: build 0/0 (Debug + Release), verify quick, commit 1 view, push
+    `port/linux`, cập nhật `PORT-PROGRESS.md`.
 
 ## Lệnh chuẩn
 
@@ -81,7 +89,8 @@ dotnet build TitanEngine/TitanEngine.csproj -c Release -p:EnableWindowsTargeting
 
 ## Git (nhánh port/linux — master không đụng)
 
-- **Report cho user trước khi commit**: file nào đổi, verify ra sao.
+- **Continuous work (user AFK)**: commit/push sau mỗi stable milestone (build 0/0 + verify quick PASS),
+  không chờ "tiếp tục"; report tổng hợp khi đạt mốc ổn định.
 - **Chỉ push nhánh `port/linux`** (`git push -u origin port/linux`). master (bản WPF Windows gốc) tuyệt đối không bị đụng, không push vào master/main.
 - **`.git/hooks/pre-push`** (chmod +x): chặn mọi push có remote ref `refs/heads/master` hoặc `refs/heads/main` — đã chứng minh exit 1 với input giả `refs/heads/x 0 refs/heads/master 0`, exit 0 với `refs/heads/port/linux`.
 - Commit nhỏ, tách theo vùng (core / platform / cli / avalonia / overlay / ui / docs). Message nêu **hành vi**, không nêu tên file, định dạng `<vùng>: <hành vi>`.
