@@ -8,37 +8,37 @@
   <!-- Khu QUEUE + LOGS — mirror cột phải MainWindow.xaml WPF (rows: queue / progress / log / nút). -->
   <Grid RowDefinitions="*,20,180,20,60">
 
-    <Border Grid.Row="0" Background="#11141A" CornerRadius="10" BorderBrush="#1E242E" BorderThickness="1">
+    <Border Grid.Row="0" Background="{DynamicResource PanelBgBrush}" CornerRadius="10" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
       <Panel>
         <ListBox x:Name="lstQueue" ItemsSource="{Binding Jobs}" Background="Transparent" BorderThickness="0" Padding="10">
           <!-- Avalonia: DataTemplate không có Styles — style viền accent để ở scope ListBox -->
           <ListBox.Styles>
             <!-- WPF: DataTrigger IsApiJob=True → viền accent -->
             <Style Selector="Border.api">
-              <Setter Property="BorderBrush" Value="#4CC3FF"/>
+              <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
               <Setter Property="BorderThickness" Value="2"/>
             </Style>
           </ListBox.Styles>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="core:RenderJob">
-              <Border Classes.api="{Binding IsApiJob}" Background="#151A21" Margin="0,0,0,8" CornerRadius="8" Padding="11"
-                      BorderBrush="#232B36" BorderThickness="1">
+              <Border Classes.api="{Binding IsApiJob}" Background="{DynamicResource CardBgBrush}" Margin="0,0,0,8" CornerRadius="8" Padding="11"
+                      BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
                 <Grid ColumnDefinitions="Auto,*,Auto">
-                  <Border Background="#12161D" BorderBrush="#232B36" BorderThickness="1" CornerRadius="6" Padding="8,3" VerticalAlignment="Center" Margin="0,0,10,0">
-                    <TextBlock Text="{Binding Id}" FontWeight="Bold" Foreground="#8B95A5" FontSize="11"/>
+                  <Border Background="{StaticResource QueueBadgeBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="8,3" VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock Text="{Binding Id}" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
                   </Border>
                   <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#F0F4F8" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Text="{Binding ConfigSummary}" FontSize="10" Foreground="#9AA3B2" Margin="0,4,0,0"/>
+                    <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding ConfigSummary}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"/>
                   </StackPanel>
                   <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                    <Border Background="#103040" BorderBrush="#4CC3FF" BorderThickness="1" CornerRadius="3" Padding="6,1" Margin="0,0,10,4" HorizontalAlignment="Right" IsVisible="{Binding IsApiJob}">
-                      <TextBlock Text="API" Foreground="#4CC3FF" FontSize="9" FontWeight="Bold"/>
+                    <Border Background="{StaticResource QueueApiBadgeBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="3" Padding="6,1" Margin="0,0,10,4" HorizontalAlignment="Right" IsVisible="{Binding IsApiJob}">
+                      <TextBlock Text="API" Foreground="{DynamicResource AccentBrush}" FontSize="9" FontWeight="Bold"/>
                     </Border>
-                    <Border Background="#12161D" BorderBrush="#232B36" BorderThickness="1" CornerRadius="9" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <Border Background="{StaticResource QueueBadgeBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="9" Padding="8,2" Margin="0,0,10,0" VerticalAlignment="Center">
                       <TextBlock Text="{Binding StatusDisplay}" Foreground="{Binding StatusColor, Converter={x:Static conv:StatusColorToBrushConverter.Instance}}" FontWeight="Bold" FontSize="11"/>
                     </Border>
-                    <Button Content="✕" Width="25" Height="25" Background="#2A1218" FontSize="10" ToolTip.Tip="Remove this job"
+                    <Button Content="✕" Width="25" Height="25" Background="{StaticResource QueueDeleteButtonBrush}" FontSize="10" ToolTip.Tip="Remove this job"
                             Command="{Binding $parent[ItemsControl].((vm:QueueLogsViewModel)DataContext).DeleteJobCommand}" CommandParameter="{Binding}"/>
                   </StackPanel>
                 </Grid>
@@ -47,31 +47,28 @@
           </ListBox.ItemTemplate>
         </ListBox>
         <TextBlock Text="No jobs yet - drop files or add from the left panel"
-                   Foreground="#5C6672" FontSize="12"
+                   Foreground="{DynamicResource TextDisabledBrush}" FontSize="12"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsHitTestVisible="False" IsVisible="{Binding !HasJobs}"/>
       </Panel>
     </Border>
 
-    <ProgressBar Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="{Binding GlobalProgress}" Background="#0D1014" BorderThickness="0" Height="10">
+    <ProgressBar Grid.Row="1" Margin="0,5" Minimum="0" Maximum="100" Value="{Binding GlobalProgress}" Background="{StaticResource TimelinePreviewBgBrush}" BorderThickness="0" Height="10">
       <ProgressBar.Foreground>
-        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-          <GradientStop Color="#6FD4FF" Offset="0"/>
-          <GradientStop Color="#4CC3FF" Offset="1"/>
-        </LinearGradientBrush>
+        <StaticResource ResourceKey="QueueProgressBrush"/>
       </ProgressBar.Foreground>
     </ProgressBar>
 
-    <Border Grid.Row="2" Background="#0D1014" CornerRadius="10" BorderBrush="#1E242E" BorderThickness="1">
+    <Border Grid.Row="2" Background="{StaticResource TimelinePreviewBgBrush}" CornerRadius="10" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
       <Grid RowDefinitions="Auto,*">
-        <Border BorderBrush="#1E242E" BorderThickness="0,0,0,1" Padding="12,6">
+        <Border BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="0,0,0,1" Padding="12,6">
           <StackPanel Orientation="Horizontal" Spacing="8">
-            <Ellipse Width="6" Height="6" Fill="#4CC3FF" VerticalAlignment="Center" Margin="0,1,0,0"/>
-            <TextBlock Text="SYSTEM LOG" FontSize="10" FontWeight="SemiBold" Foreground="#8B95A5"/>
+            <Ellipse Width="6" Height="6" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,1,0,0"/>
+            <TextBlock Text="SYSTEM LOG" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
           </StackPanel>
         </Border>
         <!-- LogText gom ở root VM (buffer 400 dòng) — binding qua DataContext của Window -->
-        <TextBox Grid.Row="1" Background="Transparent" Foreground="#7EE787" FontFamily="Consolas" FontSize="11"
+        <TextBox Grid.Row="1" Background="Transparent" Foreground="{DynamicResource QueueLogTextBrush}" FontFamily="Consolas" FontSize="11"
                  BorderThickness="0" Padding="10" IsReadOnly="True" TextWrapping="Wrap"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).LogText}"/>
@@ -79,17 +76,14 @@
     </Border>
 
     <Grid Grid.Row="4" ColumnDefinitions="130,*,150">
-      <Button Content="CLEAR" Margin="0,0,15,0" Background="#1A202A" Command="{Binding ClearCommand}"/>
+      <Button Content="CLEAR" Margin="0,0,15,0" Background="{DynamicResource ButtonBgBrush}" Command="{Binding ClearCommand}"/>
       <Button Grid.Column="1" Margin="0,0,15,0" Command="{Binding StartBatchCommand}">
         <Button.Background>
-          <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-            <GradientStop Color="#22C55E" Offset="0"/>
-            <GradientStop Color="#149E44" Offset="1"/>
-          </LinearGradientBrush>
+          <StaticResource ResourceKey="QueueStartButtonBrush"/>
         </Button.Background>
         <TextBlock Text="{Binding StartButtonText}" FontWeight="Bold" FontSize="14"/>
       </Button>
-      <Button Grid.Column="2" Content="{Binding HostButtonText}" Command="{Binding ToggleHostCommand}" Background="#2A1518" BorderBrush="#5A2A32"/>
+      <Button Grid.Column="2" Content="{Binding HostButtonText}" Command="{Binding ToggleHostCommand}" Background="{StaticResource QueueHostButtonBgBrush}" BorderBrush="{StaticResource QueueHostButtonBorderBrush}"/>
     </Grid>
   </Grid>
 </UserControl>

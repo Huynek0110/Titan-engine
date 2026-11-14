@@ -286,6 +286,21 @@
                 <GradientStop Color="#101724" Offset="0" />
                 <GradientStop Color="#090B10" Offset="1" />
             </LinearGradientBrush>
+            <!-- Màu đặc thù migrate từ QueueLogsView (không giữ hardcode) -->
+            <SolidColorBrush x:Key="QueueBadgeBrush" Color="#12161D" />
+            <SolidColorBrush x:Key="QueueApiBadgeBrush" Color="#103040" />
+            <SolidColorBrush x:Key="QueueDeleteButtonBrush" Color="#2A1218" />
+            <SolidColorBrush x:Key="QueueLogTextBrush" Color="#7EE787" />
+            <SolidColorBrush x:Key="QueueHostButtonBgBrush" Color="#2A1518" />
+            <SolidColorBrush x:Key="QueueHostButtonBorderBrush" Color="#5A2A32" />
+            <LinearGradientBrush x:Key="QueueProgressBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#6FD4FF" Offset="0" />
+                <GradientStop Color="#4CC3FF" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="QueueStartButtonBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#22C55E" Offset="0" />
+                <GradientStop Color="#149E44" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
