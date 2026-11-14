@@ -91,3 +91,10 @@ tmp_*/
 # Local editor/agent settings
 .claudeignore
 .claude/
+
+# Port workspaces (không commit): verify harness output, golden/reference, tiến độ
+publish/
+verify/
+golden/
+reference/
+PORT-PROGRESS.md

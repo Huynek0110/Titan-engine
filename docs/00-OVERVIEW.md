@@ -24,12 +24,14 @@ Hai chế độ hoạt động:
 
 | Thành phần | Giá trị |
 |---|---|
-| Ngôn ngữ | C# / .NET 8.0-windows, Nullable + ImplicitUsings bật |
-| UI | WPF (`WinExe`), không dùng NuGet — zero dependency |
-| Render | FFmpeg + FFprobe CLI, đặt cạnh `.exe` |
-| AI upscale | FSRCNNX (libplacebo), Upscayl (external), NVIDIA DLSS NGX (DLVSR) |
-| Caption | `whisper-cli.exe` (whisper.cpp), model tải từ HuggingFace |
-| API | `HttpListener`, JSON camelCase, port mặc định `5555` |
+| Ngôn ngữ | C# / .NET 8, Nullable + ImplicitUsings bật |
+| UI Windows | WPF (`net8.0-windows`) — bản gốc, giữ nguyên |
+| UI cross-platform | Avalonia 11.3.2 (`TitanEngine.Avalonia`, pin version, compiled bindings, CommunityToolkit.Mvvm 8.4.0, SkiaSharp 2.88.9) |
+| CLI headless | `TitanEngine.Cli` (net8.0): `doctor` / `render` / `host` / `test-escape` |
+| Render | FFmpeg + FFprobe CLI (Windows: cạnh `.exe`; Linux: cạnh app → PATH) |
+| AI upscale | FSRCNNX (libplacebo), Upscayl (external), NVIDIA DLSS NGX (DLVSR — Windows-only) |
+| Caption | `whisper-cli` (whisper.cpp), model tải từ HuggingFace |
+| API | `HttpListener` trong `TitanEngine.Core/LocalHostServer.cs` (dùng chung WPF/CLI/Avalonia), JSON camelCase, port mặc định `5555` |
 | Shader | GLSL trong `shaders/` (FSRCNNX, FSR, Anime4K) |
 
 ## 3. Bản đồ file
@@ -55,6 +57,19 @@ RgbPolaroid/Scratch/LightLeakBurn/SoundBar + DashedPolaroid), `SoundBarStyleRend
 `SoundBarPaletteArt.cs` (TryParseHex + 4 hàm màu), `WpfImageCodecArt.cs` (decode ảnh/sanitize logo),
 `WpfEngineServices.cs` (implement các interface trên bằng MessageBox/OpenFileDialog/FormattedText/RenderTargetBitmap;
 `Install()` chạy đầu `MainWindow()`). Core sinh overlay pixel qua `EngineServices.Images.*` → `*Art` classes.
+
+**`TitanEngine.Cli/` (net8.0):** host headless — `doctor` (tool/encoder/font/libplacebo thật), `render job.json`
+(JSON theo `LocalhostRenderRequest`), `host --port` (bọc `LocalHostServer`), `test-escape` (24 case ffmpeg thật).
+`CliServices.Install()` cài `IUserPrompt` headless + heuristic `ITextMetrics`; không cài `IImageServices`
+→ job xin overlay sinh pixel sẽ fail với thông báo rõ (không NRE).
+
+**`TitanEngine.Avalonia/` (net8.0, Avalonia 11.3):** UI cross-platform thay WPF, cùng `TitanEngine.Core`.
+13 khu `UserControl` + ViewModel (mirror 12 khu WPF + QueueLogs), `JobBuilder.cs` (dựng `RenderJob` từ VM —
+mirror `BtnAddJob_Click`), `UiLogic.cs` (helper), `Services/`: `AvaloniaImageServices` (decode/probe thật bằng
+SkiaSharp; 8 capability vẽ WPF-stay throw `NotSupportedException` với thông điệp rõ), `AvaloniaTextMetrics`
+(đo chữ bằng TextLayout), `FfplayAudioPreview` (ffplay subprocess thay MediaPlayer), `UserPrompt` (StorageProvider),
+`LocalApiHost` (HOST: OFF/ON bọc `LocalHostServer`). Verify harness: `--screenshot <dir>` (chụp 13 khu PNG)
+và `--e2e <dir>` (thêm job → render → ffprobe → host API — chạy đúng command của UI).
 
 ### Lõi (WPF project)
 
@@ -189,19 +204,36 @@ QUEUE + LOGS         job queue, tiến trình, log FFmpeg
 ## 9. Build & chạy
 
 ```powershell
-# từ repo root
+# Windows / từ repo root
 dotnet build TitanEngine\TitanEngine.csproj -c Release
 TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 ```
 
+```bash
+# Linux / CachyOS (dotnet SDK ở ~/.dotnet)
+export PATH="$HOME/.dotnet:$PATH" DOTNET_ROOT="$HOME/.dotnet"
+dotnet build TitanEngine.Core/TitanEngine.Core.csproj -c Release
+dotnet build TitanEngine.Cli/TitanEngine.Cli.csproj -c Release
+dotnet build TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release   # UI chạy được trên Linux
+dotnet build TitanEngine/TitanEngine.csproj -c Release -p:EnableWindowsTargeting=true  # WPF: chỉ build, không chạy
+
+dotnet publish TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release -r linux-x64 --self-contained true
+# WPF phải build được cả win-x64 publish (chỉ verify được trên Windows thật)
+```
+
 - **Đóng app trước khi build** — nếu không sẽ gặp `MSB3026/MSB3027` (file exe bị khoá).
+- Build Avalonia "0/0 giả": build incremental từng bỏ qua XAML compile — nghi ngờ thì xoá `obj`/`bin`
+  rồi `--no-incremental`; "xong" chỉ khi ảnh chụp harness chạy được (không còn "No precompiled XAML").
+- ffmpeg/ffplay: Windows cạnh exe; Linux pacman (`ffmpeg` gói ffplay kèm) — `setup_titan.sh` cài đủ.
 - Output UI mode mặc định: `Titan_Output/`.
-- Không có unit test; kiểm chứng bằng build + render thật + decode lại output.
+- Không có unit test; kiểm chứng bằng build + render thật + decode lại output
+  (`ffmpeg -v error -i out.mp4 -f null -` → 0 dòng lỗi).
 
 ## 10. Trạng thái phiên bản
 
-- Title bar: **“Titan Engine V193 UI+Soundbar Update”**.
+- Title bar: **“Titan Engine V193 UI+Soundbar Update”** (WPF và Avalonia cùng tiêu đề).
 - Header comment trong `MainWindow.xaml.cs` vẫn ghi **V106** — đã lệch, chỉ là comment lịch sử,
   đừng dùng làm nguồn sự thật.
 - Soundbar renderer: **`soundbar-r38`**.
-- Nhánh `master`; tại thời điểm viết tài liệu này, `r36`–`r38` đã commit nhưng **chưa push**.
+- Nhánh: `master` (WPF gốc) và `port/linux` (port cross-platform). Port đang chạy Giai đoạn 5
+  (Avalonia); tiến độ chi tiết trong `PORT-PROGRESS.md` (không commit).

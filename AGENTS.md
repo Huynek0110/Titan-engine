@@ -34,16 +34,28 @@ Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn 
 ## Lệnh chuẩn
 
 ```powershell
-# build (từ repo root)
+# Windows — build (từ repo root)
 dotnet build TitanEngine\TitanEngine.csproj -c Release
 
 # chạy
 TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 ```
 
-- `ffmpeg.exe` / `ffprobe.exe` phải nằm cạnh exe.
+```bash
+# Linux (CachyOS/Arch) — build kiểm tra, không chạy được WPF
+export PATH="$HOME/.dotnet:$PATH" DOTNET_ROOT="$HOME/.dotnet"
+dotnet build TitanEngine.Core/TitanEngine.Core.csproj -c Release
+dotnet build TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release      # UI cross-platform
+dotnet build TitanEngine.Cli/TitanEngine.Cli.csproj -c Release                # doctor/render/host/test-escape
+dotnet build TitanEngine/TitanEngine.csproj -c Release -p:EnableWindowsTargeting=true  # WPF: chỉ build
+```
+
+- `ffmpeg.exe` / `ffprobe.exe` phải nằm cạnh exe (Windows); Linux: cạnh app → PATH (pacman ffmpeg).
 - `dotnet run` treo vô hạn → kill dotnet → `dotnet build` tay → `dotnet run --no-build`.
 - Build phải **0 warning / 0 error** ở cả Debug và Release trước khi commit.
+- Build Avalonia "0/0 giả" vì incremental bỏ qua XAML: nghi ngờ thì xoá `obj`/`bin` +
+  `--no-incremental`; "xong" chỉ khi harness `--screenshot` chạy ra PNG (không "No precompiled XAML").
+- Đổi pixel soundbar (kể cả port vẽ sang Skia sau này) ⇒ bump `RendererVersion` — luật số 4 áp cả Avalonia.
 
 ## Chuẩn verify
 
@@ -59,14 +71,16 @@ TitanEngine\bin\Release\net8.0-windows\TitanEngine.exe
 **Đo, đừng nhìn suông.** Kiểm loop reset bằng dBFS tại `t=0` vs `t=4.5s`; kiểm vocal bằng
 `corr(Voice, vocal stem)`; kiểm gate bằng PSNR giữa 2 frame + dBFS của audio.
 
-## Git
+## Git (nhánh port/linux — master không đụng)
 
 - **Report cho user trước khi commit**: file nào đổi, verify ra sao.
-- **Chỉ push khi user bảo rõ ràng.**
-- Commit nhỏ, tách theo vùng (r36 / r37 / r38 là 3 commit riêng).
-- Message nêu **hành vi**, không nêu tên file.
+- **Chỉ push nhánh `port/linux`** (`git push -u origin port/linux`). master (bản WPF Windows gốc) tuyệt đối không bị đụng, không push vào master/main.
+- **`.git/hooks/pre-push`** (chmod +x): chặn mọi push có remote ref `refs/heads/master` hoặc `refs/heads/main` — đã chứng minh exit 1 với input giả `refs/heads/x 0 refs/heads/master 0`, exit 0 với `refs/heads/port/linux`.
+- Commit nhỏ, tách theo vùng (core / platform / cli / avalonia / overlay / ui / docs). Message nêu **hành vi**, không nêu tên file, định dạng `<vùng>: <hành vi>`.
+- Không force push, không viết lại lịch sử đã push.
 - Trước commit: `git status` sạch (trừ file user đang viết), đọc lại `git diff`.
 - Không commit file tạm, DLL build, log, hay handoff chưa được yêu cầu.
+- Commit ở stable milestones (build 0/0 + real verify) và push ngay sau; cập nhật PORT-PROGRESS.md sau mỗi mốc.
 
 ## Kỷ luật task
 
