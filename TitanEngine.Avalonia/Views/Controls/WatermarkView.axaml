@@ -3,13 +3,13 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.WatermarkView"
              x:DataType="vm:WatermarkViewModel">
-  <HeaderedContentControl Header="WATERMARK ( DEBUGGING ) " Foreground="#F43F5E">
+  <HeaderedContentControl Header="WATERMARK ( DEBUGGING ) " Foreground="{DynamicResource WatermarkAccentBrush}">
     <StackPanel>
       <Grid Margin="0,0,0,10" ColumnDefinitions="*,50">
         <TextBox IsReadOnly="True" Text="{Binding PathDisplay}" FontStyle="Italic" Opacity="0.5"/>
         <Button Content="..." Grid.Column="1" Margin="8,0,0,0" Command="{Binding BrowseCommand}"/>
       </Grid>
-      <Button Content="EDIT POSITION (VISUAL)" Background="#F43F5E" BorderBrush="#F871A0" Command="{Binding OpenEditorCommand}"/>
+      <Button Content="EDIT POSITION (VISUAL)" Background="{StaticResource WatermarkAccentBrush}" BorderBrush="{StaticResource WatermarkAccentBorderBrush}" Command="{Binding OpenEditorCommand}"/>
     </StackPanel>
   </HeaderedContentControl>
 </UserControl>
