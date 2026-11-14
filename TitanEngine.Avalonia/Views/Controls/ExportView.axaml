@@ -3,7 +3,7 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.ExportView"
              x:DataType="vm:ExportViewModel">
-  <HeaderedContentControl Header="EXPORT" Foreground="#4CC3FF">
+  <HeaderedContentControl Header="EXPORT" Foreground="{DynamicResource AccentBrush}">
     <StackPanel>
       <TextBox IsReadOnly="True" Text="{Binding OutputDirDisplay}"/>
       <Button Content="Browse Folder..." Margin="0,5,0,10" Command="{Binding BrowseOutputCommand}"/>
@@ -11,16 +11,16 @@
 
       <Grid Margin="0,0,0,10" ColumnDefinitions="*,15,*">
         <StackPanel>
-          <TextBlock Text="Resolution" Foreground="#8B95A5" FontSize="11"/>
+          <TextBlock Text="Resolution" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
           <ComboBox ItemsSource="{Binding ResOptions}" SelectedItem="{Binding Res}" HorizontalAlignment="Stretch"/>
           <Grid IsVisible="{Binding ShowCustomRes}" Margin="0,5,0,0" ColumnDefinitions="*,20,*">
             <TextBox Text="{Binding ResW}" ToolTip.Tip="Width"/>
-            <TextBlock Grid.Column="1" Text="x" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#8B95A5"/>
+            <TextBlock Grid.Column="1" Text="x" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
             <TextBox Grid.Column="2" Text="{Binding ResH}" ToolTip.Tip="Height"/>
           </Grid>
         </StackPanel>
         <StackPanel Grid.Column="2">
-          <TextBlock Text="FPS" Foreground="#8B95A5" FontSize="11"/>
+          <TextBlock Text="FPS" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
           <ComboBox ItemsSource="{Binding FpsOptions}" SelectedItem="{Binding Fps}" HorizontalAlignment="Stretch"/>
         </StackPanel>
       </Grid>
