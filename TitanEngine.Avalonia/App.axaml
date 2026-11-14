@@ -4,210 +4,64 @@
              RequestedThemeVariant="Dark">
     <Application.Styles>
         <FluentTheme />
-        <!-- Port Window.Resources của TitanEngine/MainWindow.xaml (bản WPF): cùng key, cùng giá trị,
-             cùng trạng thái hover/pressed/focus. Chỉ đổi vỏ control, không đổi cấu trúc khu UI. -->
-
-        <!-- HeaderedContentControl đóng vai GroupBox của WPF (mirror hình dáng) -->
-        <Style Selector="HeaderedContentControl">
-            <Setter Property="Background" Value="{DynamicResource CardBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Border Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="8" Padding="12" Margin="0">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="{TemplateBinding Header}"
-                                       Foreground="{TemplateBinding Foreground}"
-                                       FontWeight="SemiBold" FontSize="13" />
-                            <ContentPresenter Content="{TemplateBinding Content}" />
-                        </StackPanel>
-                    </Border>
-                </ControlTemplate>
-            </Setter>
-        </Style>
-
-        <!-- ToolTip (WPF MainWindow.xaml:28) -->
-        <Style Selector="ToolTip">
-            <Setter Property="Background" Value="#171B23" />
-            <Setter Property="Foreground" Value="#C9D2DE" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Border Background="{TemplateBinding Background}" BorderBrush="#2A3340"
-                            BorderThickness="1" CornerRadius="6" Padding="10,7">
-                        <ContentPresenter />
-                    </Border>
-                </ControlTemplate>
-            </Setter>
-        </Style>
-
-        <!-- Button (WPF:44): hover viền accent, pressed tối, disabled mờ -->
-        <Style Selector="Button">
-            <Setter Property="Background" Value="#1A202A" />
-            <Setter Property="Foreground" Value="#F0F4F8" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="14,9" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="#2A3340" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#202836" />
-            <Setter Property="BorderBrush" Value="#4CC3FF" />
-        </Style>
-        <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#161B22" />
-            <Setter Property="BorderBrush" Value="#1F4258" />
-        </Style>
-        <Style Selector="Button:disabled">
-            <Setter Property="Opacity" Value="0.45" />
-        </Style>
-
-        <!-- TextBox (WPF:77): nền input tối, focus viền accent, hover viền sáng hơn -->
-        <Style Selector="TextBox">
-            <Setter Property="Background" Value="#161B22" />
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="CaretBrush" Value="#4CC3FF" />
-            <Setter Property="SelectionBrush" Value="#1F4258" />
-            <Setter Property="BorderBrush" Value="#262D38" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Padding" Value="9,7" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
-            <Setter Property="Background" Value="#161B22" />
-            <Setter Property="BorderBrush" Value="#334050" />
-        </Style>
-        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
-            <Setter Property="Background" Value="#161B22" />
-            <Setter Property="BorderBrush" Value="#4CC3FF" />
-        </Style>
-        <Style Selector="TextBox:focus:pointerover /template/ Border#PART_BorderElement">
-            <Setter Property="BorderBrush" Value="#4CC3FF" />
-        </Style>
-
-        <!-- ComboBox (WPF:134): nền tối, bo góc, dropdown giới hạn 280 -->
-        <Style Selector="ComboBox">
-            <Setter Property="Background" Value="#161B22" />
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="BorderBrush" Value="#262D38" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="MinHeight" Value="32" />
-            <Setter Property="Padding" Value="11,4,28,4" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="MaxDropDownHeight" Value="280" />
-        </Style>
-        <Style Selector="ComboBoxItem">
-            <Setter Property="Padding" Value="11,7" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="#DDE5EE" />
-        </Style>
-        <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#1F2733" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="ComboBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#1F4258" />
-            <Setter Property="Foreground" Value="#4CC3FF" />
-        </Style>
-        <Style Selector="ComboBoxItem:disabled">
-            <Setter Property="Foreground" Value="#5C6672" />
-        </Style>
-
-        <!-- CheckBox (WPF:178): ô vuông bo tròn, tick accent nền + dấu tối -->
-        <Style Selector="CheckBox">
-            <Setter Property="Foreground" Value="#C9D2DE" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <StackPanel Orientation="Horizontal" Background="Transparent">
-                        <Border x:Name="box" Width="17" Height="17" CornerRadius="4.5" Background="#161B22"
-                                BorderBrush="#2A3340" BorderThickness="1" VerticalAlignment="Center">
-                            <Path x:Name="check" Data="M3.6,8.6 L7,12 L13.4,4.6" Stroke="#0A0C10" StrokeThickness="2.1"
-                                  Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="False"/>
-                        </Border>
-                        <ContentPresenter x:Name="PART_ContentPresenter" Margin="9,0,0,0" VerticalAlignment="Center"
-                                          Content="{TemplateBinding Content}"
-                                          ContentTemplate="{TemplateBinding ContentTemplate}"/>
-                    </StackPanel>
-                </ControlTemplate>
-            </Setter>
-        </Style>
-        <Style Selector="CheckBox:checked /template/ Border#box">
-            <Setter Property="Background" Value="#4CC3FF" />
-            <Setter Property="BorderBrush" Value="#4CC3FF" />
-        </Style>
-        <Style Selector="CheckBox:checked /template/ Path#check">
-            <Setter Property="IsVisible" Value="True" />
-        </Style>
-        <Style Selector="CheckBox:pointerover /template/ Border#box">
-            <Setter Property="BorderBrush" Value="#4CC3FF" />
-        </Style>
-
-        <!-- Slider (WPF:239): track 4px (đã chạy accent / còn lại xám), thumb tròn sáng -->
-        <Style Selector="Slider">
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Grid Background="Transparent" MinHeight="18" VerticalAlignment="Center">
-                        <Track x:Name="PART_Track">
-                            <Track.DecreaseButton>
-                                <RepeatButton Focusable="False" IsTabStop="False">
-                                    <RepeatButton.Template>
-                                        <ControlTemplate>
-                                            <Border Background="#4CC3FF" Height="4" CornerRadius="2" />
-                                        </ControlTemplate>
-                                    </RepeatButton.Template>
-                                </RepeatButton>
-                            </Track.DecreaseButton>
-                            <Track.Thumb>
-                                <Thumb>
-                                    <Thumb.Template>
-                                        <ControlTemplate>
-                                            <Ellipse Width="15" Height="15" Fill="#E8EEF5" Stroke="#0A0C10" StrokeThickness="2" />
-                                        </ControlTemplate>
-                                    </Thumb.Template>
-                                </Thumb>
-                            </Track.Thumb>
-                            <Track.IncreaseButton>
-                                <RepeatButton Focusable="False" IsTabStop="False">
-                                    <RepeatButton.Template>
-                                        <ControlTemplate>
-                                            <Border Background="#242B36" Height="4" CornerRadius="2" />
-                                        </ControlTemplate>
-                                    </RepeatButton.Template>
-                                </RepeatButton>
-                            </Track.IncreaseButton>
-                        </Track>
-                    </Grid>
-                </ControlTemplate>
-            </Setter>
-        </Style>
+        <!-- Control styles (Button, TextBox, ComboBox, CheckBox, Slider, ToolTip, HeaderedContentControl) -->
+        <StyleInclude Source="avares://TitanEngine.Avalonia/Styles/Controls.axaml" />
     </Application.Styles>
     <Application.Resources>
         <ResourceDictionary>
-            <!-- Mirror Window.Resources của TitanEngine/MainWindow.xaml — giữ nguyên key + giá trị -->
-            <SolidColorBrush x:Key="AccentBrush" Color="#4CC3FF" />
-            <SolidColorBrush x:Key="AccentDimBrush" Color="#1F4258" />
-            <SolidColorBrush x:Key="CardBrush" Color="#11141A" />
+            <!-- ── Design tokens ── -->
+            <!-- Màu nền -->
+            <SolidColorBrush x:Key="WindowBgBrush" Color="#0B0E13" />
+            <SolidColorBrush x:Key="PanelBgBrush" Color="#11141A" />
+            <SolidColorBrush x:Key="CardBgBrush" Color="#151A21" />
+            <SolidColorBrush x:Key="HoverBgBrush" Color="#1B2230" />
+            <!-- Viền -->
+            <SolidColorBrush x:Key="BorderBrush" Color="#232B36" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="#2D3748" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="#1E242E" />
+            <!-- Accent -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#4CC3FF" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="#6FD0FF" />
+            <SolidColorBrush x:Key="AccentPressedBrush" Color="#2FA8E6" />
+            <SolidColorBrush x:Key="AccentLightBrush" Color="#2D7FBF" />
+            <!-- Màu trạng thái -->
+            <SolidColorBrush x:Key="SuccessBrush" Color="#3DDC97" />
+            <SolidColorBrush x:Key="WarningBrush" Color="#FFB84D" />
+            <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B6B" />
+            <!-- Text -->
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E6EBF2" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#8B95A5" />
+            <SolidColorBrush x:Key="TextDisabledBrush" Color="#566074" />
+            <!-- Input -->
             <SolidColorBrush x:Key="InputBrush" Color="#161B22" />
             <SolidColorBrush x:Key="InputBorderBrush" Color="#262D38" />
-            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F0F4F8" />
-            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#8B95A5" />
-            <SolidColorBrush x:Key="TextTertiaryBrush" Color="#5C6672" />
-            <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0A0C10" />
-            <SolidColorBrush x:Key="ButtonBackgroundBrush" Color="#1A202A" />
+            <SolidColorBrush x:Key="InputHoverBorderBrush" Color="#334050" />
+            <SolidColorBrush x:Key="InputFocusBorderBrush" Color="#4CC3FF" />
+            <!-- Button -->
+            <SolidColorBrush x:Key="ButtonBgBrush" Color="#1A202A" />
             <SolidColorBrush x:Key="ButtonBorderBrush" Color="#2A3340" />
+            <SolidColorBrush x:Key="ButtonHoverBgBrush" Color="#202836" />
+            <SolidColorBrush x:Key="ButtonPressedBgBrush" Color="#161B22" />
+            <SolidColorBrush x:Key="ButtonPressedBorderBrush" Color="#1F4258" />
+            <!-- ToolTip -->
             <SolidColorBrush x:Key="ToolTipBrush" Color="#171B23" />
             <SolidColorBrush x:Key="ToolTipTextBrush" Color="#C9D2DE" />
+            <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#2A3340" />
+            <!-- Backward-compatible keys (WPF MainWindow.xaml) -->
+            <SolidColorBrush x:Key="AccentDimBrush" Color="#1F4258" />
+            <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0B0E13" />
+            <!-- Khoảng cách -->
+            <x:Double x:Key="Space2">4</x:Double>
+            <x:Double x:Key="Space3">8</x:Double>
+            <x:Double x:Key="Space4">12</x:Double>
+            <x:Double x:Key="Space5">16</x:Double>
+            <x:Double x:Key="Space6">24</x:Double>
+            <!-- Cỡ chữ -->
+            <x:Double x:Key="FontSizeSm">11</x:Double>
+            <x:Double x:Key="FontSizeBase">12</x:Double>
+            <x:Double x:Key="FontSizeMd">13</x:Double>
+            <x:Double x:Key="FontSizeLg">15</x:Double>
+            <x:Double x:Key="FontSizeXl">20</x:Double>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
