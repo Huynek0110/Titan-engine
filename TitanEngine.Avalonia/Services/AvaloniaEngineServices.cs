@@ -1261,10 +1261,225 @@ public sealed class AvaloniaImageServices : IImageServices
         return path;
     }
 
+    // ── Giai đoạn 4: vẽ thật bằng SkiaSharp (không cần WPF/STA) ──
     public Task<ScratchVideoGeneratedOverlay> GenerateScratchVideoOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
         string? tag, CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"scratchvideo_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "scratch_overlay_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+            double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
+            OverlayContentLayout safeLayout = layout ?? OverlayLayoutHelper.Create(safeW, safeH, safeW, safeH);
+            var settings = ScratchVideoPreset.FromJob(job, safeLayout);
+            double cycleSeconds = Math.Max(2.0, Math.Min(6.0, Math.Max(settings.CycleSeconds, Math.Min(outputDurationSeconds, 6.0))));
+            int frameCount = Math.Clamp((int)Math.Ceiling(cycleSeconds * safeFps), 36, 180);
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            double contentX = safeLayout.ContentX;
+            double contentY = safeLayout.ContentY;
+            double contentW = safeLayout.ContentWidth;
+            double contentH = safeLayout.ContentHeight;
+
+            using var bitmap = new SKBitmap(safeW, safeH);
+            using var canvas = new SKCanvas(bitmap);
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                double timeSeconds = i / safeFps;
+                int patternIndex = Math.Max(0, (int)Math.Floor(timeSeconds / settings.ChangeIntervalSeconds));
+                double localProgress = (timeSeconds % settings.ChangeIntervalSeconds) / settings.ChangeIntervalSeconds;
+                canvas.Clear(SKColors.Transparent);
+
+                DrawScratchPattern(canvas, contentX, contentY, contentW, contentH, settings, patternIndex, localProgress);
+
+                string overlayFile = ScratchVideoPreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                SavePng(bitmap, overlayFile);
+
+                if (i < 8)
+                {
+                    string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                    SavePng(bitmap, previewFile);
+                }
+            }
+
+            onLog($"[SCRATCH-VIDEO] Generated random scratch overlay @ {safeW}x{safeH} with {frameCount} frames. Pattern change interval={settings.ChangeIntervalSeconds:0.0}s. Preview={previewDir}");
+
+            return Task.FromResult(new ScratchVideoGeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = frameCount,
+                FrameRate = safeFps,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[SCRATCH-VIDEO-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new ScratchVideoGeneratedOverlay());
+        }
+    }
+
+    private static void DrawScratchPattern(SKCanvas canvas, double contentX, double contentY, double contentW, double contentH,
+        ScratchVideoSettings settings, int patternIndex, double localProgress)
+    {
+        // Giữ nguyên thứ tự gọi Random.NextDouble() với cùng seed để determinism identical với WPF.
+        var rng = new Random(ScratchVideoPreset.HashSeed((int)contentW, (int)contentH, patternIndex));
+        double flicker = 0.88 + (0.18 * Math.Sin(localProgress * Math.PI * 2.0));
+
+        for (int i = 0; i < settings.ScratchCount; i++)
+            DrawScratchLine(canvas, contentX, contentY, contentW, contentH, settings, rng, false, flicker, localProgress);
+
+        for (int i = 0; i < settings.MicroScratchCount; i++)
+            DrawScratchLine(canvas, contentX, contentY, contentW, contentH, settings, rng, true, flicker, localProgress);
+
+        for (int i = 0; i < settings.DustCount; i++)
+            DrawDustShape(canvas, contentX, contentY, contentW, contentH, settings, rng, flicker);
+
+        for (int i = 0; i < settings.DustClusterCount; i++)
+            DrawDustCluster(canvas, contentX, contentY, contentW, contentH, settings, rng, flicker, localProgress);
+    }
+
+    private static void DrawScratchLine(SKCanvas canvas, double contentX, double contentY, double contentW, double contentH,
+        ScratchVideoSettings settings, Random rng, bool micro, double flicker, double localProgress)
+    {
+        double x = contentX + (rng.NextDouble() * contentW);
+        double y = contentY + (rng.NextDouble() * contentH);
+        double length = micro
+            ? ScratchVideoPreset.Lerp(settings.MinLength * 0.45, settings.MaxLength * 0.40, rng.NextDouble())
+            : ScratchVideoPreset.Lerp(settings.MinLength, settings.MaxLength, rng.NextDouble());
+        double angle = (rng.NextDouble() * Math.PI * 2.0) + ((rng.NextDouble() - 0.5) * (micro ? 0.18 : 0.10));
+        double dx = Math.Cos(angle) * length * 0.5;
+        double dy = Math.Sin(angle) * length * 0.5;
+        double jitter = micro ? 0.6 : 1.2;
+        double jitterX = Math.Sin((localProgress * Math.PI * 2.0) + rng.NextDouble()) * jitter;
+        double jitterY = Math.Cos((localProgress * Math.PI * 2.0) + rng.NextDouble()) * jitter;
+
+        float startX = (float)(x - dx + jitterX), startY = (float)(y - dy + jitterY);
+        float endX = (float)(x + dx + jitterX), endY = (float)(y + dy + jitterY);
+        double thickness = ScratchVideoPreset.Lerp(settings.MinThickness, settings.MaxThickness, rng.NextDouble()) * (micro ? 0.65 : 1.0);
+        double alpha = (settings.BaseOpacity * (micro ? 0.72 : 1.0) * (0.72 + (0.38 * rng.NextDouble())) * flicker);
+        double glowAlpha = settings.GlowOpacity * (micro ? 0.60 : 1.0) * (0.70 + (0.40 * rng.NextDouble())) * flicker;
+
+        using var glowPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)(thickness + (micro ? 0.8 : 1.6)),
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(glowAlpha * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        using var linePaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)thickness,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(alpha * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawLine(startX, startY, endX, endY, glowPaint);
+        canvas.DrawLine(startX, startY, endX, endY, linePaint);
+    }
+
+    private static void DrawDustShape(SKCanvas canvas, double contentX, double contentY, double contentW, double contentH,
+        ScratchVideoSettings settings, Random rng, double flicker)
+    {
+        double x = contentX + (rng.NextDouble() * contentW);
+        double y = contentY + (rng.NextDouble() * contentH);
+        double shapeSize = 0.8 + (rng.NextDouble() * 2.4);
+        double alpha = settings.BaseOpacity * 0.40 * (0.45 + (0.70 * rng.NextDouble())) * flicker;
+        SKColor dustColor = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(alpha * 255.0), 0, 255));
+
+        using var dustPaint = new SKPaint { Style = SKPaintStyle.Fill, Color = dustColor, IsAntialias = true };
+
+        if (rng.NextDouble() < 0.35)
+        {
+            canvas.DrawCircle((float)x, (float)y, (float)shapeSize, dustPaint);
+        }
+        else if (rng.NextDouble() < 0.65)
+        {
+            float rectX = (float)x, rectY = (float)y;
+            float rectW = (float)(shapeSize * 1.6), rectH = (float)(shapeSize * 0.9);
+            float rectR = (float)(shapeSize * 0.25);
+            canvas.DrawRoundRect(new SKRect(rectX, rectY, rectX + rectW, rectY + rectH), rectR, rectR, dustPaint);
+        }
+        else
+        {
+            double w = shapeSize * (1.4 + (rng.NextDouble() * 1.6));
+            double h = shapeSize * (0.25 + (rng.NextDouble() * 0.35));
+            double angle = rng.NextDouble() * 360.0;
+
+            canvas.Save();
+            canvas.Translate((float)x, (float)y);
+            canvas.RotateDegrees((float)angle);
+            float smudgeW = (float)w, smudgeH = (float)h;
+            float smudgeR = (float)(h * 0.5);
+            canvas.DrawRoundRect(new SKRect(0, 0, smudgeW, smudgeH), smudgeR, smudgeR, dustPaint);
+            canvas.Restore();
+        }
+    }
+
+    private static void DrawDustCluster(SKCanvas canvas, double contentX, double contentY, double contentW, double contentH,
+        ScratchVideoSettings settings, Random rng, double flicker, double localProgress)
+    {
+        double centerX = contentX + (rng.NextDouble() * contentW);
+        double centerY = contentY + (rng.NextDouble() * contentH);
+        int particleCount = 4 + rng.Next(8);
+        double radius = 4.0 + (rng.NextDouble() * 18.0);
+        double drift = 1.2 + (rng.NextDouble() * 2.4);
+        double phase = rng.NextDouble() * Math.PI * 2.0;
+
+        for (int i = 0; i < particleCount; i++)
+        {
+            double t = particleCount <= 1 ? 0.0 : (double)i / (particleCount - 1);
+            double theta = phase + (t * Math.PI * 2.0);
+            double offset = radius * (0.35 + rng.NextDouble());
+            double x = centerX + (Math.Cos(theta + (localProgress * 0.8)) * offset) + (Math.Sin(localProgress * Math.PI * 2.0 + phase) * drift);
+            double y = centerY + (Math.Sin(theta + (localProgress * 0.6)) * offset * 0.7) + (Math.Cos(localProgress * Math.PI * 2.0 + phase) * drift * 0.8);
+            double size = 0.6 + (rng.NextDouble() * 1.8);
+            double alpha = settings.BaseOpacity * (0.18 + (0.22 * rng.NextDouble())) * flicker;
+            using var particlePaint = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(alpha * 255.0), 0, 255)),
+                IsAntialias = true,
+            };
+            canvas.DrawCircle((float)x, (float)y, (float)size, particlePaint);
+        }
+
+        if (rng.NextDouble() < 0.55)
+        {
+            double smudgeW = 10.0 + (rng.NextDouble() * 26.0);
+            double smudgeH = 1.2 + (rng.NextDouble() * 2.4);
+            double smudgeAngle = rng.NextDouble() * 360.0;
+            double smudgeAlpha = settings.BaseOpacity * 0.14 * flicker;
+            using var smudgePaint = new SKPaint
+            {
+                Style = SKPaintStyle.Fill,
+                Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(smudgeAlpha * 255.0), 0, 255)),
+                IsAntialias = true,
+            };
+            canvas.Save();
+            canvas.Translate((float)centerX, (float)centerY);
+            canvas.RotateDegrees((float)smudgeAngle);
+            float sw = (float)smudgeW, sh = (float)smudgeH;
+            float sr = (float)(smudgeH);
+            canvas.DrawRoundRect(new SKRect(-(sw * 0.5f), -(sh * 0.5f), sw * 0.5f, sh * 0.5f), sr, sr, smudgePaint);
+            canvas.Restore();
+        }
+    }
 
     // ── Giai đoạn 4: vẽ thật bằng SkiaSharp (không cần WPF/STA) ──
     public Task<ParticleOverlaySequence> GenerateParticleOverlayAsync(int width, int height,
