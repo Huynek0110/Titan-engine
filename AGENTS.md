@@ -30,6 +30,14 @@ Toàn bộ tài liệu nằm trong 5 file; đọc đúng file theo việc bạn 
 7. **Build Release với app đã đóng.** Không đóng sẽ ra `MSB3026/MSB3027` (khoá file exe),
    không phải lỗi code.
 8. **Report cho user trước khi commit. Chỉ push khi user bảo rõ ràng.**
+9. **Avalonia: KHÔNG bỏ `FluentTheme` làm nền theme.** Các control không có style tuỳ biến
+   (ScrollViewer, ScrollBar, dropdown ComboBox/ListBox, ToolTip, ContextMenu, dialog
+   IUserPrompt) sẽ mất template mặc định → lăn chuột không tác động, dropdown không hiển
+   thị. Cách làm đúng: `Styles.Add(new FluentTheme())` + `RequestedThemeVariant = ThemeVariant.Dark`
+   trong `App.axaml.cs` TRƯỚC `AvaloniaXamlLoader.Load(this)`; các style tuỳ biến trong
+   `App.axaml` được nạp sau và ghi đè từng control cần đổi vỏ. Luôn có kiểm tra cuộn tự động
+   trong `ScreenshotRunner` (duyệt cây trực quan, ScrollViewer có `Extent > Viewport` thì
+   `LineDown()` phải đổi `Offset` → in PASS/FAIL).
 
 ## Lệnh chuẩn
 
