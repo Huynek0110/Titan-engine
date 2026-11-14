@@ -3,17 +3,17 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.MotionEditorView"
              x:DataType="vm:MotionEditorViewModel">
-  <HeaderedContentControl Header="🎬 MOTION EDITOR" Foreground="#FF9900">
+  <HeaderedContentControl Header="🎬 MOTION EDITOR" Foreground="{DynamicResource WarningBrush}">
     <StackPanel>
-      <CheckBox Content="AI 60fps Interpolation (Optical Flow)" Foreground="#F0F4F8" Margin="0,0,0,10"
+      <CheckBox Content="AI 60fps Interpolation (Optical Flow)" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,10"
                 ToolTip.Tip="Converts video to buttery smooth 60fps" IsChecked="{Binding Enable60fps}"/>
 
-      <TextBlock Text="RSMB Motion Blur" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="RSMB Motion Blur" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
         <Slider Minimum="0.0" Maximum="1.0" Value="{Binding Rsmb}" TickFrequency="0.1"/>
-        <TextBlock Grid.Column="1" Text="{Binding RsmbDisplay}" Foreground="#FF9900" FontWeight="Bold"/>
+        <TextBlock Grid.Column="1" Text="{Binding RsmbDisplay}" Foreground="{DynamicResource WarningBrush}" FontWeight="Bold"/>
       </Grid>
-      <TextBlock Text="0=Off | 0.5=Cinematic | 1.0=Heavy Blur" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+      <TextBlock Text="0=Off | 0.5=Cinematic | 1.0=Heavy Blur" Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" Margin="0,3,0,0"/>
     </StackPanel>
   </HeaderedContentControl>
 </UserControl>
