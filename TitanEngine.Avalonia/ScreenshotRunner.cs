@@ -69,6 +69,37 @@ public static class ScreenshotRunner
         }
 
         Console.WriteLine($"[SCREENSHOT] xong: {index} khu → {outDir}");
-        desktop.Shutdown();
+
+            // ── Kiểm tra cuộn chuột (mục 0 BUG KHẨN) ──
+            // Mọi ScrollViewer phải có template áp dụng (có phần tử trực quan con), và
+            // khi Extent > Viewport thì gọi LineDown() phải thay đổi Offset.
+            int scrollFail = 0;
+            int scrollIndex = 0;
+            foreach (var sv in window.GetVisualDescendants().OfType<ScrollViewer>())
+            {
+                scrollIndex++;
+                bool hasPresenter = sv.GetVisualDescendants().Any();
+                bool scrollable = sv.Extent.Height > sv.Viewport.Height
+                               || sv.Extent.Width > sv.Viewport.Width;
+                bool offsetChanged = false;
+                if (scrollable)
+                {
+                    var before = sv.Offset;
+                    sv.LineDown();
+                    // Cho layout / ScrollBar phản hồi trước khi đọc lại Offset.
+                    await global::Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () => await Task.Yield());
+                    sv.UpdateLayout();
+                    offsetChanged = sv.Offset != before;
+                }
+                bool pass = hasPresenter && (!scrollable || offsetChanged);
+                if (!pass) scrollFail++;
+                Console.WriteLine($"[SCROLL] #{scrollIndex} extent={sv.Extent.Width:F0}x{sv.Extent.Height:F0} " +
+                                  $"viewport={sv.Viewport.Width:F0}x{sv.Viewport.Height:F0} " +
+                                  $"presenter={hasPresenter} scrollable={scrollable} " +
+                                  $"offsetChanged={offsetChanged} -> {(pass ? "PASS" : "FAIL")}");
+            }
+            Console.WriteLine($"[SCROLL] xong: {scrollIndex} ScrollViewer, {scrollFail} FAIL");
+
+            desktop.Shutdown();
     }
 }

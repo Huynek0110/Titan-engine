@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
+using Avalonia.Themes.Fluent;
 using TitanEngine.Avalonia.Services;
 
 namespace TitanEngine.Avalonia;
@@ -15,7 +17,17 @@ public partial class App : Application
 
     public override void Initialize()
     {
+        // FluentTheme là nền theme mặc định (Dark). Các Style/token tuỳ biến trong App.axaml
+        // được nạp sau (trong Application.Styles / Application.Resources) và ghi đè từng
+        // control cần đổi vỏ (HeaderedContentControl, ToolTip, Button, TextBox, ComboBox,
+        // CheckBox, Slider). Các control KHÔNG có style tuỳ biến — ScrollViewer, ScrollBar,
+        // ComboBox dropdown, ListBox/ListBoxItem, ContextMenu, dialog IUserPrompt — dùng
+        // template mặc định của FluentTheme → vẫn cuộn chuột, hiển thị dropdown/tooltip.
+        // BUGFIX mục 0: commit trước bỏ FluentTheme → các control này mất template,
+        // lăn chuột không tác động, dropdown không hiện.
+        Styles.Add(new FluentTheme());
         AvaloniaXamlLoader.Load(this);
+        RequestedThemeVariant = ThemeVariant.Dark;
     }
 
     public override void OnFrameworkInitializationCompleted()
