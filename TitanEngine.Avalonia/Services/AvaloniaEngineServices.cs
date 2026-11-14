@@ -62,10 +62,317 @@ public sealed class AvaloniaImageServices : IImageServices
         "Hãy tắt hiệu ứng này hoặc dùng bản Windows.";
 
     // ── 8 khả năng vẽ WPF-stay → lỗi rõ ràng ──
+    // ── Giai đoạn 4: vẽ thật bằng SkiaSharp (không cần WPF/STA) ──
     public Task<SnowfallGeneratedOverlay> GenerateSnowfallOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, SnowfallOverlayRecipe recipe, string? tag,
         CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"snowfall_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "snow_overlay_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+            double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
+            double renderScale = Math.Min(1.0, 1280.0 / Math.Max(safeW, safeH));
+            int renderW = Math.Max(320, (int)Math.Round(safeW * renderScale));
+            int renderH = Math.Max(320, (int)Math.Round(safeH * renderScale));
+            if ((renderW & 1) != 0) renderW--;
+            if ((renderH & 1) != 0) renderH--;
+            int frameCount = Math.Clamp((int)Math.Ceiling(Math.Max(2.0, recipe.CycleSeconds) * safeFps), 36, 90);
+            var renderLayout = new OverlayContentLayout
+            {
+                CanvasWidth = renderW,
+                CanvasHeight = renderH,
+                // Snow behaves like an environmental overlay, not a media-content-only frame:
+                // particles cover the entire render canvas.
+                ContentRect = new PixelRect(0, 0, renderW, renderH)
+            };
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            var sprites = SnowflakeSpriteCache.Value;
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
+
+                using var bitmap = new SKBitmap(renderW, renderH);
+                using var canvas = new SKCanvas(bitmap);
+                canvas.Clear(SKColors.Transparent);
+
+                DrawSnowLayers(canvas, renderW, renderH, recipe, progress, sprites);
+
+                string overlayFile = SnowfallOverlayPreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                SavePng(bitmap, overlayFile);
+
+                if (i < 8)
+                {
+                    string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                    SavePng(bitmap, previewFile);
+                }
+            }
+
+            onLog($"[SNOWFALL] Generated particle overlay @ {renderW}x{renderH} (target {safeW}x{safeH}), fps={safeFps:0.00}, frames={frameCount}, preview={previewDir}");
+
+            return Task.FromResult(new SnowfallGeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = frameCount,
+                FrameRate = safeFps,
+                Width = renderW,
+                Height = renderH,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[SNOWFALL-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new SnowfallGeneratedOverlay());
+        }
+    }
+
+    private static readonly Lazy<SKImage[]> SnowflakeSpriteCache =
+        new(CreateSnowflakeSprites, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private static void DrawSnowLayers(SKCanvas canvas, int canvasW, int canvasH,
+        SnowfallOverlayRecipe recipe, double progress, SKImage[] sprites)
+    {
+        foreach (SnowOverlayLayerRecipe layer in recipe.Layers)
+        {
+            for (int i = 0; i < layer.Count; i++)
+                DrawSnowParticle(canvas, canvasW, canvasH, recipe, layer, i, progress, sprites);
+        }
+    }
+
+    private static void DrawSnowParticle(SKCanvas canvas, int canvasW, int canvasH,
+        SnowfallOverlayRecipe recipe, SnowOverlayLayerRecipe layer, int index, double progress, SKImage[] sprites)
+    {
+        // Giữ nguyên thứ tự gọi Random.NextDouble() với cùng seed để determinism identical với WPF.
+        var rng = new Random(SnowfallOverlayPreset.HashSeed(recipe.PresetName, layer.Name, index));
+        double size = SnowfallOverlayPreset.Lerp(layer.MinSize, layer.MaxSize, rng.NextDouble());
+        double opacityPulse = 0.96 + (0.22 * Math.Sin((progress * Math.PI * 2.0 * (1.0 + rng.NextDouble())) + (rng.NextDouble() * Math.PI * 2.0)));
+        double opacity = Math.Clamp(
+            SnowfallOverlayPreset.Lerp(layer.MinOpacity, layer.MaxOpacity, rng.NextDouble()) * opacityPulse,
+            0.05, 1.0);
+        double verticalLoops = SnowfallOverlayPreset.Lerp(layer.MinVerticalLoops, layer.MaxVerticalLoops, rng.NextDouble());
+        double sway = SnowfallOverlayPreset.Lerp(layer.MinSway, layer.MaxSway, rng.NextDouble());
+        double drift = SnowfallOverlayPreset.Lerp(layer.MinDrift, layer.MaxDrift, rng.NextDouble());
+        double baseX = rng.NextDouble() * canvasW;
+        double baseY = rng.NextDouble();
+        double phase = rng.NextDouble() * Math.PI * 2.0;
+        double frequency = 1.0 + (rng.NextDouble() * 2.5);
+        double margin = Math.Max(12.0, size * 3.0);
+        double rangeH = canvasH + (margin * 2.0);
+        double rangeW = canvasW + (margin * 2.0);
+
+        double totalFall = (baseY * rangeH) + (verticalLoops * progress * rangeH);
+        double fallPosition = SnowfallOverlayPreset.PositiveMod(totalFall, rangeH);
+        double descentTravel = baseY + (verticalLoops * progress);
+        double flutter =
+            (Math.Sin((progress * Math.PI * 2.0 * frequency) + phase) * sway * 0.12) +
+            (Math.Cos((progress * Math.PI * 2.0 * (0.45 + (frequency * 0.18))) + phase) * sway * 0.04);
+        double windPush = drift * (0.35 + (descentTravel * 4.20));
+        double particleX = 0 - margin + SnowfallOverlayPreset.PositiveMod(baseX + windPush + flutter + margin, rangeW);
+        double particleY = 0 - margin + fallPosition;
+
+        if (layer.UseStreaks)
+        {
+            DrawStreakParticle(canvas, particleX, particleY, size, opacity, layer, phase, progress);
+            return;
+        }
+
+        SKImage sprite = sprites[Math.Abs(SnowfallOverlayPreset.HashSeed("snowflake", layer.Name, index)) % sprites.Length];
+        double spriteSize = Math.Max(8.0, size * 4.60);
+        double rotation = (rng.NextDouble() * 360.0) + (Math.Sin((progress * Math.PI * 2.0 * (0.7 + rng.NextDouble())) + phase) * 8.0);
+
+        if (layer.UseGlow || layer.BlurMultiplier > 0.01)
+        {
+            double glowSize = spriteSize * (1.24 + (layer.BlurMultiplier * 0.12));
+            DrawSnowflakeSprite(canvas, sprite, particleX, particleY, glowSize, opacity * 0.26, rotation);
+        }
+
+        DrawSnowflakeSprite(canvas, sprite, particleX, particleY, spriteSize, opacity, rotation);
+    }
+
+    private static void DrawStreakParticle(SKCanvas canvas, double x, double y, double size, double opacity,
+        SnowOverlayLayerRecipe layer, double phase, double progress)
+    {
+        double angle = (72.0 + (Math.Sin((progress * Math.PI * 2.0 * 0.75) + phase) * 4.0)) * (Math.PI / 180.0);
+        double length = Math.Max(size * 2.0, size * layer.StreakLengthMultiplier);
+        double dx = Math.Cos(angle) * length * 0.5;
+        double dy = Math.Sin(angle) * length * 0.5;
+        float startX = (float)(x - dx), startY = (float)(y - dy);
+        float endX = (float)(x + dx), endY = (float)(y + dy);
+
+        using var glowPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)Math.Max(1.0, size * 0.95),
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.24 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        using var corePaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)Math.Max(1.0, size * 0.56),
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(Math.Min(1.0, opacity * 0.82) * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawLine(startX, startY, endX, endY, glowPaint);
+        canvas.DrawLine(startX, startY, endX, endY, corePaint);
+
+        float tailX = (float)(x - (dx * 0.70));
+        float tailY = (float)(y - (dy * 0.70));
+        using var tailPaint = new SKPaint
+        {
+            Style = SKPaintStyle.Fill,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 0.16 * 255.0), 0, 255)),
+            IsAntialias = true,
+        };
+        canvas.DrawCircle(tailX, tailY, (float)(size * 0.92), tailPaint);
+    }
+
+    private static SKImage[] CreateSnowflakeSprites()
+    {
+        var sprites = new SKImage[5];
+        for (int variant = 0; variant < 5; variant++)
+            sprites[variant] = CreateSnowflakeSprite(128, variant);
+        return sprites;
+    }
+
+    private static SKImage CreateSnowflakeSprite(int canvasSize, int variant)
+    {
+        double center = canvasSize / 2.0;
+        SKPoint pivot = new SKPoint((float)center, (float)center);
+        double radius = canvasSize * (0.28 + (variant * 0.012));
+        double branchInsetA = 0.42 + (variant * 0.03);
+        double branchInsetB = 0.66 + (variant * 0.02);
+        double branchLengthA = canvasSize * (0.09 + (variant * 0.006));
+        double branchLengthB = canvasSize * (0.07 + (variant * 0.005));
+        double branchAngleA = (26.0 + (variant * 2.0)) * (Math.PI / 180.0);
+        double branchAngleB = (18.0 + (variant * 1.5)) * (Math.PI / 180.0);
+        double coreThickness = Math.Max(1.9, canvasSize * 0.030);
+        double branchThickness = Math.Max(1.2, coreThickness * 0.56);
+
+        using var bitmap = new SKBitmap(canvasSize, canvasSize);
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+
+        using var mainPen = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)coreThickness,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(0.96 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+        };
+        using var branchPen = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)branchThickness,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(0.90 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+        };
+        using var sparklePen = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = (float)Math.Max(1.0, branchThickness * 0.62),
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(0.68 * 255.0), 0, 255)),
+            IsAntialias = true,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+        };
+
+        for (int arm = 0; arm < 6; arm++)
+        {
+            double baseAngle = (Math.PI / 3.0 * arm) + (variant * 0.045);
+            SKPoint armStart = PointOnCircle(pivot, radius * 0.08, baseAngle + Math.PI);
+            SKPoint armEnd = PointOnCircle(pivot, radius, baseAngle);
+            canvas.DrawLine(armStart, armEnd, mainPen);
+
+            DrawBranchPair(canvas, pivot, baseAngle, radius * branchInsetA, branchLengthA, branchAngleA, branchPen);
+            DrawBranchPair(canvas, pivot, baseAngle, radius * branchInsetB, branchLengthB, branchAngleB, branchPen);
+
+            if ((variant % 2) == 0)
+            {
+                double miniInset = radius * (0.78 + (arm % 2 == 0 ? 0.00 : 0.04));
+                double miniLength = branchLengthB * 0.58;
+                DrawBranchPair(canvas, pivot, baseAngle, miniInset, miniLength, branchAngleB * 0.8, sparklePen);
+            }
+        }
+
+        double innerRadius = canvasSize * (0.072 + (variant * 0.004));
+        using var innerBrush = new SKPaint
+        {
+            Style = SKPaintStyle.Fill,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(0.90 * 255.0), 0, 255)),
+            IsAntialias = true,
+        };
+        canvas.DrawCircle(pivot, (float)innerRadius, innerBrush);
+
+        using var outerBrush = new SKPaint
+        {
+            Style = SKPaintStyle.Fill,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(0.18 * 255.0), 0, 255)),
+            IsAntialias = true,
+        };
+        canvas.DrawCircle(pivot, (float)(innerRadius * 1.80), outerBrush);
+
+        return SKImage.FromBitmap(bitmap);
+    }
+
+    private static void DrawBranchPair(SKCanvas canvas, SKPoint pivot, double baseAngle,
+        double inset, double branchLength, double branchAngle, SKPaint pen)
+    {
+        SKPoint origin = PointOnCircle(pivot, inset, baseAngle);
+        SKPoint first = PointOnCircle(origin, branchLength, baseAngle + Math.PI - branchAngle);
+        SKPoint second = PointOnCircle(origin, branchLength, baseAngle + Math.PI + branchAngle);
+        canvas.DrawLine(origin, first, pen);
+        canvas.DrawLine(origin, second, pen);
+    }
+
+    private static SKPoint PointOnCircle(SKPoint pivot, double radius, double angle)
+        => new SKPoint(
+            (float)(pivot.X + (Math.Cos(angle) * radius)),
+            (float)(pivot.Y + (Math.Sin(angle) * radius)));
+
+    private static void DrawSnowflakeSprite(SKCanvas canvas, SKImage sprite, double centerX, double centerY,
+        double size, double opacity, double rotationDegrees)
+    {
+        if (opacity <= 0.001 || size <= 1.0) return;
+
+        double safeSize = Math.Max(2.0, size);
+        float left = (float)(centerX - (safeSize / 2.0));
+        float top = (float)(centerY - (safeSize / 2.0));
+        SKRect rect = new SKRect(left, top, left + (float)safeSize, top + (float)safeSize);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(opacity * 255.0), 0, 255)),
+        };
+
+        canvas.Save();
+        canvas.Translate((float)centerX, (float)centerY);
+        canvas.RotateDegrees((float)rotationDegrees);
+        canvas.Translate(-(float)centerX, -(float)centerY);
+        canvas.DrawImage(sprite, rect, paint);
+        canvas.Restore();
+    }
 
     public Task<DreamyDotGeneratedOverlay> GenerateDreamyDotOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
