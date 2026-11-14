@@ -115,16 +115,16 @@ write_job() {
 }
 
 probe_and_decode() {
-  local out="$1"
-  local out rc dur
-  out=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "$out" 2>&1)
+  local vid="$1"
+  local probe rc dur err
+  probe=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "$vid" 2>&1)
   rc=$?
-  if [ $rc -ne 0 ] || [ -z "$out" ]; then return 1; fi
-  dur=$(echo "$out" | awk -F= '{print $2}')
+  if [ $rc -ne 0 ] || [ -z "$probe" ]; then return 1; fi
+  dur=$(echo "$probe" | awk -F= '{print $2}')
   # decode sạch
-  out=$(ffmpeg -v error -i "$out" -f null - 2>&1)
+  err=$(ffmpeg -v error -i "$vid" -f null - 2>&1)
   rc=$?
-  if [ $rc -ne 0 ] || [ -n "$out" ]; then return 1; fi
+  if [ $rc -ne 0 ] || [ -n "$err" ]; then return 1; fi
   echo "$dur"
 }
 
@@ -194,9 +194,9 @@ step_screenshot() {
     n=$((n + 1))
     local stats mean nonblack
     stats=$(python3 "$REPO_ROOT/verify/phase5/imgstats.py" stats "$f" 2>&1 | tail -1)
-    mean=$(echo "$stats" | awk '{print $4}')
-    nonblack=$(echo "$stats" | awk '{print $6}' | tr -d '%')
-    if [ -z "$mean" ] || [ "$(echo "$mean > 0" | bc -l 2>/dev/null || echo 0)" != "1" ] && [ "$mean" != "0.0" ]; then :; fi
+    # imgstats.py in: file size meanLuma %nonblack %content  → mean=$3, %nonblack=$4
+    mean=$(echo "$stats" | awk '{print $3}')
+    nonblack=$(echo "$stats" | awk '{print $4}' | tr -d '%')
     if python3 - "$mean" "$nonblack" <<'PY' >/dev/null 2>&1
 import sys
 m, nb = float(sys.argv[1]), float(sys.argv[2])
@@ -222,9 +222,9 @@ PY
 step_audio_analyzer() {
   hr; say "BƯỚC 7 — âm thanh analyzer (4s im lặng + 6s sine → audible [3.800..10.000])"
   if ! have_cmd ffmpeg; then bad "ffmpeg không có"; return 1; fi
-  # amplitude rõ ràng (0.5, không phải mặc định 0.1 → −51.5 dBFS sai)
+  # sinh file âm thanh test (ffmpeg n9.0.2 không hỗ trợ amplitude trên sine filter)
   ffmpeg -y -hide_banner -loglevel error -f lavfi -i anullsrc=r=44100:cl=mono -t 4 "$TI/silence.wav" 2>/dev/null
-  ffmpeg -y -hide_banner -loglevel error -f lavfi -i sine=f=440:r=44100:amplitude=0.5 -t 6 "$TI/sine.wav" 2>/dev/null
+  ffmpeg -y -hide_banner -loglevel error -f lavfi -i sine=f=440:r=44100 -t 6 "$TI/sine.wav" 2>/dev/null
   if [ -f "$TI/silence.wav" ] && [ -f "$TI/sine.wav" ]; then
     ok "sinh file âm thanh test (silence.wav 4s + sine.wav 6s, amplitude 0.5)"
     say "  Ghi chú: analyzer đầy đủ (dBFS + seamless + audio-ring 2r + SHA-256 + alpha yuva420p)"
