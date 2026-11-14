@@ -47,7 +47,21 @@ public static class ScreenshotRunner
             if (w <= 0 || h <= 0) continue;
 
             using var bitmap = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(w), (int)Math.Ceiling(h)));
-            bitmap.Render(control);
+
+            // RenderTargetBitmap.Render(control) trên UserControl gốc là TemplatedControl
+            // (HeaderedContentControl) → vẽ đen trên Avalonia, mặc dù cây trực quan đã layout
+            // đầy đủ. Chain là ContentPresenter → [root element]. Với root là Panel
+            // (StackPanel/Grid) thì vẽ được; với root là TemplatedControl (HeaderedContentControl)
+            // thì offscreen RTB vẽ đen. Lấy phần tử gốc của UserControl và render trực tiếp
+            // (vẫn gắn cây cửa sổ → có render root, không bị treo như render panel tách biệt).
+            global::Avalonia.Visual renderTarget = control;
+            var cp = control.GetVisualChildren().FirstOrDefault();
+            if (cp != null)
+            {
+                var root = cp.GetVisualChildren().FirstOrDefault();
+                if (root != null) renderTarget = root;
+            }
+            bitmap.Render(renderTarget);
             string file = Path.Combine(outDir, $"{++index:D2}-{control.GetType().Name}.png");
             using (var fs = File.Create(file))
                 bitmap.Save(fs);
