@@ -3,41 +3,41 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.CaptionSyncView"
              x:DataType="vm:CaptionSyncViewModel">
-  <HeaderedContentControl Header="🎙️ CAPTION SYNC (AI WHISPER)" Foreground="#4CC3FF">
+  <HeaderedContentControl Header="🎙️ CAPTION SYNC (AI WHISPER)" Foreground="{DynamicResource AccentBrush}">
     <StackPanel>
-      <CheckBox Content="🎙️ Tự động tạo phụ đề theo lời Audio" Foreground="#F0F4F8" Margin="0,0,0,8"
+      <CheckBox Content="🎙️ Tự động tạo phụ đề theo lời Audio" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"
                 ToolTip.Tip="Dùng AI Whisper nghe audio và tự động chèn phụ đề sync theo từng câu" IsChecked="{Binding Enable}"/>
 
-      <TextBlock Text="Ngôn ngữ nhận dạng" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Ngôn ngữ nhận dạng" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <ComboBox ItemsSource="{Binding LangOptions}" SelectedItem="{Binding Lang}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Model AI (Độ chính xác)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Model AI (Độ chính xác)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <ComboBox ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Model}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Hiệu ứng (Animation)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Hiệu ứng (Animation)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <ComboBox ItemsSource="{Binding AnimationOptions}" SelectedItem="{Binding Animation}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Font chữ (FontFamily)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Font chữ (FontFamily)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <ComboBox ItemsSource="{Binding FontOptions}" SelectedItem="{Binding Font}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
 
-      <TextBlock Text="Vị trí (Position)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Vị trí (Position)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <ComboBox ItemsSource="{Binding PositionOptions}" SelectedItem="{Binding Position}" Margin="0,0,0,8" HorizontalAlignment="Stretch"/>
 
       <Grid Margin="0,0,0,8" ColumnDefinitions="*,10,*">
         <StackPanel>
-          <TextBlock Text="Tọa độ X (%)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+          <TextBlock Text="Tọa độ X (%)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
           <TextBox x:Name="txtCaptionXPercent" Text="{Binding XPercent}" Height="24"/>
         </StackPanel>
         <StackPanel Grid.Column="2">
-          <TextBlock Text="Tọa độ Y (%)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+          <TextBlock Text="Tọa độ Y (%)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
           <TextBox x:Name="txtCaptionYPercent" Text="{Binding YPercent}" Height="24"/>
         </StackPanel>
       </Grid>
 
-      <TextBlock Text="Cỡ chữ Caption" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,3"/>
+      <TextBlock Text="Cỡ chữ Caption" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,3"/>
       <Slider Minimum="16" Maximum="72" Value="{Binding FontSize}" TickFrequency="2" IsSnapToTickEnabled="True" Margin="0,0,0,8"/>
 
-      <TextBlock Text="AI Whisper sẽ nghe audio → tự sinh phụ đề sync" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+      <TextBlock Text="AI Whisper sẽ nghe audio → tự sinh phụ đề sync" Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" Margin="0,3,0,0"/>
     </StackPanel>
   </HeaderedContentControl>
 </UserControl>
