@@ -216,7 +216,257 @@ public sealed class AvaloniaImageServices : IImageServices
     public Task<DashedPolaroidGeneratedOverlay> GenerateDashedPolaroidOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, RenderJob job, string? tag,
         CancellationToken token, Action<string> onLog)
-        => throw new NotSupportedException(NotSupported);
+    {
+        // Phase 4: vẽ thật bằng SkiaSharp (không cần WPF/STA). Giữ contract DTO +
+        // pattern dashed_frame_%04d.png, frameCount = Clamp(Ceiling(CycleSeconds*fps), 20, 72).
+        try
+        {
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"dashedpolaroid_{safeTag}");
+            string overlayPattern = Path.Combine(tempRoot, "dashed_frame_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            int safeW = Math.Max(2, width);
+            int safeH = Math.Max(2, height);
+            double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
+            OverlayContentLayout safeLayout = layout ?? OverlayLayoutHelper.Create(safeW, safeH, safeW, safeH);
+            var settings = DashedPolaroidFramePreset.FromJob(job, safeLayout);
+            int frameCount = Math.Clamp((int)Math.Ceiling(settings.CycleSeconds * safeFps), 20, 72);
+
+            Directory.CreateDirectory(tempRoot);
+            Directory.CreateDirectory(previewDir);
+
+            double contentX = safeLayout.ContentX;
+            double contentY = safeLayout.ContentY;
+            double contentW = safeLayout.ContentWidth;
+            double contentH = safeLayout.ContentHeight;
+
+            double inset = settings.Inset;
+            double w = Math.Max(24.0, contentW - inset * 2.0);
+            double h = Math.Max(24.0, contentH - inset * 2.0);
+            double radius = Math.Min(settings.CornerRadius, Math.Min(w, h) * 0.25);
+            var frameLayout = new FrameLayoutData(contentX + inset, contentY + inset, w, h, radius);
+
+            double shadowOffset = Math.Max(2.0, settings.StrokeThickness * 0.38);
+            var shadowLayout = new FrameLayoutData(
+                contentX + inset + shadowOffset, contentY + inset + shadowOffset, w, h, radius);
+
+            double step = Math.Max(4.0, settings.DashLength + settings.DashGap);
+            int dashCount = Math.Max(8, (int)Math.Ceiling(frameLayout.Perimeter / step));
+            double dashStride = frameLayout.Perimeter / dashCount;
+            double dashLength = Math.Min(settings.DashLength, Math.Max(8.0, dashStride * 0.78));
+
+            // Bút vẽ bóng (biến đổi không theo dash → hoisting).
+            byte shadowAlpha = (byte)Math.Clamp(Math.Round(settings.ShadowOpacity * 255.0), 0, 255);
+            using var shadowPaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = (float)settings.ShadowThickness,
+                Color = new SKColor(0, 0, 0, shadowAlpha),
+                IsAntialias = true,
+                StrokeCap = SKStrokeCap.Round,
+                StrokeJoin = SKStrokeJoin.Round,
+            };
+
+            using var bitmap = new SKBitmap(safeW, safeH);
+            using var canvas = new SKCanvas(bitmap);
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                canvas.Clear(SKColors.Transparent);
+
+                double progress = frameCount <= 1 ? 0.0 : (double)i / frameCount;
+                double runner = progress * dashCount;
+
+                for (int di = 0; di < dashCount; di++)
+                {
+                    double startDistance = (di * dashStride) + Math.Max(0.0, (dashStride - dashLength) * 0.5);
+                    SKPath? shadowPath = CreateSegmentPath(shadowLayout, startDistance, dashLength, settings.SampleSpacing);
+                    SKPath? basePath = CreateSegmentPath(frameLayout, startDistance, dashLength, settings.SampleSpacing);
+
+                    double distToRunner = DashedPolaroidFramePreset.CircularDistance(di, runner, dashCount);
+                    double activeWeight = Math.Max(0.0, 1.0 - (distToRunner / 1.15));
+                    double trailWeight = Math.Max(0.0, 1.0 - (distToRunner / 2.35));
+
+                    // Bóng đệm (stroke, offset).
+                    if (shadowPath != null && !shadowPath.IsEmpty)
+                        canvas.DrawPath(shadowPath, shadowPaint);
+
+                    // Glow outer + inner (màu trắng, alpha/dày dặn thay đổi theo activeWeight).
+                    if (trailWeight > 0.01 && basePath != null && !basePath.IsEmpty)
+                    {
+                        double outerAlpha = settings.GlowOpacity * (0.34 + (1.02 * activeWeight));
+                        double innerAlpha = settings.GlowOpacity * (0.22 + (0.82 * activeWeight));
+                        double outerThickness = settings.GlowThickness * (1.02 + (0.24 * activeWeight));
+                        double innerThickness = settings.GlowThickness * (0.66 + (0.14 * activeWeight));
+
+                        using var glowOuterPaint = new SKPaint
+                        {
+                            Style = SKPaintStyle.Stroke,
+                            StrokeWidth = (float)outerThickness,
+                            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(outerAlpha * 255.0), 0, 255)),
+                            IsAntialias = true,
+                            StrokeCap = SKStrokeCap.Round,
+                            StrokeJoin = SKStrokeJoin.Round,
+                        };
+                        using var glowInnerPaint = new SKPaint
+                        {
+                            Style = SKPaintStyle.Stroke,
+                            StrokeWidth = (float)innerThickness,
+                            Color = new SKColor(255, 255, 255, (byte)Math.Clamp(Math.Round(innerAlpha * 255.0), 0, 255)),
+                            IsAntialias = true,
+                            StrokeCap = SKStrokeCap.Round,
+                            StrokeJoin = SKStrokeJoin.Round,
+                        };
+                        canvas.DrawPath(basePath, glowOuterPaint);
+                        canvas.DrawPath(basePath, glowInnerPaint);
+                    }
+
+                    // Khung chính (màu dominant, alpha/độ sáng thay đổi theo activeWeight/trailWeight).
+                    if (basePath != null && !basePath.IsEmpty)
+                    {
+                        double brightBoost = 0.84 + (0.34 * trailWeight) + (0.10 * activeWeight);
+                        byte frameAlpha = (byte)Math.Clamp(Math.Round(settings.FrameOpacity * brightBoost * 255.0), 0, 255);
+                        byte g = (byte)Math.Clamp(Math.Round(250 + (5 * activeWeight)), 0, 255);
+                        byte b = (byte)Math.Clamp(Math.Round(244 + (11 * activeWeight)), 0, 255);
+
+                        using var framePaint = new SKPaint
+                        {
+                            Style = SKPaintStyle.Stroke,
+                            StrokeWidth = (float)settings.StrokeThickness,
+                            Color = new SKColor(255, g, b, frameAlpha),
+                            IsAntialias = true,
+                            StrokeCap = SKStrokeCap.Round,
+                            StrokeJoin = SKStrokeJoin.Round,
+                        };
+                        canvas.DrawPath(basePath, framePaint);
+                    }
+
+                    shadowPath?.Dispose();
+                    basePath?.Dispose();
+                }
+
+                string overlayFile = DashedPolaroidFramePreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                SavePng(bitmap, overlayFile);
+
+                if (i < 6)
+                {
+                    string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                    SavePng(bitmap, previewFile);
+                }
+            }
+
+            onLog($"[DASHED-POLAROID] Generated rounded dashed frame overlay @ {safeW}x{safeH} with {frameCount} pulse frames. Preview={previewDir}");
+
+            return Task.FromResult(new DashedPolaroidGeneratedOverlay
+            {
+                TempRoot = tempRoot,
+                OverlayPattern = overlayPattern,
+                FrameCount = frameCount,
+                FrameRate = safeFps,
+                PreviewDirectory = previewDir,
+                TempArtifacts = new List<string> { tempRoot },
+            });
+        }
+        catch (Exception ex)
+        {
+            onLog($"[DASHED-POLAROID-ERROR] {ex.Message} — lớp overlay bị bỏ qua.");
+            return Task.FromResult(new DashedPolaroidGeneratedOverlay());
+        }
+    }
+
+    /// <summary>Bố cục khung bo góc (mirror FrameLayout trong WpfOverlayArt): tính chu vi + lấy điểm theo khoảng cách dọc theo đường viền.</summary>
+    private readonly struct FrameLayoutData
+    {
+        public double X { get; }
+        public double Y { get; }
+        public double W { get; }
+        public double H { get; }
+        public double R { get; }
+        public double Line { get; }
+        public double Arc { get; }
+        public double Perimeter { get; }
+
+        public FrameLayoutData(double x, double y, double width, double height, double radius)
+        {
+            X = x;
+            Y = y;
+            W = Math.Max(16.0, width);
+            H = Math.Max(16.0, height);
+            R = Math.Max(0.0, Math.Min(radius, Math.Min(W, H) * 0.25));
+            Line = Math.Max(0.0, W - (2.0 * R));
+            Arc = (Math.PI * R) / 2.0;
+            Perimeter = (2.0 * Line) + (2.0 * Math.Max(0.0, H - (2.0 * R))) + (4.0 * Arc);
+        }
+
+        public SKPoint GetPointAt(double distance)
+        {
+            double d = distance % Perimeter;
+            if (d < 0) d += Perimeter;
+
+            double rightX = X + W - R;
+            double bottomY = Y + H - R;
+            double vertical = Math.Max(0.0, H - (2.0 * R));
+
+            if (d <= Line)
+                return new SKPoint((float)(X + R + d), (float)Y);
+
+            d -= Line;
+            if (d <= Arc)
+                return ArcPoint(rightX, Y + R, R, -90.0 + ((d / Arc) * 90.0));
+
+            d -= Arc;
+            if (d <= vertical)
+                return new SKPoint((float)(X + W), (float)(Y + R + d));
+
+            d -= vertical;
+            if (d <= Arc)
+                return ArcPoint(rightX, bottomY, R, ((d / Arc) * 90.0));
+
+            d -= Arc;
+            if (d <= Line)
+                return new SKPoint((float)(X + W - R - d), (float)(Y + H));
+
+            d -= Line;
+            if (d <= Arc)
+                return ArcPoint(X + R, bottomY, R, 90.0 + ((d / Arc) * 90.0));
+
+            d -= Arc;
+            if (d <= vertical)
+                return new SKPoint((float)X, (float)(Y + H - R - d));
+
+            d -= vertical;
+            return ArcPoint(X + R, Y + R, R, 180.0 + ((d / Arc) * 90.0));
+        }
+
+        private static SKPoint ArcPoint(double cx, double cy, double radius, double angleDegrees)
+        {
+            if (radius <= 0.001)
+                return new SKPoint((float)cx, (float)cy);
+            double radians = angleDegrees * Math.PI / 180.0;
+            return new SKPoint(
+                (float)(cx + (Math.Cos(radians) * radius)),
+                (float)(cy + (Math.Sin(radians) * radius)));
+        }
+    }
+
+    /// <summary>Xây SKPath mô tả một đoạn trên đường viền khung (mẫu điểm, stroke), mirror StreamGeometry gốc.</summary>
+    private static SKPath? CreateSegmentPath(FrameLayoutData layout, double startDistance, double segmentLength, double sampleSpacing)
+    {
+        double safeSpacing = Math.Max(0.8, sampleSpacing);
+        int subdivisions = Math.Max(3, (int)Math.Ceiling(segmentLength / safeSpacing));
+        var path = new SKPath();
+        path.MoveTo(layout.GetPointAt(startDistance));
+        for (int stepIndex = 1; stepIndex <= subdivisions; stepIndex++)
+        {
+            double t = stepIndex / (double)subdivisions;
+            double distance = startDistance + (segmentLength * t);
+            path.LineTo(layout.GetPointAt(distance));
+        }
+        return path;
+    }
 
     public Task<ScratchVideoGeneratedOverlay> GenerateScratchVideoOverlayAsync(int width, int height,
         OverlayContentLayout? layout, double frameRate, double outputDurationSeconds, RenderJob job,
