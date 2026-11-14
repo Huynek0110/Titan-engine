@@ -234,6 +234,6 @@ dotnet publish TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release -r li
 - Title bar: **“Titan Engine V193 UI+Soundbar Update”** (WPF và Avalonia cùng tiêu đề).
 - Header comment trong `MainWindow.xaml.cs` vẫn ghi **V106** — đã lệch, chỉ là comment lịch sử,
   đừng dùng làm nguồn sự thật.
-- Soundbar renderer: **`soundbar-r38`**.
+- Soundbar renderer: **`soundbar-r39`** (bump khi đổi pixel soundbar, quy tắc AGENTS.md #4).
 - Nhánh: `master` (WPF gốc) và `port/linux` (port cross-platform). Port đang chạy Giai đoạn 5
   (Avalonia); tiến độ chi tiết trong `PORT-PROGRESS.md` (không commit).
