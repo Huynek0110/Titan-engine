@@ -3,16 +3,16 @@
              xmlns:vm="using:TitanEngine.Avalonia.ViewModels"
              x:Class="TitanEngine.Avalonia.Views.Controls.UpscaleView"
              x:DataType="vm:UpscaleViewModel">
-  <HeaderedContentControl Header="🚀 AI UPSCALE ENGINE" Foreground="#7EE787">
+  <HeaderedContentControl Header="🚀 AI UPSCALE ENGINE" Foreground="{StaticResource QueueLogTextBrush}">
     <StackPanel>
-      <TextBlock Text="Upscale Mode (AI Neural Network - FSRCNNX)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
+      <TextBlock Text="Upscale Mode (AI Neural Network - FSRCNNX)" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="0,0,0,5"/>
       <ComboBox ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding Mode}" Margin="0,0,0,10" HorizontalAlignment="Stretch"/>
-      <TextBlock Text="Sharpness Level" Foreground="#8B95A5" FontSize="11"/>
+      <TextBlock Text="Sharpness Level" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <Grid Margin="0,0,0,5" ColumnDefinitions="*,Auto">
         <Slider Minimum="0.0" Maximum="2.0" Value="{Binding Sharpness}" TickFrequency="0.1"/>
-        <TextBlock Grid.Column="1" Text="{Binding SharpnessDisplay}" Foreground="#7EE787" FontWeight="Bold"/>
+        <TextBlock Grid.Column="1" Text="{Binding SharpnessDisplay}" Foreground="{StaticResource QueueLogTextBrush}" FontWeight="Bold"/>
       </Grid>
-      <TextBlock Text="0=Soft | 1.0=Balanced | 2.0=Ultra Sharp" Foreground="#5C6672" FontSize="9" Margin="0,3,0,0"/>
+      <TextBlock Text="0=Soft | 1.0=Balanced | 2.0=Ultra Sharp" Foreground="{DynamicResource TextDisabledBrush}" FontSize="9" Margin="0,3,0,0"/>
     </StackPanel>
   </HeaderedContentControl>
 </UserControl>
