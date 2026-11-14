@@ -2040,19 +2040,44 @@ public sealed class AvaloniaImageServices : IImageServices
     }
 
     // Sanitize brand logo: decode + xoá RGB dưới alpha=0 + re-encode PNG (mirror WPF).
-    // Triển khai thật khi dựng khu WATERMARK; hiện trả false như nhánh "không sanitize được"
-    // của bản gốc (file copy nguyên trạng) — KHÔNG fake true.
+    // ── Giai đoạn 4: sanitize thật bằng SkiaSharp (không cần WPF) ──
+    // Decode ảnh → xoá RGB của pixel có alpha < 5 (giữ alpha) → re-encode PNG.
+    // Trả true nếu sanitize thành công; false nếu decode lỗi (sao chép nguyên trạng như bản gốc).
     public bool SanitizeBrandLogoAsset(string sourcePath, string destinationPath, Action<string> onLog)
     {
         try
         {
-            File.Copy(sourcePath, destinationPath, overwrite: true);
-            onLog("[BRAND-LOGO] Avalonia: sao chép nguyên trạng (sanitize WPF chưa hỗ trợ trên bản này)");
-            return false;
+            using var bmp = SKBitmap.Decode(sourcePath);
+            if (bmp == null || bmp.Width == 0 || bmp.Height == 0)
+            {
+                onLog($"[BRAND-LOGO] Decode thất bại ({sourcePath}), sao chép nguyên trạng");
+                File.Copy(sourcePath, destinationPath, overwrite: true);
+                return false;
+            }
+
+            // Xoá RGB ẩn của pixel có alpha < 5 (giữ nguyên alpha → pixel trong suốt không còn mảng màu dư).
+            for (int y = 0; y < bmp.Height; y++)
+            {
+                for (int x = 0; x < bmp.Width; x++)
+                {
+                    var c = bmp.GetPixel(x, y);
+                    if (c.Alpha < 5)
+                        bmp.SetPixel(x, y, new SKColor(0, 0, 0, c.Alpha));
+                }
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            using var image = SKImage.FromBitmap(bmp);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            using var fs = File.Create(destinationPath);
+            data.SaveTo(fs);
+
+            onLog($"[BRAND-LOGO] Đã sanitize (alpha<5 xóa RGB) → {destinationPath}");
+            return true;
         }
         catch (Exception ex)
         {
-            onLog($"[BRAND-LOGO] copy lỗi: {ex.Message}");
+            onLog($"[BRAND-LOGO] lỗi: {ex.Message}");
             return false;
         }
     }
