@@ -318,6 +318,30 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         public void CheckinScratchPaths() => _scratchCheckout = 0;
 
+        // Scratch mảng double dùng lại trong khung (không Reset vì mảng được ghi đè全部).
+        // Tránh cấp double[] mới cho envelopeTop/envelopeBottom/ringValues mỗi frame.
+        private readonly List<double[]> _scratchArrays = new(8);
+        private int _scratchArrayCheckout;
+
+        public double[] GetScratchDoubleArray(int size)
+        {
+            if (_scratchArrayCheckout < _scratchArrays.Count)
+            {
+                var a = _scratchArrays[_scratchArrayCheckout];
+                if (a.Length >= size)
+                {
+                    _scratchArrayCheckout++;
+                    return a;
+                }
+            }
+            var a2 = new double[Math.Max(size, 16)];
+            _scratchArrays.Add(a2);
+            _scratchArrayCheckout++;
+            return a2;
+        }
+
+        public void CheckinScratchArrays() => _scratchArrayCheckout = 0;
+
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
@@ -403,6 +427,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             canvas.Restore();
             _paintCache.EndFrame();
             ctx.CheckinScratchPaths();
+            ctx.CheckinScratchArrays();
         }
     }
 
@@ -495,8 +520,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         }
 
         // Spectral envelope curve: 5-tap smoothed line threading both halves, drawn under the caps.
-        var envelopeTop = new double[barCount];
-        var envelopeBottom = new double[barCount];
+        var envelopeTop = ctx.GetScratchDoubleArray(barCount);
+        var envelopeBottom = ctx.GetScratchDoubleArray(barCount);
         for (int i = 0; i < barCount; i++)
         {
             double sum = 0.0;
@@ -859,7 +884,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         // --- the ring itself ---
         var ringPath = ctx.GetScratchPath();
         const int RingSteps = 240;
-        var ringValues = new double[RingSteps];
+        var ringValues = ctx.GetScratchDoubleArray(RingSteps);
         for (int s = 0; s < RingSteps; s++)
         {
             double v = 0.0;
