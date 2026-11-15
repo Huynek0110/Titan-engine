@@ -366,6 +366,70 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         public void CheckinScratchPointArrays() => _scratchPointArrayCheckout = 0;
 
+        // Scratch mảng float dùng lại trong khung.
+        private readonly List<float[]> _scratchFloatArrays = new(8);
+        private int _scratchFloatArrayCheckout;
+
+        public float[] GetScratchFloatArray(int size)
+        {
+            if (_scratchFloatArrayCheckout < _scratchFloatArrays.Count)
+            {
+                var a = _scratchFloatArrays[_scratchFloatArrayCheckout];
+                if (a.Length >= size)
+                {
+                    _scratchFloatArrayCheckout++;
+                    return a;
+                }
+            }
+            var a2 = new float[Math.Max(size, 16)];
+            _scratchFloatArrays.Add(a2);
+            _scratchFloatArrayCheckout++;
+            return a2;
+        }
+
+        public void CheckinScratchFloatArrays() => _scratchFloatArrayCheckout = 0;
+
+        // Scratch List<ColumnSpec> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<ColumnSpec>> _scratchColumnLists = new(4);
+        private int _scratchColumnListCheckout;
+
+        public List<ColumnSpec> GetScratchColumnList()
+        {
+            if (_scratchColumnListCheckout < _scratchColumnLists.Count)
+            {
+                var list = _scratchColumnLists[_scratchColumnListCheckout];
+                list.Clear();
+                _scratchColumnListCheckout++;
+                return list;
+            }
+            var list2 = new List<ColumnSpec>();
+            _scratchColumnLists.Add(list2);
+            _scratchColumnListCheckout++;
+            return list2;
+        }
+
+        // Scratch List<(double X, double Y, double Width)> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<(double X, double Y, double Width)>> _scratchCapLists = new(4);
+        private int _scratchCapListCheckout;
+
+        public List<(double X, double Y, double Width)> GetScratchCapList()
+        {
+            if (_scratchCapListCheckout < _scratchCapLists.Count)
+            {
+                var list = _scratchCapLists[_scratchCapListCheckout];
+                list.Clear();
+                _scratchCapListCheckout++;
+                return list;
+            }
+            var list2 = new List<(double X, double Y, double Width)>();
+            _scratchCapLists.Add(list2);
+            _scratchCapListCheckout++;
+            return list2;
+        }
+
+        public void CheckinScratchColumnLists() => _scratchColumnListCheckout = 0;
+        public void CheckinScratchCapLists() => _scratchCapListCheckout = 0;
+
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
@@ -510,6 +574,9 @@ public static class SkiaSharpSoundBarStyleRenderer
             ctx.CheckinScratchPaths();
             ctx.CheckinScratchArrays();
             ctx.CheckinScratchPointArrays();
+            ctx.CheckinScratchFloatArrays();
+            ctx.CheckinScratchColumnLists();
+            ctx.CheckinScratchCapLists();
         }
     }
 
@@ -525,8 +592,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         int barCount = ctx.BarCount;
         double slot = plot.Width / barCount;
         double barWidth = ClampSafe(slot * 0.64, 1.0, slot * 0.96);
-        var columns = new List<ColumnSpec>(barCount);
-        var caps = new List<(double X, double Y, double Width)>(barCount);
+        var columns = ctx.GetScratchColumnList();
+        var caps = ctx.GetScratchCapList();
 
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double bounce = 1.0
@@ -568,8 +635,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         int barCount = ctx.BarCount;
         double slot = plot.Width / barCount;
         double barWidth = ClampSafe(slot * 0.62, 1.0, slot * 0.96);
-        var columns = new List<ColumnSpec>(barCount * 2);
-        var caps = new List<(double X, double Y, double Width)>(barCount * 2);
+        var columns = ctx.GetScratchColumnList();
+        var caps = ctx.GetScratchCapList();
 
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double bounce = 1.0
@@ -655,8 +722,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         double pillPunch = ctx.OnsetPulse;
         double baseY = plot.Bottom - (plot.Height * 0.04 * (1.0 - breathe));
 
-        var columns = new List<ColumnSpec>(barCount);
-        var caps = new List<(double X, double Y, double Width)>(barCount);
+        var columns = ctx.GetScratchColumnList();
+        var caps = ctx.GetScratchCapList();
         for (int i = 0; i < barCount; i++)
         {
             float value = ctx.SampleBand(i, barCount, true);
@@ -704,7 +771,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         int barCount = ctx.BarCount;
         double slot = plot.Width / barCount;
         double thickness = Math.Clamp(slot * 0.62, 1.0, 5.0);
-        var columns = new List<ColumnSpec>(barCount);
+        var columns = ctx.GetScratchColumnList();
 
         double columnsBass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double columnsBounce = 1.0
@@ -1725,7 +1792,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         SoundBarRenderState? state = ctx.State;
         int lifetime = Math.Max(6, ctx.FrameCount / 2);
 
-        var tilted = new float[bands.Length];
+        var tilted = ctx.GetScratchFloatArray(bands.Length);
         for (int i = 0; i < bands.Length; i++)
             tilted[i] = ctx.TiltBand(bands[i], i, bands.Length);
 
