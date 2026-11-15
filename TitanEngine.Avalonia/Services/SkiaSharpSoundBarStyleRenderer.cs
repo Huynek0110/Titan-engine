@@ -2000,9 +2000,16 @@ public static class SkiaSharpSoundBarStyleRenderer
         return gained >= 1f ? 1f : gained;
     }
 
+    // Pink-tilt chỉ phụ thuộc vào bandCount → cache tĩnh, tránh cấp float[] mới mỗi ApplyPinkTilt.
+    // Mảng chỉ đọc (caller không modify), cùng bandCount luôn trả cùng tham chiếu.
+    private static readonly Dictionary<int, float[]> _pinkTiltCache = new(16);
+
     private static float[] GetPinkTilt(int bandCount)
     {
         int count = Math.Max(1, bandCount);
+        if (_pinkTiltCache.TryGetValue(count, out var cached))
+            return cached;
+
         var tilt = new float[count];
         double spanOctaves = Math.Log2(PinkBandHighHz / PinkBandLowHz);
         for (int i = 0; i < count; i++)
@@ -2011,6 +2018,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             double db = Math.Clamp(PinkTiltDbPerOctave * octaves, 0.0, PinkTiltMaxDb);
             tilt[i] = (float)Math.Pow(10.0, db / 20.0);
         }
+        _pinkTiltCache[count] = tilt;
         return tilt;
     }
 
