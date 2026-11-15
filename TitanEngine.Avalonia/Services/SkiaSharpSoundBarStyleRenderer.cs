@@ -909,9 +909,9 @@ public static class SkiaSharpSoundBarStyleRenderer
         const int CurtainHueBuckets = 24;
         var hueGeometries = new SKPath[CurtainHueBuckets];
         for (int b = 0; b < CurtainHueBuckets; b++)
-            hueGeometries[b] = new SKPath();
+            hueGeometries[b] = ctx.GetScratchPath();
 
-        using var tipsPath = new SKPath();
+        var tipsPath = ctx.GetScratchPath();
         double tipHeight = Math.Max(2.0, thickness * 1.8);
 
         for (int i = 0; i < columns.Count; i++)
@@ -1242,6 +1242,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         // Bucketed scratch for halo+core discs.
         var haloGeometries = new SKPath[AudioRingDotBuckets];
         var coreGeometries = new SKPath[AudioRingDotBuckets];
+        for (int b = 0; b < AudioRingDotBuckets; b++)
+        {
+            haloGeometries[b] = ctx.GetScratchPath();
+            coreGeometries[b] = ctx.GetScratchPath();
+        }
         var haloAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
         var coreAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
         var used = new bool[AudioRingDotBuckets];
@@ -1249,8 +1254,6 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         for (int b = 0; b < AudioRingDotBuckets; b++)
         {
-            haloGeometries[b] = new SKPath();
-            coreGeometries[b] = new SKPath();
             double q = b / (double)(AudioRingDotBuckets - 1);
             haloRadii[b] = Math.Max(0.70, maxCoreRadius * (0.50 + (0.50 * q)));
             coreAlphas[b] = Math.Clamp(ctx.AlphaFactor * (0.45 + (0.55 * q)), 0.0, 1.0);
@@ -1346,7 +1349,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             double dustSpin = ctx.Time * 360.0;
             double dustRadius = Math.Clamp(outer * 0.006, 1.0, 3.0);
             double dustPen = Math.Max(1.2, dustRadius * 1.2);
-            using var dustPath = new SKPath();
+            var dustPath = ctx.GetScratchPath();
             for (int grain = 0; grain < DustGrains; grain++)
             {
                 double slot0 = DotJitter(grain, 977);
@@ -1605,7 +1608,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         DrawRadialRays(canvas, ctx, rays, thickness, SKStrokeCap.Butt, RadialHaloExtent(outer), coreAlways: true);
 
         // Tip dots.
-        using var tipsPath = new SKPath();
+        var tipsPath = ctx.GetScratchPath();
         for (int i = 0; i < rays.Count; i++)
             AddEllipseFigure(tipsPath, new SKPoint((float)rays[i].X1, (float)rays[i].Y1), thickness * 1.15, thickness * 1.15);
         canvas.DrawPath(tipsPath, FillPaint(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)));
@@ -1755,7 +1758,7 @@ public static class SkiaSharpSoundBarStyleRenderer
                 Math.Max(0.5, plot.Height * 0.010), SKStrokeCap.Round));
         }
 
-        using var rimPath = new SKPath();
+        var rimPath = ctx.GetScratchPath();
         rimPath.MoveTo(top[0]);
         for (int i = 1; i < columns; i++)
             rimPath.LineTo(top[i]);
