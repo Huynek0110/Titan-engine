@@ -342,6 +342,30 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         public void CheckinScratchArrays() => _scratchArrayCheckout = 0;
 
+        // Scratch mảng SKPoint dùng lại trong khung (không Reset vì mảng được ghi đè全部).
+        // Tránh cấp SKPoint[] mới cho top[]/bottom[] trong DrawWaveRibbon mỗi frame.
+        private readonly List<SKPoint[]> _scratchPointArrays = new(8);
+        private int _scratchPointArrayCheckout;
+
+        public SKPoint[] GetScratchSKPointArray(int size)
+        {
+            if (_scratchPointArrayCheckout < _scratchPointArrays.Count)
+            {
+                var a = _scratchPointArrays[_scratchPointArrayCheckout];
+                if (a.Length >= size)
+                {
+                    _scratchPointArrayCheckout++;
+                    return a;
+                }
+            }
+            var a2 = new SKPoint[Math.Max(size, 16)];
+            _scratchPointArrays.Add(a2);
+            _scratchPointArrayCheckout++;
+            return a2;
+        }
+
+        public void CheckinScratchPointArrays() => _scratchPointArrayCheckout = 0;
+
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
@@ -386,6 +410,63 @@ public static class SkiaSharpSoundBarStyleRenderer
     // khung, rồi giải phóng ở EndFrame → giảm đáng kể cấp phát native mỗi frame.
     private static readonly PaintCache _paintCache = new();
 
+    // Cross-frame SKShader cache (không xóa mỗi khung, chỉ clear khi >64 entry).
+    // Shader được tạo lại khi tham số thay đổi; cache hit khi tham số trùng (ví dụ đoạn
+    // im lặng → alpha không đổi giữa các khung). Key gồm byte alpha chính xác → pixel-perfect.
+    private static readonly ShaderCache _shaderCache = new(64);
+
+    // Hash tất cả tham số shader thành uint key (không cấp mảng). Mảng colors/offsets chỉ
+    // được tạo khi cache miss (trong lambda create).
+    private static uint LinearShaderKey(SKPoint start, SKPoint end,
+        SKColor c0, float o0, SKColor c1, float o1, SKColor c2, float o2,
+        SKColor c3, float o3, SKShaderTileMode tileMode, int colorCount)
+    {
+        unchecked
+        {
+            uint h = 2166136261u;
+            h = (h * 16777619u) ^ (uint)start.GetHashCode();
+            h = (h * 16777619u) ^ (uint)end.GetHashCode();
+            h = (h * 16777619u) ^ (uint)tileMode.GetHashCode();
+            h = (h * 16777619u) ^ (uint)colorCount;
+            h = (h * 16777619u) ^ (uint)c0.GetHashCode() ^ (uint)o0.GetHashCode();
+            h = (h * 16777619u) ^ (uint)c1.GetHashCode() ^ (uint)o1.GetHashCode();
+            h = (h * 16777619u) ^ (uint)c2.GetHashCode() ^ (uint)o2.GetHashCode();
+            h = (h * 16777619u) ^ (uint)c3.GetHashCode() ^ (uint)o3.GetHashCode();
+            return h;
+        }
+    }
+
+    // Các overload nhận từng màu/offset riêng lẻ: mảng SKColor[]/float[] chỉ được cấp
+    // bên trong lambda create → chỉ tạo khi cache miss. Cache hit không cấp phát gì.
+    private static SKShader GetLinearShader2(uint key, SKPoint start, SKPoint end,
+        SKColor c0, float o0, SKColor c1, float o1, SKShaderTileMode tileMode)
+        => _shaderCache.GetOrCreate(key, () =>
+        {
+            var colors = new SKColor[] { c0, c1 };
+            var offsets = new float[] { o0, o1 };
+            return SKShader.CreateLinearGradient(start, end, colors, offsets, tileMode);
+        });
+
+    private static SKShader GetLinearShader3(uint key, SKPoint start, SKPoint end,
+        SKColor c0, float o0, SKColor c1, float o1, SKColor c2, float o2,
+        SKShaderTileMode tileMode)
+        => _shaderCache.GetOrCreate(key, () =>
+        {
+            var colors = new SKColor[] { c0, c1, c2 };
+            var offsets = new float[] { o0, o1, o2 };
+            return SKShader.CreateLinearGradient(start, end, colors, offsets, tileMode);
+        });
+
+    private static SKShader GetLinearShader4(uint key, SKPoint start, SKPoint end,
+        SKColor c0, float o0, SKColor c1, float o1, SKColor c2, float o2,
+        SKColor c3, float o3, SKShaderTileMode tileMode)
+        => _shaderCache.GetOrCreate(key, () =>
+        {
+            var colors = new SKColor[] { c0, c1, c2, c3 };
+            var offsets = new float[] { o0, o1, o2, o3 };
+            return SKShader.CreateLinearGradient(start, end, colors, offsets, tileMode);
+        });
+
     public static void DrawFrame(SKCanvas canvas, int width, int height, SoundBarSettings settings,
         ColorPreset palette, AudioFrameData[] frames, int currentFrameIndex, SoundBarRenderState? state)
     {
@@ -428,6 +509,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             _paintCache.EndFrame();
             ctx.CheckinScratchPaths();
             ctx.CheckinScratchArrays();
+            ctx.CheckinScratchPointArrays();
         }
     }
 
@@ -796,7 +878,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         double rotation = ctx.Time * 360.0;
         double span = 360.0 / barCount;
 
-        var rawLevels = new double[barCount];
+        var rawLevels = ctx.GetScratchDoubleArray(barCount);
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
@@ -806,8 +888,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < levels.Length; i++)
             levels[i] = Math.Min(1.0, levels[i] * beat);
 
-        var tipRadii = new double[barCount];
-        var angles = new double[barCount];
+        var tipRadii = ctx.GetScratchDoubleArray(barCount);
+        var angles = ctx.GetScratchDoubleArray(barCount);
         var rays = new List<RaySpec>(barCount);
 
         FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
@@ -974,10 +1056,10 @@ public static class SkiaSharpSoundBarStyleRenderer
         // Bucketed scratch for halo+core discs.
         var haloGeometries = new SKPath[AudioRingDotBuckets];
         var coreGeometries = new SKPath[AudioRingDotBuckets];
-        var haloAlphas = new double[AudioRingDotBuckets];
-        var coreAlphas = new double[AudioRingDotBuckets];
+        var haloAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
+        var coreAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
         var used = new bool[AudioRingDotBuckets];
-        var haloRadii = new double[AudioRingDotBuckets];
+        var haloRadii = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
 
         for (int b = 0; b < AudioRingDotBuckets; b++)
         {
@@ -1137,7 +1219,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         DrawAmbientBloom(canvas, ctx, center, outer);
 
-        var rawRingLevels = new double[barCount];
+        var rawRingLevels = ctx.GetScratchDoubleArray(barCount);
         var rays = new List<RaySpec>(barCount);
         double beat = RadialBeatScale(ctx);
 
@@ -1159,8 +1241,8 @@ public static class SkiaSharpSoundBarStyleRenderer
             double turns = ringCount <= 4 ? 2.0 : 1.0;
             double rotation = ctx.Time * 360.0 * direction * turns;
 
-            var tipRadii = new double[barCount];
-            var angles = new double[barCount];
+            var tipRadii = ctx.GetScratchDoubleArray(barCount);
+            var angles = ctx.GetScratchDoubleArray(barCount);
 
             for (int i = 0; i < barCount; i++)
                 rawRingLevels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
@@ -1305,7 +1387,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         double span = 360.0 / barCount;
         double rotation = ctx.Time * -360.0;
 
-        var rawLevels = new double[barCount];
+        var rawLevels = ctx.GetScratchDoubleArray(barCount);
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
@@ -1366,11 +1448,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         int available = Math.Min(waveMin?.Length ?? 0, waveMax?.Length ?? 0);
 
         int columns = Math.Clamp(ctx.BarCount * 2, 24, 512);
-        var top = new SKPoint[columns];
-        var bottom = new SKPoint[columns];
+        var top = ctx.GetScratchSKPointArray(columns);
+        var bottom = ctx.GetScratchSKPointArray(columns);
         double slot = plot.Width / columns;
 
-        var magnitudes = new double[columns];
+        var magnitudes = ctx.GetScratchDoubleArray(columns);
         for (int i = 0; i < columns; i++)
         {
             float lo = 0f;
@@ -1409,22 +1491,23 @@ public static class SkiaSharpSoundBarStyleRenderer
         ribbonPath.Close();
 
         double fillAlpha = Math.Min(1.0, 0.55 * ctx.AlphaFactor);
+        SKColor glow = ctx.Resolved.Glow;
+        SKColor rc0 = WithAlpha(glow, fillAlpha * 0.45f);
+        SKColor rc1 = WithAlpha(glow, fillAlpha);
+        SKColor rc2 = WithAlpha(glow, fillAlpha * 0.45f);
+        var ribbonKey = LinearShaderKey(
+            new SKPoint(0, (float)plot.Top),
+            new SKPoint(0, (float)plot.Bottom),
+            rc0, 0f, rc1, 0.5f, rc2, 1f, rc2, 1f, SKShaderTileMode.Clamp, 3);
         // Cache sở hữu lifetime → không dùng using.
         var fillPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Fill,
-            Shader = SKShader.CreateLinearGradient(
+            Shader = GetLinearShader3(ribbonKey,
                 new SKPoint(0, (float)plot.Top),
                 new SKPoint(0, (float)plot.Bottom),
-                new[]
-                {
-                    WithAlpha(ctx.Resolved.Glow, fillAlpha * 0.45f),
-                    WithAlpha(ctx.Resolved.Glow, fillAlpha),
-                    WithAlpha(ctx.Resolved.Glow, fillAlpha * 0.45f)
-                },
-                new[] { 0f, 0.5f, 1f },
-                SKShaderTileMode.Clamp)
+                rc0, 0f, rc1, 0.5f, rc2, 1f, SKShaderTileMode.Clamp)
         };
         canvas.DrawPath(ribbonPath, fillPaint);
 
@@ -1818,19 +1901,22 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         double punch = ctx.OnsetPulse;
         double alpha = Math.Min(1.0, 0.15 * ctx.GlowIntensity * (1.0 + (0.6 * punch))) * ctx.AlphaFactor;
-
+        SKColor glow = ctx.Resolved.Glow;
+        SKColor sc0 = WithAlpha(glow, (float)alpha);
+        SKColor sc1 = WithAlpha(glow, (float)(alpha * 0.35));
+        SKColor sc2 = SKColors.Transparent;
+        var spillKey = LinearShaderKey(
+            new SKPoint(0, (float)baselineY),
+            new SKPoint(0, (float)(baselineY + stripHeight)),
+            sc0, 0f, sc1, 0.45f, sc2, 1f, sc2, 1f, SKShaderTileMode.Clamp, 3);
         using var brushPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Fill,
-            Shader = SKShader.CreateLinearGradient(
+            Shader = GetLinearShader3(spillKey,
                 new SKPoint(0, (float)baselineY),
                 new SKPoint(0, (float)(baselineY + stripHeight)),
-                new[] { WithAlpha(ctx.Resolved.Glow, (float)alpha),
-                        WithAlpha(ctx.Resolved.Glow, (float)(alpha * 0.35)),
-                        SKColors.Transparent },
-                new[] { 0f, 0.45f, 1f },
-                SKShaderTileMode.Clamp)
+                sc0, 0f, sc1, 0.45f, sc2, 1f, SKShaderTileMode.Clamp)
         };
         canvas.DrawRect(new SKRect((float)plotLeft, (float)baselineY,
             (float)(plotLeft + plotWidth), (float)(baselineY + stripHeight)), brushPaint);
@@ -1865,16 +1951,21 @@ public static class SkiaSharpSoundBarStyleRenderer
             return;
 
         double fade = Math.Min(1.0, 0.20 * ctx.AlphaFactor);
+        SKColor glow = ctx.Resolved.Glow;
+        SKColor gc0 = WithAlpha(glow, (float)fade);
+        SKColor gc1 = SKColors.Transparent;
+        var glossyKey = LinearShaderKey(
+            new SKPoint(0, (float)baseY),
+            new SKPoint(0, (float)(baseY + (maxReflection * 0.45))),
+            gc0, 0f, gc1, 1f, gc1, 1f, gc1, 1f, SKShaderTileMode.Clamp, 2);
         using var brushPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Fill,
-            Shader = SKShader.CreateLinearGradient(
+            Shader = GetLinearShader2(glossyKey,
                 new SKPoint(0, (float)baseY),
                 new SKPoint(0, (float)(baseY + (maxReflection * 0.45))),
-                new[] { WithAlpha(ctx.Resolved.Glow, (float)fade), SKColors.Transparent },
-                new[] { 0f, 1f },
-                SKShaderTileMode.Clamp)
+                gc0, 0f, gc1, 1f, SKShaderTileMode.Clamp)
         };
         canvas.DrawPath(reflection, brushPaint);
     }
@@ -2392,6 +2483,29 @@ public static class SkiaSharpSoundBarStyleRenderer
                 && Radius == other.Radius && Alpha == other.Alpha;
 
             public override int GetHashCode() => HashCode.Combine(Color, CenterX, CenterY, Radius, Alpha);
+        }
+    }
+
+    // Cross-frame SKShader cache: tạo shader 1 lần per tham số, dùng lại qua nhiều khung.
+    // Giới hạn 64 entry, clear khi vượt ngưỡng (giống ResolvedPalette cache).
+    private sealed class ShaderCache
+    {
+        private readonly Dictionary<uint, SKShader> _cache;
+
+        public ShaderCache(int capacity)
+        {
+            _cache = new Dictionary<uint, SKShader>(capacity);
+        }
+
+        public SKShader GetOrCreate(uint key, Func<SKShader> create)
+        {
+            if (_cache.TryGetValue(key, out var shader))
+                return shader;
+            shader = create();
+            if (_cache.Count > 64)
+                _cache.Clear();
+            _cache[key] = shader;
+            return shader;
         }
     }
 
