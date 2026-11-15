@@ -261,6 +261,28 @@ public static class SkiaSharpSoundBarStyleRenderer
             BarCount = Math.Clamp(settings.BarCount, MinBars, MaxBars);
         }
 
+        // Scratch SKPath dùng lại trong suốt một khung (Reset trước mỗi lần dùng),
+        // kết thúc cấp phát SKPath mới mỗi Build*Geometry.
+        private readonly List<SKPath> _scratchPaths = new(8);
+        private int _scratchCheckout;
+
+        public SKPath GetScratchPath()
+        {
+            if (_scratchCheckout < _scratchPaths.Count)
+            {
+                var p = _scratchPaths[_scratchCheckout];
+                p.Reset();
+                _scratchCheckout++;
+                return p;
+            }
+            var p2 = new SKPath();
+            _scratchPaths.Add(p2);
+            _scratchCheckout++;
+            return p2;
+        }
+
+        public void CheckinScratchPaths() => _scratchCheckout = 0;
+
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
@@ -371,6 +393,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         {
             canvas.Restore();
             _paintCache.EndFrame();
+            ctx.CheckinScratchPaths();
         }
     }
 
@@ -623,7 +646,9 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         canvas.DrawPath(tipsPath, FillPaint(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor)));
 
-        DrawGlowPasses(canvas, BuildLineGeometry(columns), Math.Max(0.5, thickness * 0.55), ctx.Resolved,
+        SKPath lines = ctx.GetScratchPath();
+        BuildLineGeometry(lines, columns);
+        DrawGlowPasses(canvas, lines, Math.Max(0.5, thickness * 0.55), ctx.Resolved,
             ctx.GlowIntensity, ctx.AlphaFactor, SKStrokeCap.Round,
             coreWidthRatio: GlowColumnCoreWidthRatio);
 
@@ -1651,7 +1676,8 @@ public static class SkiaSharpSoundBarStyleRenderer
 
             double twinkle = 0.86 + (0.14 * Math.Sin(age * Math.PI * 2.0 * 1.5));
             double rotation = (star.BandIndex % 2 == 0) ? 0.0 : 45.0;
-            using var sparkle = BuildSparkleGeometry(center, radius * twinkle, rotation);
+            SKPath sparkle = ctx.GetScratchPath();
+            BuildSparkleGeometry(sparkle, center, radius * twinkle, rotation);
             canvas.DrawPath(sparkle, starBrush);
         }
     }
@@ -1688,11 +1714,13 @@ public static class SkiaSharpSoundBarStyleRenderer
             ColumnSpec first = bucket[0];
             double height = entry.Key.Height;
             double tipY = entry.Key.Downward ? first.BaseY + height : first.BaseY - height;
-            SKPath body = BuildColumnGeometry(bucket, roundness);
+            SKPath body = ctx.GetScratchPath();
+            BuildColumnGeometry(body, bucket, roundness);
             canvas.DrawPath(body, GetColumnPaint(ctx, first.BaseY, tipY, (int)ctx.Alpha));
         }
 
-        SKPath lines = BuildLineGeometry(columns);
+        SKPath lines = ctx.GetScratchPath();
+        BuildLineGeometry(lines, columns);
         DrawGlowPasses(canvas, lines, glowThickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap,
             coreWidthRatio: GlowColumnCoreWidthRatio);
     }
@@ -1874,7 +1902,8 @@ public static class SkiaSharpSoundBarStyleRenderer
     {
         if (rays.Count == 0)
             return;
-        SKPath geometry = BuildRayGeometry(rays);
+        SKPath geometry = ctx.GetScratchPath();
+        BuildRayGeometry(geometry, rays);
         DrawGlowPasses(canvas, geometry, thickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor, cap,
             maxHaloThickness, coreAlways);
     }
@@ -2066,16 +2095,17 @@ public static class SkiaSharpSoundBarStyleRenderer
             {
                 double b0 = a0 + ((a1 - a0) * s / sectors);
                 double b1 = a0 + ((a1 - a0) * (s + 1) / sectors);
-                SKPath wedge = BuildWedge(center, inner, tip, b0, b1);
+                SKPath wedge = ctx.GetScratchPath();
+                BuildWedge(wedge, center, inner, tip, b0, b1);
                 SKColor color = ctx.Resolved.GetAngularBrush(b0, ctx.Alpha, colorSectorShift);
                 canvas.DrawPath(wedge, FillPaint(color));
             }
         }
     }
 
-    private static SKPath BuildColumnGeometry(List<ColumnSpec> columns, double roundness)
+    private static void BuildColumnGeometry(SKPath geometry, List<ColumnSpec> columns, double roundness)
     {
-        var geometry = new SKPath();
+        geometry.Reset();
         double corner = Math.Clamp(roundness, 0.0, 1.0);
         for (int i = 0; i < columns.Count; i++)
         {
@@ -2099,24 +2129,22 @@ public static class SkiaSharpSoundBarStyleRenderer
                 (float)(column.CenterX + halfWidth), (float)bottom);
             geometry.AddRoundRect(rect, radius, radius);
         }
-        return geometry;
     }
 
-    private static SKPath BuildLineGeometry(List<ColumnSpec> segments)
+    private static void BuildLineGeometry(SKPath geometry, List<ColumnSpec> segments)
     {
-        var geometry = new SKPath();
+        geometry.Reset();
         for (int i = 0; i < segments.Count; i++)
         {
             ColumnSpec segment = segments[i];
             geometry.MoveTo((float)segment.CenterX, (float)segment.BaseY);
             geometry.LineTo((float)segment.CenterX, (float)segment.TipY);
         }
-        return geometry;
     }
 
-    private static SKPath BuildRayGeometry(List<RaySpec> segments)
+    private static void BuildRayGeometry(SKPath geometry, List<RaySpec> segments)
     {
-        var geometry = new SKPath();
+        geometry.Reset();
         for (int i = 0; i < segments.Count; i++)
         {
             RaySpec segment = segments[i];
@@ -2126,14 +2154,13 @@ public static class SkiaSharpSoundBarStyleRenderer
             geometry.MoveTo((float)segment.X0, (float)segment.Y0);
             geometry.LineTo((float)segment.X1, (float)segment.Y1);
         }
-        return geometry;
     }
 
     private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 
-    private static SKPath BuildWedge(SKPoint center, double r0, double r1, double angleStart, double angleEnd)
+    private static void BuildWedge(SKPath geometry, SKPoint center, double r0, double r1, double angleStart, double angleEnd)
     {
-        var geometry = new SKPath();
+        geometry.Reset();
         double outerR = Math.Max(r1, r0 + 0.5);
 
         SKPoint startOuter = PointOnCircle(center, outerR, angleStart);
@@ -2149,12 +2176,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         geometry.ArcTo(oval, (float)angleStart, (float)(angleEnd - angleStart), false);
         geometry.LineTo(endOuter);
         geometry.Close();
-        return geometry;
     }
 
-    private static SKPath BuildSparkleGeometry(SKPoint center, double radius, double rotateDegrees = 0.0)
+    private static void BuildSparkleGeometry(SKPath geometry, SKPoint center, double radius, double rotateDegrees = 0.0)
     {
-        var geometry = new SKPath();
+        geometry.Reset();
         double r = Math.Max(0.8, radius);
         const double Waist = 0.10;
         const double Diagonal = 0.42;
@@ -2176,7 +2202,6 @@ public static class SkiaSharpSoundBarStyleRenderer
                 (float)(center.Y + (Sin(angle) * length))));
         }
         geometry.Close();
-        return geometry;
     }
 
     private static void AddEllipseFigure(SKPath path, SKPoint center, double radiusX, double radiusY)
