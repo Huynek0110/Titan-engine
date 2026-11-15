@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -2885,8 +2884,9 @@ public static class SkiaSharpSoundBarStyleRenderer
             HashCode.Combine(PaletteId, BaseY, Height, Downward, Alpha);
     }
 
-    private static readonly ConcurrentDictionary<ColumnPaintKey, SKPaint> _columnPaintCache =
-        new ConcurrentDictionary<ColumnPaintKey, SKPaint>();
+    // Rendering tuần tự (không song tiến) → Dictionary thường đủ, tránh chi phí ConcurrentDictionary.
+    private static readonly Dictionary<ColumnPaintKey, SKPaint> _columnPaintCache =
+        new(1024);
 
     private static SKPaint GetColumnPaint(FrameContext ctx, double baseY, double tipY, int alpha)
     {
