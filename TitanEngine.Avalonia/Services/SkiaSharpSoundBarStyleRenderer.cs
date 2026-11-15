@@ -506,10 +506,43 @@ public static class SkiaSharpSoundBarStyleRenderer
             return list2;
         }
 
+        // Scratch List<ColumnSpec> dùng làm giá trị bucket trong DrawColumns (Clear trước mỗi lần dùng).
+        private readonly List<List<ColumnSpec>> _scratchBucketLists = new(8);
+        private int _scratchBucketListCheckout;
+
+        public List<ColumnSpec> GetScratchBucketList()
+        {
+            if (_scratchBucketListCheckout < _scratchBucketLists.Count)
+            {
+                var list = _scratchBucketLists[_scratchBucketListCheckout];
+                list.Clear();
+                _scratchBucketListCheckout++;
+                return list;
+            }
+            var list2 = new List<ColumnSpec>();
+            _scratchBucketLists.Add(list2);
+            _scratchBucketListCheckout++;
+            return list2;
+        }
+
+        // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
+        // Clear mỗi khung để reuse capacity, tránh cấp Dictionary mới mỗi frame.
+        // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
+        // Clear mỗi khung để reuse capacity, tránh cấp Dictionary mới mỗi frame.
+        private readonly Dictionary<(int Height, bool Downward), List<ColumnSpec>> _scratchColumnBuckets =
+            new(16);
+
+        public Dictionary<(int Height, bool Downward), List<ColumnSpec>> GetScratchColumnBuckets()
+        {
+            _scratchColumnBuckets.Clear();
+            return _scratchColumnBuckets;
+        }
+
         public void CheckinScratchRaySpecLists() => _scratchRaySpecListCheckout = 0;
         public void CheckinScratchDoubleLists() => _scratchDoubleListCheckout = 0;
         public void CheckinScratchStarLists() => _scratchStarListCheckout = 0;
         public void CheckinScratchPeakBandLists() => _scratchPeakBandListCheckout = 0;
+        public void CheckinScratchBucketLists() => _scratchBucketListCheckout = 0;
 
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
@@ -662,6 +695,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             ctx.CheckinScratchDoubleLists();
             ctx.CheckinScratchStarLists();
             ctx.CheckinScratchPeakBandLists();
+            ctx.CheckinScratchBucketLists();
         }
     }
 
@@ -1963,14 +1997,14 @@ public static class SkiaSharpSoundBarStyleRenderer
         if (columns.Count == 0)
             return;
 
-        var buckets = new Dictionary<(int Height, bool Downward), List<ColumnSpec>>(columns.Count);
+        var buckets = ctx.GetScratchColumnBuckets();
         for (int i = 0; i < columns.Count; i++)
         {
             ColumnSpec column = columns[i];
             var key = ((int)Math.Round(Math.Min(column.Height, 4096.0)), column.TipY >= column.BaseY);
             if (!buckets.TryGetValue(key, out List<ColumnSpec>? bucket))
             {
-                bucket = new List<ColumnSpec>();
+                bucket = ctx.GetScratchBucketList();
                 buckets.Add(key, bucket);
             }
             bucket.Add(column);
