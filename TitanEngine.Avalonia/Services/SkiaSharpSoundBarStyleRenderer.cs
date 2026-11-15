@@ -259,6 +259,41 @@ public static class SkiaSharpSoundBarStyleRenderer
                 Math.Clamp(palette.GlowStrength, 0.0, 2.0) *
                 AlphaFactor;
             BarCount = Math.Clamp(settings.BarCount, MinBars, MaxBars);
+
+            // Các giá trị chỉ phụ thuộc vào frame hiện tại → tính 1 lần, dùng lại hết khung
+            // (giống y hệt WPF, chỉ tránh tính lại thừa).
+            _midLevel = MidLevelStatic(this);
+            _voiceLevel = VoiceLevelStatic(this);
+            _onsetPulse = OnsetPulseEnvelopeStatic(this);
+            _peakLevels = null; // lazy, tính khi cần
+        }
+
+        // Cache per-frame: MidLevel (gọi 10+ lần/frame nếu để static).
+        private double _midLevel;
+        public double MidLevel => _midLevel;
+
+        // Cache per-frame: VoiceLevel.
+        private double _voiceLevel;
+        public double VoiceLevel => _voiceLevel;
+
+        // Cache per-frame: OnsetPulseEnvelope (loop tối đa 9 frame history).
+        private double _onsetPulse;
+        public double OnsetPulse => _onsetPulse;
+
+        // Cache per-frame: SampleBandPeak cho mọi bar (256 bar × 25 lookback = 6400 iter/frame).
+        private double[]? _peakLevels;
+        public double[] PeakLevels
+        {
+            get
+            {
+                if (_peakLevels == null)
+                {
+                    _peakLevels = new double[BarCount];
+                    for (int i = 0; i < BarCount; i++)
+                        _peakLevels[i] = SampleBandPeakStatic(this, i, BarCount);
+                }
+                return _peakLevels;
+            }
         }
 
         // Scratch SKPath dùng lại trong suốt một khung (Reset trước mỗi lần dùng),
@@ -285,32 +320,6 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
-
-        public float SampleBandFrame(AudioFrameData frame, int barIndex, int barCount)
-        {
-            float[]? frameBands = frame?.Bands;
-            if (frameBands == null || frameBands.Length == 0 || barCount <= 0)
-                return 0f;
-            int length = frameBands.Length;
-            int index = Math.Clamp((int)Math.Floor((barIndex / (double)barCount) * length), 0, length - 1);
-            return ApplyPinkTilt(Math.Clamp(frameBands[index] * Sensitivity, 0f, 1f), index, length);
-        }
-
-        public double SampleBandPeak(int barIndex, int barCount)
-        {
-            double peak = 0.0;
-            for (int k = 0; k <= PeakCapMaxLookback; k++)
-            {
-                AudioFrameData? back = FrameAt(Frames, Index - k);
-                if (back == null)
-                    break;
-                double contribution = SampleBandFrame(back, barIndex, barCount)
-                    - (PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames));
-                if (contribution > peak)
-                    peak = contribution;
-            }
-            return Math.Clamp(peak, 0.0, 1.0);
-        }
 
         public float TiltBand(float raw, int index, int bandCount)
             => ApplyPinkTilt(Math.Clamp(raw * Sensitivity, 0f, 1f), index, bandCount);
@@ -415,9 +424,9 @@ public static class SkiaSharpSoundBarStyleRenderer
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double bounce = 1.0
             + (BarBassBounceFraction * bass)
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (BarBeatPunchFraction * ctx.OnsetPulse);
 
         for (int i = 0; i < barCount; i++)
         {
@@ -426,7 +435,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             double tipY = plot.Bottom - reach;
             columns.Add(new ColumnSpec(plot.Left + (slot * (i + 0.5)), plot.Bottom, tipY, barWidth));
 
-            double peakReach = ctx.SampleBandPeak(i, barCount) * plot.Height * bounce;
+            double peakReach = ctx.PeakLevels[i] * plot.Height * bounce;
             if (peakReach > reach + 2.0)
                 caps.Add((plot.Left + (slot * (i + 0.5)), plot.Bottom - peakReach - (barWidth * 0.30), barWidth));
         }
@@ -458,9 +467,9 @@ public static class SkiaSharpSoundBarStyleRenderer
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double bounce = 1.0
             + (BarBassBounceFraction * bass)
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (BarBeatPunchFraction * ctx.OnsetPulse);
 
         // Mirror axis: thin bright line anchoring the centre so the two halves read as one figure.
         using var axisPath = new SKPath();
@@ -477,7 +486,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             columns.Add(new ColumnSpec(x, midY, midY - reach, barWidth));
             columns.Add(new ColumnSpec(x, midY, midY + reach, barWidth));
 
-            double peakReach = ctx.SampleBandPeak(i, barCount) * halfHeight * bounce;
+            double peakReach = ctx.PeakLevels[i] * halfHeight * bounce;
             if (peakReach > reach + 2.0)
             {
                 caps.Add((x, midY - peakReach - (barWidth * 0.30), barWidth));
@@ -536,7 +545,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         double audioPresence = Math.Clamp((ctx.Current?.Rms ?? 0f) / 0.004, 0.0, 1.0);
         double breathe = 0.93 + (0.07 * (1.0 - audioPresence))
             + (0.07 * audioPresence * Math.Sin(ctx.Time * Math.PI * 2.0));
-        double pillPunch = OnsetPulseEnvelope(ctx);
+        double pillPunch = ctx.OnsetPulse;
         double baseY = plot.Bottom - (plot.Height * 0.04 * (1.0 - breathe));
 
         var columns = new List<ColumnSpec>(barCount);
@@ -545,12 +554,12 @@ public static class SkiaSharpSoundBarStyleRenderer
         {
             float value = ctx.SampleBand(i, barCount, true);
             double span = plot.Height * breathe
-                * (1.0 + (BarBeatPunchFraction * pillPunch) + (MidSwellFraction * MidLevel(ctx))
-                + (VoiceSwellFraction * VoiceLevel(ctx)));
+                * (1.0 + (BarBeatPunchFraction * pillPunch) + (MidSwellFraction * ctx.MidLevel)
+                + (VoiceSwellFraction * ctx.VoiceLevel));
             double reach = Math.Max(MinimumReach(span), value * span);
             columns.Add(new ColumnSpec(plot.Left + (slot * (i + 0.5)), baseY, baseY - reach, barWidth));
 
-            double peakReach = ctx.SampleBandPeak(i, barCount) * span;
+            double peakReach = ctx.PeakLevels[i] * span;
             if (peakReach > reach + 2.0)
                 caps.Add((plot.Left + (slot * (i + 0.5)), baseY - peakReach - (barWidth * 0.45), barWidth));
         }
@@ -593,9 +602,9 @@ public static class SkiaSharpSoundBarStyleRenderer
         double columnsBass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double columnsBounce = 1.0
             + (BarBassBounceFraction * columnsBass)
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (BarBeatPunchFraction * ctx.OnsetPulse);
         for (int i = 0; i < barCount; i++)
         {
             // Deliberately unsmoothed: the curtain looks raw and slightly ragged.
@@ -678,9 +687,9 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         double dotBeat = 1.0
             + (BarBassBounceFraction * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (BarBeatPunchFraction * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (BarBeatPunchFraction * ctx.OnsetPulse);
 
         var lit = new SKPath[litGroupCount];
         for (int g = 0; g < litGroupCount; g++)
@@ -697,7 +706,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             int litCount = (int)Math.Round(value * dotBeat * rows);
             litCount = Math.Clamp(litCount, 1, rows);
 
-            double peakValue = ctx.SampleBandPeak(c, columns);
+            double peakValue = ctx.PeakLevels[c];
             int peakRow = Math.Clamp((int)Math.Round(peakValue * rows), 1, rows) + 1;
             bool showPeakDot = peakRow > litCount && peakRow <= rows;
 
@@ -837,8 +846,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         double breathe = 1.0
             + (AudioRingBassBreatheFraction * bass)
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
             + (AudioRingPulseKickFraction * pulse);
 
         double baseRadius = outer * AudioRingBaseFraction * breathe;
@@ -1190,7 +1199,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
                 double t = Math.Clamp(age / (double)lifetime, 0.0, 1.0);
                 double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
-                double voiceReach = eased * (1.0 + (VoiceRippleReachFraction * VoiceLevel(ctx)));
+                double voiceReach = eased * (1.0 + (VoiceRippleReachFraction * ctx.VoiceLevel));
                 double radius = inner + ((outer - inner) * voiceReach);
                 double fade = Math.Pow(1.0 - t, 1.6) * (0.35 + (0.65 * ripple.Energy));
 
@@ -1320,9 +1329,9 @@ public static class SkiaSharpSoundBarStyleRenderer
         double midY = plot.Top + (plot.Height * 0.5);
         double ribbonBeat = 1.0
             + (0.05 * Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0))
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (0.05 * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (0.05 * ctx.OnsetPulse);
         double halfHeight = plot.Height * 0.48 * ribbonBeat;
 
         AudioFrameData? frame = ctx.Current;
@@ -1472,7 +1481,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         double centerX = plot.Left + (plot.Width * 0.5);
         double thickness = Math.Clamp(plot.Height * 0.10, 2.0, Math.Max(2.0, plot.Width * 0.30));
         double rms = Math.Clamp(
-            CenterColumnLevel(ctx.Current?.Rms ?? 0f) + (VoiceCenterColumnFraction * VoiceLevel(ctx)),
+            CenterColumnLevel(ctx.Current?.Rms ?? 0f) + (VoiceCenterColumnFraction * ctx.VoiceLevel),
             0.0, 1.0);
 
         float rawHold = Math.Clamp(ctx.Current?.Peak ?? 0f, 0f, 1f);
@@ -1648,8 +1657,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         }
 
         double starFlash = 1.0
-            + (0.45 * OnsetPulseEnvelope(ctx))
-            + (VoiceStarFlashFraction * VoiceLevel(ctx));
+            + (0.45 * ctx.OnsetPulse)
+            + (VoiceStarFlashFraction * ctx.VoiceLevel);
 
         double maxStarRadius = Math.Max(2.0, plot.Height * 0.07);
         SKPaint starBrush = FillPaint(WithAlpha(ctx.Resolved.Core, Math.Min(1.0, ctx.AlphaFactor * starFlash)));
@@ -1779,7 +1788,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             return;
         stripHeight = Math.Min(stripHeight, available);
 
-        double punch = OnsetPulseEnvelope(ctx);
+        double punch = ctx.OnsetPulse;
         double alpha = Math.Min(1.0, 0.15 * ctx.GlowIntensity * (1.0 + (0.6 * punch))) * ctx.AlphaFactor;
 
         using var brushPaint = new SKPaint
@@ -1848,7 +1857,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             return;
 
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
-        double punch = OnsetPulseEnvelope(ctx);
+        double punch = ctx.OnsetPulse;
         double breathe = 1.0 + (0.04 * bass) + (0.03 * punch);
         double radius = Math.Max(4.0, outer * 1.05 * breathe);
         double alpha = Math.Min(1.0, 0.085 * ctx.GlowIntensity * (1.0 + (0.5 * punch))) * ctx.AlphaFactor;
@@ -2624,13 +2633,13 @@ public static class SkiaSharpSoundBarStyleRenderer
         };
     }
 
-    private static double MidLevel(FrameContext ctx)
+    private static double MidLevelStatic(FrameContext ctx)
         => Math.Clamp((ctx.Current?.Mid ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
 
-    private static double VoiceLevel(FrameContext ctx)
+    private static double VoiceLevelStatic(FrameContext ctx)
         => Math.Clamp(ctx.Current?.Voice ?? 0f, 0.0, 1.0);
 
-    private static double OnsetPulseEnvelope(FrameContext ctx)
+    private static double OnsetPulseEnvelopeStatic(FrameContext ctx)
     {
         double pulse = 0.0;
         for (int k = 0; k <= AudioRingPulseTailFrames; k++)
@@ -2647,14 +2656,40 @@ public static class SkiaSharpSoundBarStyleRenderer
         return pulse;
     }
 
+    private static double SampleBandPeakStatic(FrameContext ctx, int barIndex, int barCount)
+    {
+        double peak = 0.0;
+        for (int k = 0; k <= PeakCapMaxLookback; k++)
+        {
+            AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
+            if (back == null)
+                break;
+            double contribution = SampleBandFrameStatic(back, barIndex, barCount, ctx.Sensitivity)
+                - (PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames));
+            if (contribution > peak)
+                peak = contribution;
+        }
+        return Math.Clamp(peak, 0.0, 1.0);
+    }
+
+    private static float SampleBandFrameStatic(AudioFrameData? frame, int barIndex, int barCount, float sensitivity)
+    {
+        float[]? frameBands = frame?.Bands;
+        if (frameBands == null || frameBands.Length == 0 || barCount <= 0)
+            return 0f;
+        int length = frameBands.Length;
+        int index = Math.Clamp((int)Math.Floor((barIndex / (double)barCount) * length), 0, length - 1);
+        return ApplyPinkTilt(Math.Clamp(frameBands[index] * sensitivity, 0f, 1f), index, length);
+    }
+
     private static double RadialBeatScale(FrameContext ctx)
     {
         double bass = Math.Clamp((ctx.Current?.Bass ?? 0f) * ctx.Sensitivity, 0.0, 1.0);
         return 1.0
             + (RadialBassBreatheFraction * bass)
-            + (MidSwellFraction * MidLevel(ctx))
-            + (VoiceSwellFraction * VoiceLevel(ctx))
-            + (RadialPulseKickFraction * OnsetPulseEnvelope(ctx));
+            + (MidSwellFraction * ctx.MidLevel)
+            + (VoiceSwellFraction * ctx.VoiceLevel)
+            + (RadialPulseKickFraction * ctx.OnsetPulse);
     }
 
     private static double DotJitter(int ring, int slot)
