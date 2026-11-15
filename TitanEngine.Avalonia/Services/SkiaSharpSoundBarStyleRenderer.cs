@@ -1828,17 +1828,20 @@ public static class SkiaSharpSoundBarStyleRenderer
             double segmentHeight = Math.Max(2.0, slot - gap);
             double radius = Math.Min(thickness * 0.30, segmentHeight * 0.5);
 
+            SKColor bc0 = WithAlpha(ctx.Resolved.Glow, 0.22f * (float)ctx.GlowIntensity * (float)ctx.AlphaFactor);
+            SKColor bc1 = WithAlpha(ctx.Resolved.Glow, 0f);
+            var blKey = LinearShaderKey(
+                new SKPoint(0, (float)(plot.Bottom - columnReach)),
+                new SKPoint(0, (float)plot.Bottom),
+                bc0, 0f, bc1, 1f, bc1, 1f, bc1, 1f, SKShaderTileMode.Clamp, 2);
             using var backlightPaint = new SKPaint
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill,
-                Shader = SKShader.CreateLinearGradient(
+                Shader = GetLinearShader2(blKey,
                     new SKPoint(0, (float)(plot.Bottom - columnReach)),
                     new SKPoint(0, (float)plot.Bottom),
-                    new[] { WithAlpha(ctx.Resolved.Glow, 0.22f * (float)ctx.GlowIntensity * (float)ctx.AlphaFactor),
-                            WithAlpha(ctx.Resolved.Glow, 0f) },
-                    new[] { 0f, 1f },
-                    SKShaderTileMode.Clamp)
+                    bc0, 0f, bc1, 1f, SKShaderTileMode.Clamp)
             };
             canvas.DrawRect(new SKRect((float)(centerX - thickness), (float)(plot.Bottom - columnReach),
                 (float)(centerX + thickness), (float)plot.Bottom), backlightPaint);
