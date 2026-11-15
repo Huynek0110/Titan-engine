@@ -2406,9 +2406,25 @@ public static class SkiaSharpSoundBarStyleRenderer
         return frames[i];
     }
 
+    // ResolvedPalette chỉ phụ thuộc vào palette (immutable record) → cache tĩnh theo Id,
+    // tránh parse lại hex + build 180 angular brushes mỗi frame.
+    private static readonly Dictionary<string, ResolvedPalette> _resolvedPaletteCache = new(32);
+
     private static ResolvedPalette ResolvePalette(ColorPreset preset)
     {
         ColorPreset safe = preset ?? ColorPresets.Default;
+        string id = safe.Id ?? string.Empty;
+
+        if (_resolvedPaletteCache.TryGetValue(id, out var cached))
+            return cached;
+
+        var resolved = BuildResolvedPalette(safe);
+        _resolvedPaletteCache[id] = resolved;
+        return resolved;
+    }
+
+    private static ResolvedPalette BuildResolvedPalette(ColorPreset safe)
+    {
         var offsets = new List<double>();
         var colors = new List<SKColor>();
         IReadOnlyList<GradientStopSpec>? source = safe.Stops;
