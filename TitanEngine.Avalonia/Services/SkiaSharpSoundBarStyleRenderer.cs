@@ -527,12 +527,15 @@ public static class SkiaSharpSoundBarStyleRenderer
         }
 
         // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
-        // Clear mỗi khung để reuse capacity, tránh cấp Dictionary mới mỗi frame.
-        private readonly Dictionary<(int Height, bool Downward), List<ColumnSpec>> _scratchColumnBuckets =
+        // Static vì vẽ tuần tự (không song tiến) → reuse Dictionary qua các khung, tránh cấp
+        // Dictionary mới mỗi frame. Khi clear, toàn bộ bucket list trong dictionary được trả
+        // về pool (checkout về 0, list sẽ được Clear khi tái lấy qua GetScratchBucketList).
+        private static readonly Dictionary<(int Height, bool Downward), List<ColumnSpec>> _scratchColumnBuckets =
             new(16);
 
         public Dictionary<(int Height, bool Downward), List<ColumnSpec>> GetScratchColumnBuckets()
         {
+            _scratchBucketListCheckout = 0; // trả toàn bộ bucket list về pool
             _scratchColumnBuckets.Clear();
             return _scratchColumnBuckets;
         }
