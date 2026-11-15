@@ -472,7 +472,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             + (BarBeatPunchFraction * ctx.OnsetPulse);
 
         // Mirror axis: thin bright line anchoring the centre so the two halves read as one figure.
-        using var axisPath = new SKPath();
+        var axisPath = ctx.GetScratchPath();
         axisPath.MoveTo((float)plot.Left, (float)midY);
         axisPath.LineTo((float)plot.Right, (float)midY);
         canvas.DrawPath(axisPath, StrokePaint(WithAlpha(ctx.Resolved.Core, 0.30 * ctx.AlphaFactor),
@@ -513,7 +513,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             envelopeBottom[i] = midY + ((sum / Math.Max(1, n)) * halfHeight * bounce);
         }
 
-        using var envelopePath = new SKPath();
+        var envelopePath = ctx.GetScratchPath();
         envelopePath.MoveTo((float)(plot.Left + (slot * 0.5)), (float)envelopeTop[0]);
         for (int i = 1; i < barCount; i++)
             envelopePath.LineTo((float)(plot.Left + (slot * (i + 0.5))), (float)envelopeTop[i]);
@@ -570,7 +570,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         DrawBaselineLine(canvas, ctx, baseY, plot);
 
         // Inner filament: thin hot line up the centre of every capsule (neon TUBE read).
-        using var filamentPath = new SKPath();
+        var filamentPath = ctx.GetScratchPath();
         for (int i = 0; i < columns.Count; i++)
         {
             ColumnSpec column = columns[i];
@@ -693,10 +693,11 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         var lit = new SKPath[litGroupCount];
         for (int g = 0; g < litGroupCount; g++)
-            lit[g] = new SKPath();
-        using var dimPath = new SKPath();
-        using var peakPath = new SKPath();
-        using var hotTopsPath = new SKPath();
+            lit[g] = ctx.GetScratchPath();
+        // Cache sở hữu lifetime → không dùng using.
+        var dimPath = ctx.GetScratchPath();
+        var peakPath = ctx.GetScratchPath();
+        var hotTopsPath = ctx.GetScratchPath();
         bool hasPeakDot = false;
         bool hasHotTop = false;
 
@@ -789,14 +790,14 @@ public static class SkiaSharpSoundBarStyleRenderer
         DrawAmbientBloom(canvas, ctx, center, outer);
 
         // Outer boundary circle.
-        using var boundaryPath = new SKPath();
+        var boundaryPath = ctx.GetScratchPath();
         boundaryPath.AddCircle((float)center.X, (float)center.Y, (float)outer);
         DrawGlowPasses(canvas, boundaryPath, Math.Max(0.8, outer * 0.006), ctx.Resolved,
             ctx.GlowIntensity * 0.35, ctx.AlphaFactor * 0.6, SKStrokeCap.Round,
             Math.Max(2.0, outer * 0.03));
 
         // Baseline circle.
-        using var baselinePath = new SKPath();
+        var baselinePath = ctx.GetScratchPath();
         baselinePath.AddCircle((float)center.X, (float)center.Y, (float)inner);
         DrawGlowPasses(canvas, baselinePath, Math.Max(0.8, (outer - inner) * 0.012), ctx.Resolved,
             ctx.GlowIntensity * 0.7, ctx.AlphaFactor, SKStrokeCap.Round,
@@ -856,7 +857,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         int columns = Math.Min(frame?.WaveMin?.Length ?? 0, frame?.WaveMax?.Length ?? 0);
 
         // --- the ring itself ---
-        var ringPath = new SKPath();
+        var ringPath = ctx.GetScratchPath();
         const int RingSteps = 240;
         var ringValues = new double[RingSteps];
         for (int s = 0; s < RingSteps; s++)
@@ -1148,7 +1149,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
             int ringColorShift = (int)Math.Round(36.0 * ring / Math.Max(1, ringCount - 1));
 
-            using var ringBasePath = new SKPath();
+            var ringBasePath = ctx.GetScratchPath();
             ringBasePath.AddCircle((float)center.X, (float)center.Y, (float)ringInner);
             DrawGlowPasses(canvas, ringBasePath, Math.Max(0.7, stride * 0.030), ctx.Resolved,
                 ctx.GlowIntensity * 0.5, ctx.AlphaFactor, SKStrokeCap.Round,
@@ -1225,7 +1226,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         DrawAmbientBloom(canvas, ctx, center, outer);
 
-        using var pondEdgePath = new SKPath();
+        var pondEdgePath = ctx.GetScratchPath();
         pondEdgePath.AddCircle((float)center.X, (float)center.Y, (float)outer);
         DrawGlowPasses(canvas, pondEdgePath, Math.Max(0.8, outer * 0.006), ctx.Resolved,
             ctx.GlowIntensity * 0.30, ctx.AlphaFactor * 0.55, SKStrokeCap.Round,
@@ -1238,14 +1239,14 @@ public static class SkiaSharpSoundBarStyleRenderer
             double echoRadius = radius - (outer * 0.07);
             if (echoRadius > inner * 0.5 && ringAlpha[i] > 0.08)
             {
-                using var echoPath = new SKPath();
+                var echoPath = ctx.GetScratchPath();
                 echoPath.AddCircle((float)center.X, (float)center.Y, (float)echoRadius);
                 DrawGlowPasses(canvas, echoPath, thickness * 0.7, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor,
                     SKStrokeCap.Round, RadialHaloExtent(outer),
                     coreAlways: true, alphaScale: ringAlpha[i] * 0.40, coreColor: ctx.Resolved.Accent);
             }
 
-            using var ellipsePath = new SKPath();
+            var ellipsePath = ctx.GetScratchPath();
             ellipsePath.AddCircle((float)center.X, (float)center.Y, (float)radius);
             DrawGlowPasses(canvas, ellipsePath, thickness, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor,
                 SKStrokeCap.Round, RadialHaloExtent(outer),
@@ -1293,7 +1294,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         DrawAmbientBloom(canvas, ctx, center, outer);
 
-        using var spokeBaselinePath = new SKPath();
+        var spokeBaselinePath = ctx.GetScratchPath();
         spokeBaselinePath.AddCircle((float)center.X, (float)center.Y, (float)inner);
         DrawGlowPasses(canvas, spokeBaselinePath, Math.Max(0.8, (outer - inner) * 0.012), ctx.Resolved,
             ctx.GlowIntensity * 0.6, ctx.AlphaFactor, SKStrokeCap.Round,
@@ -1374,7 +1375,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             bottom[i] = new SKPoint((float)x, (float)(midY + (m * halfHeight)));
         }
 
-        using var ribbonPath = new SKPath();
+        var ribbonPath = ctx.GetScratchPath();
         ribbonPath.MoveTo(top[0]);
         for (int i = 1; i < columns; i++)
             ribbonPath.LineTo(top[i]);
@@ -1383,7 +1384,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         ribbonPath.Close();
 
         double fillAlpha = Math.Min(1.0, 0.55 * ctx.AlphaFactor);
-        using var fillPaint = new SKPaint
+        // Cache sở hữu lifetime → không dùng using.
+        var fillPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Fill,
@@ -1402,7 +1404,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         canvas.DrawPath(ribbonPath, fillPaint);
 
         double averageMagnitude = columns > 0 ? magnitudeSum / columns : 0.0;
-        using var seamPath = new SKPath();
+        var seamPath = ctx.GetScratchPath();
         seamPath.MoveTo((float)plot.Left, (float)midY);
         seamPath.LineTo((float)plot.Right, (float)midY);
         canvas.DrawPath(seamPath, StrokePaint(WithAlpha(ctx.Resolved.Core,
@@ -1424,7 +1426,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             canvas.DrawRect(new SKRect((float)headX, (float)plot.Top,
                 (float)Math.Max(0.0, plot.Right - headX), (float)plot.Height), veilPaint);
 
-            using var headPath = new SKPath();
+            var headPath = ctx.GetScratchPath();
             headPath.MoveTo((float)headX, (float)plot.Top);
             headPath.LineTo((float)headX, (float)plot.Bottom);
             DrawGlowPasses(canvas, headPath, Math.Max(1.2, plot.Width * 0.0022), ctx.Resolved,
@@ -1439,7 +1441,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         int prevAvailable = Math.Min(prevMin?.Length ?? 0, prevMax?.Length ?? 0);
         if (prevAvailable > 0)
         {
-            using var ghostPath = new SKPath();
+            var ghostPath = ctx.GetScratchPath();
             double m0 = Math.Max(Math.Abs(Math.Clamp(prevMin![0], -1f, 1f)), Math.Abs(Math.Clamp(prevMax![0], -1f, 1f)));
             ghostPath.MoveTo((float)(plot.Left + (slot * 0.5)), (float)(midY - (m0 * halfHeight)));
             for (int i = 1; i < columns; i++)
@@ -1498,14 +1500,14 @@ public static class SkiaSharpSoundBarStyleRenderer
         double hold = CenterColumnLevel(rawHold);
 
         // Faint full-height track.
-        using var trackPath = new SKPath();
+        var trackPath = ctx.GetScratchPath();
         trackPath.MoveTo((float)centerX, (float)plot.Bottom);
         trackPath.LineTo((float)centerX, (float)plot.Top);
         canvas.DrawPath(trackPath, StrokePaint(WithAlpha(ctx.Resolved.Glow, 0.14 * ctx.AlphaFactor),
             thickness * 0.45, SKStrokeCap.Round));
 
         // dB scale ticks.
-        using var tickMarksPath = new SKPath();
+        var tickMarksPath = ctx.GetScratchPath();
         double tickHalf = ClampSafe(thickness * 0.28, 2.0, Math.Max(2.0, plot.Width * 0.10));
         foreach (double db in new[] { -6.0, -12.0, -20.0 })
         {
@@ -1587,7 +1589,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         if (hold > 0.001 && tickY > plot.Top + 1.0)
         {
             double tickHalf2 = ClampSafe(thickness * 0.62, 3.0, Math.Max(3.0, plot.Width * 0.22));
-            using var tickPath = new SKPath();
+            var tickPath = ctx.GetScratchPath();
             tickPath.MoveTo((float)(centerX - tickHalf2), (float)tickY);
             tickPath.LineTo((float)(centerX + tickHalf2), (float)tickY);
             DrawGlowPasses(canvas, tickPath, tickStroke, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor,
@@ -1816,7 +1818,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             return;
 
         double maxReflection = Math.Max(6.0, ctx.Plot.Height * 0.22);
-        using var reflection = new SKPath();
+        var reflection = ctx.GetScratchPath();
         bool any = false;
         for (int i = 0; i < columns.Count; i++)
         {
