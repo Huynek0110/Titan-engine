@@ -157,10 +157,10 @@ public static class E2eRunner
         finally
         {
             Console.WriteLine($"[E2E] xong: {_passes} pass / {_fails} fail → exit {exit}");
-            desktop.Shutdown(exit);
-            // E2E harness: app không được treo lại sau khi render xong. Thoát process ngay
-            // để verify.sh --e2e (và publish --e2e) không bị chặt ở host/Avalonia message loop.
+            // E2E harness: thoát process ngay để verify.sh --e2e (dùng dotnet run host)
+            // và publish --e2e không bị chặt ở Avalonia message loop sau khi render xong.
             Environment.Exit(exit);
+            desktop.Shutdown(exit); // unreachable, giữ để rõ ý định shutdown
         }
     }
 
