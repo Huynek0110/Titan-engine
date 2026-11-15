@@ -281,6 +281,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         public double OnsetPulse => _onsetPulse;
 
         // Cache per-frame: SampleBandPeak cho mọi bar (256 bar × 25 lookback = 6400 iter/frame).
+        // Dùng scratch double[] pool thay new mỗi khung.
         private double[]? _peakLevels;
         public double[] PeakLevels
         {
@@ -288,7 +289,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             {
                 if (_peakLevels == null)
                 {
-                    _peakLevels = new double[BarCount];
+                    _peakLevels = GetScratchDoubleArray(BarCount);
                     for (int i = 0; i < BarCount; i++)
                         _peakLevels[i] = SampleBandPeakStatic(this, i, BarCount);
                 }
@@ -525,8 +526,6 @@ public static class SkiaSharpSoundBarStyleRenderer
             return list2;
         }
 
-        // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
-        // Clear mỗi khung để reuse capacity, tránh cấp Dictionary mới mỗi frame.
         // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
         // Clear mỗi khung để reuse capacity, tránh cấp Dictionary mới mỗi frame.
         private readonly Dictionary<(int Height, bool Downward), List<ColumnSpec>> _scratchColumnBuckets =
