@@ -2547,23 +2547,19 @@ public static class SkiaSharpSoundBarStyleRenderer
     {
         private readonly Dictionary<StrokeKey, SKPaint> _strokeCache = new(32);
         private readonly Dictionary<uint, SKPaint> _fillCache = new(32);
-        private readonly Dictionary<RadialKey, SKPaint> _radialCache = new(16);
 
         public void BeginFrame()
         {
             _strokeCache.Clear();
             _fillCache.Clear();
-            _radialCache.Clear();
         }
 
         public void EndFrame()
         {
             foreach (var p in _strokeCache.Values) p.Dispose();
             foreach (var p in _fillCache.Values) p.Dispose();
-            foreach (var p in _radialCache.Values) p.Dispose();
             _strokeCache.Clear();
             _fillCache.Clear();
-            _radialCache.Clear();
         }
 
         public SKPaint GetStroke(SKColor color, double thickness, SKStrokeCap cap)
@@ -2601,33 +2597,57 @@ public static class SkiaSharpSoundBarStyleRenderer
             return paint;
         }
 
+        // Radial glow shader cross-frame cache — shader được tạo lại 1 lần per tham số,
+        // dùng lại qua nhiều khung. Mảng colors/offsets chỉ cấp khi cache miss.
+        private static readonly Dictionary<uint, SKShader> _radialGlowShaderCache = new(64);
+
+        private static uint RadialGlowShaderKey(SKColor color, double alpha, SKPoint center, double radius)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                h = (h * 16777619u) ^ ColorKey(color);
+                h = (h * 16777619u) ^ (uint)alpha.GetHashCode();
+                h = (h * 16777619u) ^ (uint)center.GetHashCode();
+                h = (h * 16777619u) ^ (uint)radius.GetHashCode();
+                return h;
+            }
+        }
+
+        private static SKShader GetRadialGlowShader(uint key, SKPoint center, double radius, SKColor color, double alpha)
+        {
+            if (_radialGlowShaderCache.TryGetValue(key, out var shader))
+                return shader;
+            double safeAlpha = Math.Clamp(alpha, 0.0, 1.0);
+            float safeRadius = (float)Math.Max(0.5, radius);
+            shader = SKShader.CreateRadialGradient(center, safeRadius,
+                new[]
+                {
+                    WithAlpha(color, safeAlpha * 0.85),
+                    WithAlpha(color, safeAlpha * 0.42),
+                    WithAlpha(color, safeAlpha * 0.18),
+                    WithAlpha(color, safeAlpha * 0.06),
+                    WithAlpha(color, 0.0)
+                },
+                new[] { 0f, 0.28f, 0.55f, 0.78f, 1f },
+                SKShaderTileMode.Clamp);
+            if (_radialGlowShaderCache.Count > 64)
+                _radialGlowShaderCache.Clear();
+            _radialGlowShaderCache[key] = shader;
+            return shader;
+        }
+
         public SKPaint GetRadialGlow(SKColor color, double alpha, SKPoint center, double radius)
         {
-            var key = new RadialKey(color, alpha, center, radius);
-            if (!_radialCache.TryGetValue(key, out var paint))
+            var key = RadialGlowShaderKey(color, alpha, center, radius);
+            var shader = GetRadialGlowShader(key, center, radius, color, alpha);
+            // Tạo paint mỏng mỗi lần gọi; shader được chia sẻ cross-frame, không Dispose cùng paint.
+            return new SKPaint
             {
-                double safeAlpha = Math.Clamp(alpha, 0.0, 1.0);
-                float safeRadius = (float)Math.Max(0.5, radius);
-                var shader = SKShader.CreateRadialGradient(center, safeRadius,
-                    new[]
-                    {
-                        WithAlpha(color, safeAlpha * 0.85),
-                        WithAlpha(color, safeAlpha * 0.42),
-                        WithAlpha(color, safeAlpha * 0.18),
-                        WithAlpha(color, safeAlpha * 0.06),
-                        WithAlpha(color, 0.0)
-                    },
-                    new[] { 0f, 0.28f, 0.55f, 0.78f, 1f },
-                    SKShaderTileMode.Clamp);
-                paint = new SKPaint
-                {
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Fill,
-                    Shader = shader
-                };
-                _radialCache[key] = paint;
-            }
-            return paint;
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Shader = shader
+            };
         }
 
         private static uint ColorKey(SKColor c) =>
@@ -2652,29 +2672,6 @@ public static class SkiaSharpSoundBarStyleRenderer
             public override int GetHashCode() => HashCode.Combine(Color, Thickness, Cap);
         }
 
-        private readonly struct RadialKey : IEquatable<RadialKey>
-        {
-            public readonly uint Color;
-            public readonly int CenterX;
-            public readonly int CenterY;
-            public readonly int Radius;
-            public readonly byte Alpha;
-
-            public RadialKey(SKColor color, double alpha, SKPoint center, double radius)
-            {
-                Color = ColorKey(color);
-                CenterX = (int)Math.Round(center.X * 100.0);
-                CenterY = (int)Math.Round(center.Y * 100.0);
-                Radius = (int)Math.Round(radius * 100.0);
-                Alpha = (byte)Math.Round(Math.Clamp(alpha, 0.0, 1.0) * 255.0);
-            }
-
-            public bool Equals(RadialKey other) =>
-                Color == other.Color && CenterX == other.CenterX && CenterY == other.CenterY
-                && Radius == other.Radius && Alpha == other.Alpha;
-
-            public override int GetHashCode() => HashCode.Combine(Color, CenterX, CenterY, Radius, Alpha);
-        }
     }
 
     // Cross-frame SKShader cache: tạo shader 1 lần per tham số, dùng lại qua nhiều khung.
