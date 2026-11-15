@@ -389,6 +389,30 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         public void CheckinScratchFloatArrays() => _scratchFloatArrayCheckout = 0;
 
+        // Scratch mảng SKPath[] dùng lại trong khung (phần tử lấy từ _scratchPaths pool).
+        // Tránh cấp SKPath[] mới cho hueGeometries/lit/haloGeometries/coreGeometries mỗi frame.
+        private readonly List<SKPath[]> _scratchPathArrays = new(8);
+        private int _scratchPathArrayCheckout;
+
+        public SKPath[] GetScratchSKPathArray(int size)
+        {
+            if (_scratchPathArrayCheckout < _scratchPathArrays.Count)
+            {
+                var a = _scratchPathArrays[_scratchPathArrayCheckout];
+                if (a.Length >= size)
+                {
+                    _scratchPathArrayCheckout++;
+                    return a;
+                }
+            }
+            var a2 = new SKPath[Math.Max(size, 16)];
+            _scratchPathArrays.Add(a2);
+            _scratchPathArrayCheckout++;
+            return a2;
+        }
+
+        public void CheckinScratchPathArrays() => _scratchPathArrayCheckout = 0;
+
         // Scratch List<ColumnSpec> dùng lại trong khung (Clear trước mỗi lần dùng).
         private readonly List<List<ColumnSpec>> _scratchColumnLists = new(4);
         private int _scratchColumnListCheckout;
@@ -690,6 +714,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             ctx.CheckinScratchArrays();
             ctx.CheckinScratchPointArrays();
             ctx.CheckinScratchFloatArrays();
+            ctx.CheckinScratchPathArrays();
             ctx.CheckinScratchColumnLists();
             ctx.CheckinScratchCapLists();
             ctx.CheckinScratchRaySpecLists();
@@ -908,7 +933,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         }
 
         const int CurtainHueBuckets = 24;
-        var hueGeometries = new SKPath[CurtainHueBuckets];
+        var hueGeometries = ctx.GetScratchSKPathArray(CurtainHueBuckets);
         for (int b = 0; b < CurtainHueBuckets; b++)
             hueGeometries[b] = ctx.GetScratchPath();
 
@@ -985,7 +1010,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             + (VoiceSwellFraction * ctx.VoiceLevel)
             + (BarBeatPunchFraction * ctx.OnsetPulse);
 
-        var lit = new SKPath[litGroupCount];
+        var lit = ctx.GetScratchSKPathArray(litGroupCount);
         for (int g = 0; g < litGroupCount; g++)
             lit[g] = ctx.GetScratchPath();
         // Cache sở hữu lifetime → không dùng using.
@@ -1069,7 +1094,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-        double[] levels = ResolveRadialLevels(rawLevels);
+        double[] levels = ResolveRadialLevels(ctx, rawLevels);
 
         double beat = RadialBeatScale(ctx);
         for (int i = 0; i < levels.Length; i++)
@@ -1241,8 +1266,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         double sinTilt = Math.Sin(tiltRad);
 
         // Bucketed scratch for halo+core discs.
-        var haloGeometries = new SKPath[AudioRingDotBuckets];
-        var coreGeometries = new SKPath[AudioRingDotBuckets];
+        var haloGeometries = ctx.GetScratchSKPathArray(AudioRingDotBuckets);
+        var coreGeometries = ctx.GetScratchSKPathArray(AudioRingDotBuckets);
         for (int b = 0; b < AudioRingDotBuckets; b++)
         {
             haloGeometries[b] = ctx.GetScratchPath();
@@ -1437,7 +1462,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             for (int i = 0; i < barCount; i++)
                 rawRingLevels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
 
-            double[] levels = ResolveRadialLevels(rawRingLevels);
+            double[] levels = ResolveRadialLevels(ctx, rawRingLevels);
             for (int i = 0; i < levels.Length; i++)
                 levels[i] = Math.Min(1.0, levels[i] * beat);
             rays.Clear();
@@ -1581,7 +1606,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-        double[] levels = ResolveRadialLevels(rawLevels);
+        double[] levels = ResolveRadialLevels(ctx, rawLevels);
         double beat = RadialBeatScale(ctx);
         for (int i = 0; i < levels.Length; i++)
             levels[i] = Math.Min(1.0, levels[i] * beat);
@@ -1923,7 +1948,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             tilted[i] = ctx.TiltBand(bands[i], i, bands.Length);
 
         var candidates = ctx.GetScratchPeakBandList();
-        CollectPeakBands(tilted, ctx.BarCount, candidates);
+        CollectPeakBands(ctx, tilted, ctx.BarCount, candidates);
 
         if (state != null)
         {
@@ -2231,14 +2256,15 @@ public static class SkiaSharpSoundBarStyleRenderer
 
     private static double RadialHaloExtent(double outer) => Math.Max(2.0, outer * RadialHaloFraction);
 
-    private static double[] ResolveRadialLevels(double[] rawLevels)
+    private static double[] ResolveRadialLevels(FrameContext ctx, double[] rawLevels)
     {
         int count = rawLevels.Length;
-        var levels = new double[count];
+        var levels = ctx.GetScratchDoubleArray(count);
         if (count <= 0)
             return levels;
 
-        double[] sorted = (double[])rawLevels.Clone();
+        var sorted = ctx.GetScratchDoubleArray(count);
+        Array.Copy(rawLevels, sorted, count);
         Array.Sort(sorted);
         int referenceIndex = Math.Clamp((int)(count * RadialPercentile), 0, count - 1);
         double reference = sorted[referenceIndex];
@@ -2274,7 +2300,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         return CenterColumnMinFraction + ((1.0 - CenterColumnMinFraction) * Math.Clamp(t, 0.0, 1.0));
     }
 
-    private static void CollectPeakBands(float[] bands, int barCount, List<(int Index, float Peak)> results)
+    private static void CollectPeakBands(FrameContext ctx, float[] bands, int barCount, List<(int Index, float Peak)> results)
     {
         results.Clear();
         int length = bands.Length;
@@ -2285,8 +2311,10 @@ public static class SkiaSharpSoundBarStyleRenderer
         if (slices <= 0)
             return;
 
-        var slicePeak = new float[slices];
-        var sliceMean = new double[slices];
+        var slicePeak = ctx.GetScratchFloatArray(slices);
+        var sliceMean = ctx.GetScratchDoubleArray(slices);
+        Array.Clear(slicePeak, 0, slices);
+        Array.Clear(sliceMean, 0, slices);
 
         for (int s = 0; s < slices; s++)
         {
