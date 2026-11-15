@@ -430,6 +430,87 @@ public static class SkiaSharpSoundBarStyleRenderer
         public void CheckinScratchColumnLists() => _scratchColumnListCheckout = 0;
         public void CheckinScratchCapLists() => _scratchCapListCheckout = 0;
 
+        // Scratch List<RaySpec> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<RaySpec>> _scratchRaySpecLists = new(4);
+        private int _scratchRaySpecListCheckout;
+
+        public List<RaySpec> GetScratchRaySpecList()
+        {
+            if (_scratchRaySpecListCheckout < _scratchRaySpecLists.Count)
+            {
+                var list = _scratchRaySpecLists[_scratchRaySpecListCheckout];
+                list.Clear();
+                _scratchRaySpecListCheckout++;
+                return list;
+            }
+            var list2 = new List<RaySpec>();
+            _scratchRaySpecLists.Add(list2);
+            _scratchRaySpecListCheckout++;
+            return list2;
+        }
+
+        // Scratch List<double> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<double>> _scratchDoubleLists = new(8);
+        private int _scratchDoubleListCheckout;
+
+        public List<double> GetScratchDoubleList()
+        {
+            if (_scratchDoubleListCheckout < _scratchDoubleLists.Count)
+            {
+                var list = _scratchDoubleLists[_scratchDoubleListCheckout];
+                list.Clear();
+                _scratchDoubleListCheckout++;
+                return list;
+            }
+            var list2 = new List<double>();
+            _scratchDoubleLists.Add(list2);
+            _scratchDoubleListCheckout++;
+            return list2;
+        }
+
+        // Scratch List<SoundBarRenderState.Star> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<SoundBarRenderState.Star>> _scratchStarLists = new(4);
+        private int _scratchStarListCheckout;
+
+        public List<SoundBarRenderState.Star> GetScratchStarList()
+        {
+            if (_scratchStarListCheckout < _scratchStarLists.Count)
+            {
+                var list = _scratchStarLists[_scratchStarListCheckout];
+                list.Clear();
+                _scratchStarListCheckout++;
+                return list;
+            }
+            var list2 = new List<SoundBarRenderState.Star>();
+            _scratchStarLists.Add(list2);
+            _scratchStarListCheckout++;
+            return list2;
+        }
+
+        // Scratch List<(int Index, float Peak)> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<(int Index, float Peak)>> _scratchPeakBandLists = new(4);
+        private int _scratchPeakBandListCheckout;
+
+        public List<(int Index, float Peak)> GetScratchPeakBandList()
+        {
+            if (_scratchPeakBandListCheckout < _scratchPeakBandLists.Count)
+            {
+                var list = _scratchPeakBandLists[_scratchPeakBandListCheckout];
+                list.Clear();
+                _scratchPeakBandListCheckout++;
+                return list;
+            }
+            var list2 = new List<(int Index, float Peak)>();
+            _scratchPeakBandLists.Add(list2);
+            _scratchPeakBandListCheckout++;
+            return list2;
+        }
+
+        public void CheckinScratchRaySpecLists() => _scratchRaySpecListCheckout = 0;
+        public void CheckinScratchDoubleLists() => _scratchDoubleListCheckout = 0;
+        public void CheckinScratchStarLists() => _scratchStarListCheckout = 0;
+        public void CheckinScratchPeakBandLists() => _scratchPeakBandListCheckout = 0;
+
         public float SampleBand(int barIndex, int barCount, bool smoothed)
             => SampleBandRange(barIndex, barCount, 0, int.MaxValue, smoothed);
 
@@ -577,6 +658,10 @@ public static class SkiaSharpSoundBarStyleRenderer
             ctx.CheckinScratchFloatArrays();
             ctx.CheckinScratchColumnLists();
             ctx.CheckinScratchCapLists();
+            ctx.CheckinScratchRaySpecLists();
+            ctx.CheckinScratchDoubleLists();
+            ctx.CheckinScratchStarLists();
+            ctx.CheckinScratchPeakBandLists();
         }
     }
 
@@ -957,7 +1042,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         var tipRadii = ctx.GetScratchDoubleArray(barCount);
         var angles = ctx.GetScratchDoubleArray(barCount);
-        var rays = new List<RaySpec>(barCount);
+        var rays = ctx.GetScratchRaySpecList();
 
         FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
 
@@ -1287,7 +1372,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         DrawAmbientBloom(canvas, ctx, center, outer);
 
         var rawRingLevels = ctx.GetScratchDoubleArray(barCount);
-        var rays = new List<RaySpec>(barCount);
+        var rays = ctx.GetScratchRaySpecList();
         double beat = RadialBeatScale(ctx);
 
         for (int ring = 0; ring < ringCount; ring++)
@@ -1361,8 +1446,8 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         ctx.State?.ExpireRipples(ctx.Index, lifetime);
 
-        var ringRadii = new List<double>(maxLive);
-        var ringAlpha = new List<double>(maxLive);
+        var ringRadii = ctx.GetScratchDoubleList();
+        var ringAlpha = ctx.GetScratchDoubleList();
 
         if (ctx.State != null)
         {
@@ -1463,7 +1548,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < levels.Length; i++)
             levels[i] = Math.Min(1.0, levels[i] * beat);
 
-        var rays = new List<RaySpec>(barCount);
+        var rays = ctx.GetScratchRaySpecList();
         FillRadialBarSet(levels, center, inner, outer, rotation, span, null, null, rays);
 
         DrawAmbientBloom(canvas, ctx, center, outer);
@@ -1796,7 +1881,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < bands.Length; i++)
             tilted[i] = ctx.TiltBand(bands[i], i, bands.Length);
 
-        var candidates = new List<(int Index, float Peak)>(32);
+        var candidates = ctx.GetScratchPeakBandList();
         CollectPeakBands(tilted, ctx.BarCount, candidates);
 
         if (state != null)
@@ -1811,7 +1896,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             state.ExpireStars(ctx.Index, lifetime);
         }
 
-        var live = new List<SoundBarRenderState.Star>(64);
+        var live = ctx.GetScratchStarList();
         if (state != null)
         {
             foreach (SoundBarRenderState.Star star in state.EnumerateStars())
