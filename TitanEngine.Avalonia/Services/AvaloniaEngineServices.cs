@@ -1926,9 +1926,9 @@ public sealed class AvaloniaImageServices : IImageServices
 
                     if (i < SoundBarVisualizerPreset.MaxPreviewFrames)
                     {
+                        // Reuse image thay vì FromBitmap lần thứ hai — tránh cấp phát native dư.
                         string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        using var prevImage = SKImage.FromBitmap(bitmap);
-                        using var prevData = prevImage.Encode(SKEncodedImageFormat.Png, 100);
+                        using var prevData = image.Encode(SKEncodedImageFormat.Png, 100);
                         using var prevFs = File.Create(previewFile);
                         prevData.SaveTo(prevFs);
                     }
