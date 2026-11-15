@@ -326,6 +326,11 @@ public static class SkiaSharpSoundBarStyleRenderer
     /// <summary>
     /// Renders one frame of the requested style onto <paramref name="canvas"/>.
     /// </summary>
+    // PaintCache có hiệu lực chỉ trong một lần DrawFrame (render tuần tự, không song tiến).
+    // Mọi SKPaint/SKShader được tạo lại trong khung được cache theo khóa, dùng lại cho toàn bộ
+    // khung, rồi giải phóng ở EndFrame → giảm đáng kể cấp phát native mỗi frame.
+    private static readonly PaintCache _paintCache = new();
+
     public static void DrawFrame(SKCanvas canvas, int width, int height, SoundBarSettings settings,
         ColorPreset palette, AudioFrameData[] frames, int currentFrameIndex, SoundBarRenderState? state)
     {
@@ -339,10 +344,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         var ctx = new FrameContext(settings, palette, frames ?? Array.Empty<AudioFrameData>(),
             currentFrameIndex, state, width, height);
 
-        canvas.Save();
-        canvas.ClipRect(new SKRect(0, 0, width, height));
+        _paintCache.BeginFrame();
         try
         {
+            canvas.Save();
+            canvas.ClipRect(new SKRect(0, 0, width, height));
             switch (settings.Style)
             {
                 case SoundBarStyleId.MirrorSpectrum: DrawMirrorSpectrum(canvas, ctx); break;
@@ -364,6 +370,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         finally
         {
             canvas.Restore();
+            _paintCache.EndFrame();
         }
     }
 
@@ -763,7 +770,8 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         // Bright hub core.
         double hubR = Math.Max(2.0, inner * 1.15 * beat);
-        using var hubPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
+        // Cache sở hữu lifetime → không dùng using.
+        var hubPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
             Math.Min(1.0, 0.50 * ctx.GlowIntensity) * ctx.AlphaFactor, center, hubR);
         canvas.DrawCircle((float)center.X, (float)center.Y, (float)hubR, hubPaint);
 
@@ -1214,7 +1222,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         double leadAlpha = ringAlpha[ringAlpha.Count - 1];
         if (hasLiveRipple && leadAlpha > 0.02)
         {
-            using var bloomPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
+            // Cache sở hữu lifetime → không dùng using.
+            var bloomPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
                 0.55 * leadAlpha * ctx.AlphaFactor, center, Math.Max(2.0, leadRadius * 1.6));
             canvas.DrawCircle((float)center.X, (float)center.Y, (float)Math.Max(2.0, leadRadius * 1.6), bloomPaint);
         }
@@ -1257,7 +1266,8 @@ public static class SkiaSharpSoundBarStyleRenderer
             Math.Max(2.0, (outer - inner) * 0.05));
 
         double hubR = Math.Max(2.0, inner * 1.1 * beat);
-        using var hubPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
+        // Cache sở hữu lifetime → không dùng using.
+        var hubPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
             Math.Min(1.0, 0.40 * ctx.GlowIntensity) * ctx.AlphaFactor, center, hubR);
         canvas.DrawCircle((float)center.X, (float)center.Y, (float)hubR, hubPaint);
 
@@ -1528,7 +1538,8 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         // Base light pool.
         double poolRadius = Math.Max(6.0, thickness * (1.6 + (1.8 * rms)));
-        using var poolPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
+        // Cache sở hữu lifetime → không dùng using.
+        var poolPaint = CreateRadialGlowPaint(ctx.Resolved.Glow,
             Math.Min(1.0, 0.20 * ctx.GlowIntensity) * ctx.AlphaFactor,
             new SKPoint((float)centerX, (float)plot.Bottom), poolRadius);
         canvas.DrawOval(new SKRect((float)(centerX - poolRadius), (float)(plot.Bottom - poolRadius * 0.6),
@@ -1548,7 +1559,8 @@ public static class SkiaSharpSoundBarStyleRenderer
             DrawGlowPasses(canvas, tickPath, tickStroke, ctx.Resolved, ctx.GlowIntensity, ctx.AlphaFactor,
                 SKStrokeCap.Butt, tickStroke * 3.0);
 
-            using var dotBrush = FillPaint(WithAlpha(ctx.Resolved.Accent, 0.95 * ctx.AlphaFactor));
+            // Cache sở hữu lifetime → không dùng using.
+            var dotBrush = FillPaint(WithAlpha(ctx.Resolved.Accent, 0.95 * ctx.AlphaFactor));
             canvas.DrawCircle((float)(centerX + tickHalf2), (float)tickY, (float)tickStroke, dotBrush);
         }
     }
@@ -1630,7 +1642,8 @@ public static class SkiaSharpSoundBarStyleRenderer
             double radius = maxStarRadius * (0.45 + (0.55 * star.Peak)) * (0.65 + (0.35 * fade));
             SKPoint center = new((float)x, (float)y);
 
-            using var glowPaint = CreateRadialGlowPaint(
+            // Cache sở hữu lifetime → không dùng using.
+            var glowPaint = CreateRadialGlowPaint(
                 star.Peak > 0.66f ? ctx.Resolved.Accent : ctx.Resolved.Glow,
                 Math.Min(1.0, 0.85 * fade * ctx.AlphaFactor * starFlash),
                 center, Math.Max(2.0, radius * 2.6));
@@ -1705,12 +1718,13 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         if (ctx.GlowIntensity > 0.002)
         {
-            using var capHalo = StrokePaint(WithAlpha(ctx.Resolved.Glow, 0.28 * ctx.GlowIntensity * ctx.AlphaFactor),
+            // Cache sở hữu lifetime → không dùng using.
+            var capHalo = StrokePaint(WithAlpha(ctx.Resolved.Glow, 0.28 * ctx.GlowIntensity * ctx.AlphaFactor),
                 capStroke * 2.4, SKStrokeCap.Round);
             canvas.DrawPath(geometry, capHalo);
         }
 
-        using var capPen = StrokePaint(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor),
+        var capPen = StrokePaint(WithAlpha(ctx.Resolved.Core, 0.85 * ctx.AlphaFactor),
             capStroke, SKStrokeCap.Round);
         canvas.DrawPath(geometry, capPen);
     }
@@ -1811,7 +1825,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         double radius = Math.Max(4.0, outer * 1.05 * breathe);
         double alpha = Math.Min(1.0, 0.085 * ctx.GlowIntensity * (1.0 + (0.5 * punch))) * ctx.AlphaFactor;
 
-        using var bloomPaint = CreateRadialGlowPaint(ctx.Resolved.Glow, (float)alpha, center, radius);
+        // Cache sở hữu lifetime → không dùng using.
+        var bloomPaint = CreateRadialGlowPaint(ctx.Resolved.Glow, (float)alpha, center, radius);
         canvas.DrawCircle((float)center.X, (float)center.Y, (float)radius, bloomPaint);
     }
 
@@ -1843,10 +1858,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         double wideThickness = Math.Max(t * GlowMinWideRatio, Math.Min(halo * scale, ceiling));
         double midThickness = Math.Min(wideThickness, Math.Max(t * GlowMinMidRatio, Math.Min((t * GlowMidRatio) * scale, ceiling)));
 
-        using var haloPen = StrokePaint(WithAlpha(resolved.Glow, GlowWideAlpha * intensity * fade), wideThickness, cap);
-        using var midPen = StrokePaint(WithAlpha(resolved.Glow, GlowMidAlpha * intensity * fade), midThickness, cap);
+        // Cache sở hữu lifetime (giải phóng ở EndFrame) → không dùng using.
+        var haloPen = StrokePaint(WithAlpha(resolved.Glow, GlowWideAlpha * intensity * fade), wideThickness, cap);
+        var midPen = StrokePaint(WithAlpha(resolved.Glow, GlowMidAlpha * intensity * fade), midThickness, cap);
         double coreThickness = Math.Max(0.6, t * Math.Clamp(coreWidthRatio, 0.05, 1.0));
-        using var corePen = StrokePaint(WithAlpha(core, GlowCoreAlpha * intensity * fade), coreThickness, cap);
+        var corePen = StrokePaint(WithAlpha(core, GlowCoreAlpha * intensity * fade), coreThickness, cap);
 
         canvas.DrawPath(geometry, haloPen);
         canvas.DrawPath(geometry, midPen);
@@ -2165,45 +2181,148 @@ public static class SkiaSharpSoundBarStyleRenderer
     }
 
     private static SKPaint StrokePaint(SKColor color, double thickness, SKStrokeCap cap)
-        => new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            Color = color,
-            StrokeWidth = (float)Math.Max(0.25, thickness),
-            StrokeCap = cap,
-            StrokeJoin = SKStrokeJoin.Round
-        };
+        => _paintCache.GetStroke(color, thickness, cap);
 
     private static SKPaint FillPaint(SKColor color)
-        => new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Color = color
-        };
+        => _paintCache.GetFill(color);
 
     private static SKPaint CreateRadialGlowPaint(SKColor color, double alpha, SKPoint center, double radius)
+        => _paintCache.GetRadialGlow(color, alpha, center, radius);
+
+    // Cache SKPaint/SKShader trong một khung vẽ. Các instance được tạo lần đầu, dùng lại cho
+    // toàn bộ khung (không được Dispose bởi caller), rồi giải phóng ở EndFrame.
+    private sealed class PaintCache
     {
-        double safeAlpha = Math.Clamp(alpha, 0.0, 1.0);
-        float safeRadius = (float)Math.Max(0.5, radius);
-        using var shader = SKShader.CreateRadialGradient(center, safeRadius,
-            new[]
-            {
-                WithAlpha(color, safeAlpha * 0.85),
-                WithAlpha(color, safeAlpha * 0.42),
-                WithAlpha(color, safeAlpha * 0.18),
-                WithAlpha(color, safeAlpha * 0.06),
-                WithAlpha(color, 0.0)
-            },
-            new[] { 0f, 0.28f, 0.55f, 0.78f, 1f },
-            SKShaderTileMode.Clamp);
-        return new SKPaint
+        private readonly Dictionary<StrokeKey, SKPaint> _strokeCache = new(32);
+        private readonly Dictionary<uint, SKPaint> _fillCache = new(32);
+        private readonly Dictionary<RadialKey, SKPaint> _radialCache = new(16);
+
+        public void BeginFrame()
         {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Shader = shader
-        };
+            _strokeCache.Clear();
+            _fillCache.Clear();
+            _radialCache.Clear();
+        }
+
+        public void EndFrame()
+        {
+            foreach (var p in _strokeCache.Values) p.Dispose();
+            foreach (var p in _fillCache.Values) p.Dispose();
+            foreach (var p in _radialCache.Values) p.Dispose();
+            _strokeCache.Clear();
+            _fillCache.Clear();
+            _radialCache.Clear();
+        }
+
+        public SKPaint GetStroke(SKColor color, double thickness, SKStrokeCap cap)
+        {
+            var key = new StrokeKey(color, thickness, cap);
+            if (!_strokeCache.TryGetValue(key, out var paint))
+            {
+                paint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Stroke,
+                    Color = color,
+                    StrokeWidth = (float)Math.Max(0.25, thickness),
+                    StrokeCap = cap,
+                    StrokeJoin = SKStrokeJoin.Round
+                };
+                _strokeCache[key] = paint;
+            }
+            return paint;
+        }
+
+        public SKPaint GetFill(SKColor color)
+        {
+            uint key = ColorKey(color);
+            if (!_fillCache.TryGetValue(key, out var paint))
+            {
+                paint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill,
+                    Color = color
+                };
+                _fillCache[key] = paint;
+            }
+            return paint;
+        }
+
+        public SKPaint GetRadialGlow(SKColor color, double alpha, SKPoint center, double radius)
+        {
+            var key = new RadialKey(color, alpha, center, radius);
+            if (!_radialCache.TryGetValue(key, out var paint))
+            {
+                double safeAlpha = Math.Clamp(alpha, 0.0, 1.0);
+                float safeRadius = (float)Math.Max(0.5, radius);
+                var shader = SKShader.CreateRadialGradient(center, safeRadius,
+                    new[]
+                    {
+                        WithAlpha(color, safeAlpha * 0.85),
+                        WithAlpha(color, safeAlpha * 0.42),
+                        WithAlpha(color, safeAlpha * 0.18),
+                        WithAlpha(color, safeAlpha * 0.06),
+                        WithAlpha(color, 0.0)
+                    },
+                    new[] { 0f, 0.28f, 0.55f, 0.78f, 1f },
+                    SKShaderTileMode.Clamp);
+                paint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill,
+                    Shader = shader
+                };
+                _radialCache[key] = paint;
+            }
+            return paint;
+        }
+
+        private static uint ColorKey(SKColor c) =>
+            ((uint)c.Red << 24) | ((uint)c.Green << 16) | ((uint)c.Blue << 8) | c.Alpha;
+
+        private readonly struct StrokeKey : IEquatable<StrokeKey>
+        {
+            public readonly uint Color;
+            public readonly float Thickness;
+            public readonly SKStrokeCap Cap;
+
+            public StrokeKey(SKColor color, double thickness, SKStrokeCap cap)
+            {
+                Color = ColorKey(color);
+                Thickness = (float)Math.Max(0.25, thickness);
+                Cap = cap;
+            }
+
+            public bool Equals(StrokeKey other) =>
+                Color == other.Color && Thickness == other.Thickness && Cap == other.Cap;
+
+            public override int GetHashCode() => HashCode.Combine(Color, Thickness, Cap);
+        }
+
+        private readonly struct RadialKey : IEquatable<RadialKey>
+        {
+            public readonly uint Color;
+            public readonly int CenterX;
+            public readonly int CenterY;
+            public readonly int Radius;
+            public readonly byte Alpha;
+
+            public RadialKey(SKColor color, double alpha, SKPoint center, double radius)
+            {
+                Color = ColorKey(color);
+                CenterX = (int)Math.Round(center.X * 100.0);
+                CenterY = (int)Math.Round(center.Y * 100.0);
+                Radius = (int)Math.Round(radius * 100.0);
+                Alpha = (byte)Math.Round(Math.Clamp(alpha, 0.0, 1.0) * 255.0);
+            }
+
+            public bool Equals(RadialKey other) =>
+                Color == other.Color && CenterX == other.CenterX && CenterY == other.CenterY
+                && Radius == other.Radius && Alpha == other.Alpha;
+
+            public override int GetHashCode() => HashCode.Combine(Color, CenterX, CenterY, Radius, Alpha);
+        }
     }
 
     private static SKColor WithAlpha(SKColor color, double alphaFactor)
