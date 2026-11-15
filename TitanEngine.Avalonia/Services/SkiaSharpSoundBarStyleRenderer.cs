@@ -1743,7 +1743,8 @@ public static class SkiaSharpSoundBarStyleRenderer
         if (caps.Count == 0)
             return;
 
-        using var geometry = new SKPath();
+        // Cache sở hữu lifetime → không dùng using.
+        var geometry = ctx.GetScratchPath();
         for (int i = 0; i < caps.Count; i++)
         {
             (double x, double y, double width) = caps[i];
@@ -1755,7 +1756,6 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         if (ctx.GlowIntensity > 0.002)
         {
-            // Cache sở hữu lifetime → không dùng using.
             var capHalo = StrokePaint(WithAlpha(ctx.Resolved.Glow, 0.28 * ctx.GlowIntensity * ctx.AlphaFactor),
                 capStroke * 2.4, SKStrokeCap.Round);
             canvas.DrawPath(geometry, capHalo);
@@ -1768,7 +1768,8 @@ public static class SkiaSharpSoundBarStyleRenderer
 
     private static void DrawBaselineLine(SKCanvas canvas, FrameContext ctx, double y, SKRect plot)
     {
-        using var baseline = new SKPath();
+        // Cache sở hữu lifetime → không dùng using.
+        var baseline = ctx.GetScratchPath();
         baseline.MoveTo((float)plot.Left, (float)y);
         baseline.LineTo((float)plot.Right, (float)y);
         DrawGlowPasses(canvas, baseline, Math.Max(1.0, plot.Height * 0.008), ctx.Resolved,
