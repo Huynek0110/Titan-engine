@@ -1850,109 +1850,124 @@ public sealed class AvaloniaImageServices : IImageServices
 		// gradient từ palette stops, áp opacity + sensitivity, vẽ glow outer.
         try
         {
-            var frames = analysis.Frames;
-            if (frames.Length == 0)
+            if (analysis == null)
             {
-                onLog("[SOUNDBAR] Không có frame âm thanh — bỏ qua lớp overlay.");
+                onLog("[SOUNDBAR] Không có phân tích âm thanh — bỏ qua lớp overlay.");
                 return Task.FromResult<SoundBarGeneratedOverlay?>(null);
             }
 
-            int frameCount = Math.Max(1, Math.Min(frames.Length, analysis.FrameCount));
-            double frameRate = settings.FrameRate > 0 ? settings.FrameRate : 30.0;
-
-            // Khu vẽ: (X%,Y%) là điểm neo, Width%/Height% là tỉ lệ canvas. Neo dưới (baseY) để cột mọc lên.
-            double plotX = Math.Clamp(settings.XPercent, 0, 1) * canvasWidth;
-            double plotY = Math.Clamp(settings.YPercent, 0, 1) * canvasHeight;
-            double plotW = Math.Clamp(settings.WidthPercent, 0.02, 1.0) * canvasWidth;
-            double plotH = Math.Clamp(settings.HeightPercent, 0.02, 1.0) * canvasHeight;
-            double baseY = plotY + plotH;
-
-            int barCount = Math.Clamp(settings.BarCount, 8, 256);
-            double barW = plotW / barCount;
-            double gap = barW * 0.10;
-            double innerW = barW - gap;
-
-            double opacity = Math.Clamp(settings.Opacity, 0.0, 1.0);
-            double sensitivity = Math.Clamp(settings.Sensitivity, 0.0, 3.0);
-
-            // Thư mục temp cho PNG sequence.
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_preview",
-                $"{tag ?? "sb"}_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempRoot);
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-
-            for (int fi = 0; fi < frameCount; fi++)
+            AudioFrameData[] source = analysis.Frames ?? Array.Empty<AudioFrameData>();
+            if (source.Length == 0)
             {
-                token.ThrowIfCancellationRequested();
-
-                var frame = frames[fi];
-                float[] bands = frame.Bands;
-
-                using var bitmap = new SKBitmap(canvasWidth, canvasHeight);
-                using var canvas = new SKCanvas(bitmap);
-                canvas.Clear(SKColors.Transparent);
-
-                SKColor glowColor = ParseHex(palette.Glow);
-
-                using var barPaint = new SKPaint
-                {
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Fill,
-                };
-                using var glowPaint = new SKPaint
-                {
-                    Color = glowColor.WithAlpha((byte)(120 * opacity)),
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Fill,
-                };
-
-                for (int bi = 0; bi < barCount; bi++)
-                {
-                    float band = bi < bands.Length ? bands[bi] : 0f;
-                    if (band <= 0f) continue;
-
-                    double level = Math.Clamp(band * sensitivity, 0.0, 1.0);
-                    if (level <= 0.0) continue;
-
-                    double barH = level * plotH;
-                    double barX = plotX + bi * barW + gap * 0.5;
-                    double barY = baseY - barH;
-
-                    SKColor barColor = LerpPalette(palette, level);
-                    barPaint.Color = barColor.WithAlpha((byte)(255 * opacity));
-
-                    float cornerRadius = (float)(Math.Min(innerW, (float)barH) * 0.25);
-                    canvas.DrawRoundRect(
-                        (float)barX, (float)barY, (float)innerW, (float)barH,
-                        cornerRadius, cornerRadius, barPaint);
-
-                    canvas.DrawRoundRect(
-                        (float)(barX - 1), (float)(barY - 1), (float)(innerW + 2), (float)(barH + 2),
-                        cornerRadius + 1, cornerRadius + 1, glowPaint);
-                }
-
-                string pngPath = Path.Combine(tempRoot, $"frame_{fi:D4}.png");
-                using var image = SKImage.FromBitmap(bitmap);
-                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-                using var fs = File.Create(pngPath);
-                data.SaveTo(fs);
+                onLog("[SOUNDBAR] Phân tích âm thanh chứa không có frame — bỏ qua lớp overlay.");
+                return Task.FromResult<SoundBarGeneratedOverlay?>(null);
             }
 
-            sw.Stop();
-            onLog($"[SOUNDBAR] Đã tạo {frameCount} khung @ {canvasWidth}x{canvasHeight}, {frameRate:F2}fps, {sw.ElapsedMilliseconds}ms");
+            SoundBarSettings safeSettings = settings ?? new SoundBarSettings();
+            ColorPreset safePalette = palette ?? ColorPresets.Default;
 
-            return Task.FromResult<SoundBarGeneratedOverlay?>(new SoundBarGeneratedOverlay
+            int safeW = Math.Max(2, canvasWidth);
+            int safeH = Math.Max(2, canvasHeight);
+            double safeFps = SoundBarVisualizerPreset.ResolveFrameRate(safeSettings);
+            int frameCount = SoundBarVisualizerPreset.ResolveFrameCount(safeSettings);
+            SoundBarVisualizerPreset.ResolveRenderSize(safeW, safeH, out int renderW, out int renderH);
+
+            string styleId = SoundBarVisualizerPreset.NormalizeStyleId(safeSettings.Style.ToString());
+            string cacheKey = SoundBarVisualizerPreset.BuildCacheKey(safeSettings, safePalette, safeW, safeH,
+                analysis.AudioFingerprint ?? string.Empty);
+
+            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_cache", styleId, cacheKey);
+            string overlayPattern = Path.Combine(tempRoot, "soundbar_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+            string manifestPath = Path.Combine(tempRoot, "manifest.json");
+
+            if (SoundBarVisualizerPreset.TryLoadCache(manifestPath, overlayPattern, previewDir, cacheKey,
+                    out SoundBarGeneratedOverlay? cached))
             {
-                TempRoot = tempRoot,
-                OverlayPattern = Path.Combine(tempRoot, "frame_%04d.png"),
-                FrameCount = frameCount,
-                FrameRate = frameRate,
-                Width = canvasWidth,
-                Height = canvasHeight,
-                PreviewDirectory = tempRoot,
-                TempArtifacts = new List<string> { tempRoot },
-            });
+                onLog($"[SOUNDBAR-CACHE] Sử dụng lại {styleId} overlay ({cacheKey}) @ {cached!.Width}x{cached.Height}, frames={cached.FrameCount}, preview={cached.PreviewDirectory}");
+                return Task.FromResult<SoundBarGeneratedOverlay?>(cached);
+            }
+
+            // Resample lên chính xác số PNG count để vòng ffmpeg và vòng render khớp.
+            var renderFrames = new AudioFrameData[frameCount];
+            int sourceCount = source.Length;
+            for (int i = 0; i < frameCount; i++)
+            {
+                int sourceIndex = (int)Math.Floor((i / (double)frameCount) * sourceCount);
+                renderFrames[i] = source[Math.Clamp(sourceIndex, 0, sourceCount - 1)];
+            }
+
+            var state = new SkiaSharpSoundBarStyleRenderer.SoundBarRenderState();
+
+            string? pendingTempRoot = tempRoot;
+            try
+            {
+                Directory.CreateDirectory(tempRoot);
+                Directory.CreateDirectory(previewDir);
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+
+                for (int i = 0; i < frameCount; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    using var bitmap = new SKBitmap(renderW, renderH);
+                    using var canvas = new SKCanvas(bitmap);
+                    canvas.Clear(SKColors.Transparent);
+
+                    SkiaSharpSoundBarStyleRenderer.DrawFrame(canvas, renderW, renderH,
+                        safeSettings, safePalette, renderFrames, i, state);
+
+                    string pngPath = SoundBarVisualizerPreset.FormatSequenceFilePath(overlayPattern, i + 1);
+                    using var image = SKImage.FromBitmap(bitmap);
+                    using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+                    using var fs = File.Create(pngPath);
+                    data.SaveTo(fs);
+
+                    if (i < SoundBarVisualizerPreset.MaxPreviewFrames)
+                    {
+                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
+                        using var prevImage = SKImage.FromBitmap(bitmap);
+                        using var prevData = prevImage.Encode(SKEncodedImageFormat.Png, 100);
+                        using var prevFs = File.Create(previewFile);
+                        prevData.SaveTo(prevFs);
+                    }
+                }
+
+                sw.Stop();
+                onLog($"[SOUNDBAR] Đã tạo {styleId} overlay -> {cacheKey}, palette={safePalette.Id}, target={safeW}x{safeH}, render={renderW}x{renderH}, fps={safeFps.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}, frames={frameCount}, {sw.ElapsedMilliseconds}ms");
+
+                var overlay = new SoundBarGeneratedOverlay
+                {
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = frameCount,
+                    FrameRate = safeFps,
+                    Width = renderW,
+                    Height = renderH,
+                    PreviewDirectory = previewDir,
+                    TempArtifacts = new List<string> { tempRoot },
+                };
+
+                SoundBarVisualizerPreset.WriteManifest(manifestPath, overlay, styleId, safePalette.Id,
+                    analysis.AudioFingerprint ?? string.Empty, cacheKey);
+
+                pendingTempRoot = null;
+
+                return Task.FromResult<SoundBarGeneratedOverlay?>(overlay);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                SoundBarVisualizerPreset.DeletePartialTempRoot(pendingTempRoot, onLog);
+                onLog("[SOUNDBAR] Đã hủy.");
+                return Task.FromResult<SoundBarGeneratedOverlay?>(null);
+            }
+            catch (Exception ex)
+            {
+                SoundBarVisualizerPreset.DeletePartialTempRoot(pendingTempRoot, onLog);
+                onLog($"[SOUNDBAR-ERROR] Lỗi tạo overlay âm thanh: {ex.Message}");
+                return Task.FromResult<SoundBarGeneratedOverlay?>(null);
+            }
         }
         catch (Exception ex)
         {
@@ -1961,43 +1976,63 @@ public sealed class AvaloniaImageServices : IImageServices
         }
     }
 
-    private static SKColor ParseHex(string hex)
+    /// <summary>
+    /// Vẽ một PNG đại diện cho bộ chọn style soundbar (picker). Toàn quyền deterministic, không cần file âm thanh.
+    /// Trả về đường dẫn file, hoặc null khi thất bại. Không bao giờ ném ngoại lệ.
+    /// </summary>
+    public Task<string?> GeneratePreviewPngAsync(SoundBarSettings settings, ColorPreset palette,
+        int width, int height, string? cacheDirectory, Action<string> onLog, CancellationToken token)
     {
-        string h = hex.TrimStart('#');
-        if (h.Length == 6)
+        try
         {
-            byte r = byte.Parse(h.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
-            byte g = byte.Parse(h.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
-            byte b = byte.Parse(h.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
-            return new SKColor(r, g, b);
+            SoundBarSettings safeSettings = settings ?? new SoundBarSettings();
+            ColorPreset safePalette = palette ?? ColorPresets.Default;
+
+            string directory = string.IsNullOrWhiteSpace(cacheDirectory)
+                ? Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_cache", "previews")
+                : cacheDirectory;
+
+            int renderW = Math.Max(16, width);
+            int renderH = Math.Max(16, height);
+
+            string previewKey = SoundBarVisualizerPreset.BuildPreviewCacheKey(safeSettings, safePalette, renderW, renderH);
+            string styleId = SoundBarVisualizerPreset.NormalizeStyleId(safeSettings.Style.ToString());
+            string filePath = Path.Combine(directory, $"{styleId}__{safePalette.Id}__{previewKey}.png");
+            if (File.Exists(filePath))
+                return Task.FromResult<string?>(filePath);
+
+            AudioFrameData[] frames = SoundBarVisualizerPreset.BuildPreviewFrames();
+            const int PreviewFrameIndex = 6;
+            var state = new SkiaSharpSoundBarStyleRenderer.SoundBarRenderState();
+
+            using var bitmap = new SKBitmap(renderW, renderH);
+            using var canvas = new SKCanvas(bitmap);
+            canvas.Clear(SKColors.Transparent);
+
+            SkiaSharpSoundBarStyleRenderer.DrawFrame(canvas, renderW, renderH,
+                safeSettings, safePalette, frames, PreviewFrameIndex, state);
+
+            Directory.CreateDirectory(directory);
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            using var fs = File.Create(filePath);
+            data.SaveTo(fs);
+
+            onLog?.Invoke($"[SOUNDBAR] Preview đã viết -> {filePath}");
+            return Task.FromResult<string?>(filePath);
         }
-        return SKColors.White;
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            onLog?.Invoke("[SOUNDBAR] Preview đã hủy.");
+            return Task.FromResult<string?>(null);
+        }
+        catch (Exception ex)
+        {
+            onLog?.Invoke($"[SOUNDBAR-PREVIEW-ERROR] Lỗi tạo preview: {ex.Message}");
+            return Task.FromResult<string?>(null);
+        }
     }
 
-    private static SKColor LerpPalette(ColorPreset palette, double level)
-    {
-        var stops = palette.Stops;
-        if (stops == null || stops.Count == 0) return SKColors.White;
-        if (stops.Count == 1) return ParseHex(stops[0].Hex);
-
-        for (int i = 0; i < stops.Count - 1; i++)
-        {
-            double o0 = stops[i].Offset, o1 = stops[i + 1].Offset;
-            if (level >= o0 && level <= o1)
-            {
-                double t = (level - o0) / (o1 - o0);
-                var c0 = ParseHex(stops[i].Hex);
-                var c1 = ParseHex(stops[i + 1].Hex);
-                byte r = (byte)(c0.Red + (c1.Red - c0.Red) * t);
-                byte g = (byte)(c0.Green + (c1.Green - c0.Green) * t);
-                byte b = (byte)(c0.Blue + (c1.Blue - c0.Blue) * t);
-                return new SKColor(r, g, b);
-            }
-        }
-        return ParseHex(stops[stops.Count - 1].Hex);
-    }
-
-    // ── Khả năng không cần vẽ WPF → làm THẬT bằng SkiaSharp ──
 
     public (int Width, int Height) TryGetImageDimensions(string filePath)
     {

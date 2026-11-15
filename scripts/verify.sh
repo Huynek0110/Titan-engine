@@ -170,7 +170,8 @@ step_render_jobs() {
 step_e2e() {
   hr; say "BƯỚC 5 — --e2e (vòng UI thật → host API /api/render/wait)"
   local out rc
-  out=$(dotnet run --project TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release --no-build -- --e2e "$TI/e2e-out" 2>&1); rc=$?
+  out=$(timeout 120 dotnet run --project TitanEngine.Avalonia/TitanEngine.Avalonia.csproj -c Release --no-build -- --e2e "$TI/e2e-out" 2>&1); rc=$?
+  if [ $rc -eq 124 ]; then bad "--e2e (timeout 120s — app không tự tắt sau render)"; return 1; fi
   echo "$out" | grep -E "\[E2E\]|\[SCREENSHOT\]|exit|error|Error" | sed 's/^/  /' || true
   if [ $rc -ne 0 ]; then bad "--e2e exit=$rc"; return 1; fi
   if [ -f "$TI/e2e-out/rendered.mp4" ] || ls "$TI"/e2e-out/*.mp4 >/dev/null 2>&1; then

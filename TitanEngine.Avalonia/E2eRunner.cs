@@ -81,7 +81,7 @@ public static class E2eRunner
             {
                 // 3. START BATCH — đúng command của nút START
                 vm.QueueLogs.StartBatchCommand.Execute(null);
-                var deadline = TimeSpan.FromMinutes(6);
+                var deadline = TimeSpan.FromMinutes(2);
                 while (job.StatusDisplay is not ("DONE" or "FAILED") && deadline > TimeSpan.Zero)
                 {
                     await Task.Delay(1000);
@@ -152,11 +152,15 @@ public static class E2eRunner
         catch (Exception ex)
         {
             Console.WriteLine($"[E2E] EXCEPTION: {ex}");
+            exit = 1;
         }
         finally
         {
             Console.WriteLine($"[E2E] xong: {_passes} pass / {_fails} fail → exit {exit}");
             desktop.Shutdown(exit);
+            // E2E harness: app không được treo lại sau khi render xong. Thoát process ngay
+            // để verify.sh --e2e (và publish --e2e) không bị chặt ở host/Avalonia message loop.
+            Environment.Exit(exit);
         }
     }
 
