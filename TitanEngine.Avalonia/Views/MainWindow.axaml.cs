@@ -18,6 +18,12 @@ public partial class MainWindow : Window
         vm.RootWindow = this;
         UserPrompt.Owner = this;
 
+        // Thay thế WPF DwmSetWindowAttribute (DWMWA_MICA/Acrylic backdrop) —
+        // Avalonia-native, cross-platform (WPF P/Invoke chỉ chạy Windows).
+        // Mica/AcrylicBlur chỉ áp dụng trên Windows; Blur là fallback tối đa platform.
+        // SkiaSharp vẽ toàn bộ nền overlay nên transparency chỉ cần cho khung trong suốt.
+        TransparencyLevelHint = new[] { WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur };
+
         // Điểm 3 đã duyệt: drag-drop có thể không nhận qua XWayland/Hyprland →
         // đường dự phòng là nút Browse + ô dán đường dẫn (SourceTrimView).
         DragDrop.SetAllowDrop(this, true);
