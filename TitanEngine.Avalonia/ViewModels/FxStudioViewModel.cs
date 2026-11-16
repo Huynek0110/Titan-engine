@@ -7,8 +7,9 @@ namespace TitanEngine.Avalonia.ViewModels;
 
 /// <summary>
 /// Khu FX STUDIO — mirror UpdateSnowfallOpacityUi / SldFx_ValueChanged / UpdateFxTimelineVisualization
-/// của MainWindow. Các hiệu ứng cần bộ vẽ WPF (Snowfall/Polaroid) vẫn hiện control nhưng bị tắt
-/// ở lớp xử lý job (xem JobBuilder + PORT-PROGRESS.md).
+/// của MainWindow. Các hiệu ứng overlay (Snowfall/Polaroid/DreamyDot/Particle/ScratchVideo) đã port
+/// SkiaSharp qua AvaloniaEngineServices → bật được ComboItem. Crop Video (Custom Frame) vẫn tắt
+/// vì dùng MediaElement (WPF-stay, không có trong Avalonia).
 /// </summary>
 public partial class FxStudioViewModel : ObservableObject
 {
@@ -41,9 +42,9 @@ public partial class FxStudioViewModel : ObservableObject
             new ComboOption("None"),
             // 4 polaroid border đều cần bộ vẽ WPF (IImageServices.Generate*Overlay) → disabled.
             new ComboOption("Polaroid Scrapbook", Enabled: false),
-            new ComboOption("Polaroid Scrapbook 2", Enabled: false),
-            new ComboOption("RGB Polaroid Border", Enabled: false),
-            new ComboOption("Dashed Polaroid Frame", Enabled: false),
+            new ComboOption("Polaroid Scrapbook 2"),
+            new ComboOption("RGB Polaroid Border"),
+            new ComboOption("Dashed Polaroid Frame"),
         });
 
     public ObservableCollection<ComboOption> RainPresetOptions { get; } = new(

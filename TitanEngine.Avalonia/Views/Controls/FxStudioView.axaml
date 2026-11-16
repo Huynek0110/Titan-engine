@@ -22,16 +22,16 @@
 
       <TextBlock Text="Overlay" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
       <StackPanel Margin="0,0,0,12">
-        <!-- Snowfall cần bộ vẽ overlay (IImageServices) — bật được nhưng thiếu bộ vẽ thì render
-             dừng với thông báo rõ (guard ở RenderPipeline) -->
+        <!-- Overlay đã port bằng SkiaSharp (AvaloniaEngineServices) — bật được, render sẽ sử dụng
+             SkiaSharp vẽ overlay thay vì WPF DrawingContext -->
         <CheckBox Content="Overlay 1" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay1}"
-                  ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
+                  ToolTip.Tip="Overlay đã port SkiaSharp; render sẽ dùng AvaloniaEngineServices"/>
         <CheckBox Content="Overlay 2" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay2}"
-                  ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
+                  ToolTip.Tip="Overlay đã port SkiaSharp; render sẽ dùng AvaloniaEngineServices"/>
         <CheckBox Content="Overlay 3" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6" IsChecked="{Binding SnowOverlay3}"
-                  ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
+                  ToolTip.Tip="Overlay đã port SkiaSharp; render sẽ dùng AvaloniaEngineServices"/>
         <CheckBox Content="Overlay Intro" Foreground="{DynamicResource TextSecondaryBrush}" IsChecked="{Binding OverlayIntro}"
-                  ToolTip.Tip="Cần bộ vẽ overlay (chưa có trên bản này); nếu bật, render sẽ dừng và ghi lý do"/>
+                  ToolTip.Tip="Overlay đã port SkiaSharp; render sẽ dùng AvaloniaEngineServices"/>
       </StackPanel>
 
       <!-- pnlRainOverlaySettings: bản gốc cũng luôn collapsed (không có code nào hiện nó) -->
