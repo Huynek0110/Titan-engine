@@ -289,8 +289,7 @@ public static class SkiaSharpSoundBarStyleRenderer
                 if (_peakLevels == null)
                 {
                     _peakLevels = GetScratchDoubleArray(BarCount);
-                    for (int i = 0; i < BarCount; i++)
-                        _peakLevels[i] = SampleBandPeakStatic(this, i, BarCount);
+                    ComputePeakLevels(this, _peakLevels, BarCount);
                 }
                 return _peakLevels;
             }
@@ -2605,7 +2604,6 @@ public static class SkiaSharpSoundBarStyleRenderer
     {
         double rx = Math.Max(0.25, radiusX);
         double ry = Math.Max(0.25, radiusY);
-        SKSize size = new((float)(rx * 2.0), (float)(ry * 2.0));
         path.AddOval(new SKRect((float)(center.X - rx), (float)(center.Y - ry),
             (float)(center.X + rx), (float)(center.Y + ry)));
     }
@@ -2990,12 +2988,52 @@ public static class SkiaSharpSoundBarStyleRenderer
     private static SKPaint GetPlotGradientPaint(FrameContext ctx, double baseY, double tipY)
         => GetColumnPaint(ctx, baseY, tipY, (int)ctx.Alpha);
 
+    // Stop arrays (màu + offset của gradient cột) chỉ phụ thuộc vào (PaletteId, alpha) —
+    // không phụ thuộc baseY/tipY. Cache theo key đó để tránh cấp List<SKColor>/List<float> +
+    // ToArray() mỗi cache miss (âm thanh động → miss gần như mỗi frame, mỗi bar). Skia sao
+    // chép mảng trong CreateLinearGradient nên tái dùng mảng cached an toàn.
+    private readonly struct StopArrays
+    {
+        public readonly SKColor[] Colors;
+        public readonly float[] Offsets;
+        public StopArrays(SKColor[] colors, float[] offsets) { Colors = colors; Offsets = offsets; }
+    }
+
+    [ThreadStatic]
+    private static Dictionary<(string PaletteId, int Alpha), StopArrays>? _tsStopArrayCache;
+    private static Dictionary<(string PaletteId, int Alpha), StopArrays> StopArrayCache =>
+        _tsStopArrayCache ??= new(64);
+
     private static SKPaint BuildColumnPaint(ResolvedPalette resolved, double baseY, double tipY, int alpha, bool downward)
     {
         double alphaFactor = alpha / 255.0;
         double[] offsets = resolved.RampOffsets;
         SKColor[] colors = resolved.RampColors;
 
+        var stopKey = (resolved.Id, Math.Clamp(alpha, 0, 255));
+        if (!StopArrayCache.TryGetValue(stopKey, out var stops))
+        {
+            stops = BuildStopArrays(offsets, colors, alphaFactor, alpha, resolved.Core);
+            StopArrayCache[stopKey] = stops;
+            if (StopArrayCache.Count > 64)
+                StopArrayCache.Clear();
+        }
+
+        return new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Shader = SKShader.CreateLinearGradient(
+                new SKPoint(0, (float)baseY),
+                new SKPoint(0, (float)tipY),
+                stops.Colors,
+                stops.Offsets,
+                SKShaderTileMode.Clamp)
+        };
+    }
+
+    private static StopArrays BuildStopArrays(double[] offsets, SKColor[] colors, double alphaFactor, int alpha, SKColor core)
+    {
         // Build the stops list first (White-hot tip technique), then create the shader once.
         var stopColors = new List<SKColor>();
         var stopOffsets = new List<float>();
@@ -3015,7 +3053,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         if (!hasStopAtTipStart && TipStart > lastOffset)
         {
-            stopColors.Add(WithAlpha(resolved.Core, alphaFactor));
+            stopColors.Add(WithAlpha(core, alphaFactor));
             stopOffsets.Add((float)TipStart);
             lastOffset = TipStart;
         }
@@ -3026,17 +3064,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             stopOffsets.Add(1f);
         }
 
-        return new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Shader = SKShader.CreateLinearGradient(
-                new SKPoint(0, (float)baseY),
-                new SKPoint(0, (float)tipY),
-                stopColors.ToArray(),
-                stopOffsets.ToArray(),
-                SKShaderTileMode.Clamp)
-        };
+        return new StopArrays(stopColors.ToArray(), stopOffsets.ToArray());
     }
 
     private static double MidLevelStatic(FrameContext ctx)
@@ -3062,20 +3090,32 @@ public static class SkiaSharpSoundBarStyleRenderer
         return pulse;
     }
 
-    private static double SampleBandPeakStatic(FrameContext ctx, int barIndex, int barCount)
+    // PeakLevels cho toàn bộ bar trong 1 pass: frames ở ngoài, bars ở trong → FrameAt chỉ gọi
+    // 1 lần/frame thay vì barCount lần/frame. Kết quả bit-identical với SampleBandPeakStatic
+    // (max là commutative, cùng công thức contribution, cùng Clamp cuối).
+    private static void ComputePeakLevels(FrameContext ctx, double[] peakLevels, int barCount)
     {
-        double peak = 0.0;
+        Array.Clear(peakLevels, 0, barCount);
         for (int k = 0; k <= PeakCapMaxLookback; k++)
         {
             AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
             if (back == null)
                 break;
-            double contribution = SampleBandFrameStatic(back, barIndex, barCount, ctx.Sensitivity)
-                - (PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames));
-            if (contribution > peak)
-                peak = contribution;
+            float[]? bands = back.Bands;
+            int length = bands?.Length ?? 0;
+            if (length == 0 || barCount <= 0)
+                continue;
+            double decay = PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames);
+            for (int i = 0; i < barCount; i++)
+            {
+                int idx = Math.Clamp((int)Math.Floor((i / (double)barCount) * length), 0, length - 1);
+                double contribution = ApplyPinkTilt(Math.Clamp(bands![idx] * ctx.Sensitivity, 0f, 1f), idx, length) - decay;
+                if (contribution > peakLevels[i])
+                    peakLevels[i] = contribution;
+            }
         }
-        return Math.Clamp(peak, 0.0, 1.0);
+        for (int i = 0; i < barCount; i++)
+            peakLevels[i] = Math.Clamp(peakLevels[i], 0.0, 1.0);
     }
 
     private static float SampleBandFrameStatic(AudioFrameData? frame, int barIndex, int barCount, float sensitivity)
