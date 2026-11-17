@@ -1,0 +1,76 @@
+<Window x:Class="TitanEngine.Avalonia.Views.CropPreviewWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="960" d:DesignHeight="540"
+        Title="Crop Preview — Titan Engine"
+        Height="640" Width="960"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PanelBgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <!-- Khung preview frame video + border crop co-dãn -->
+    <Border Grid.Row="0" Grid.RowSpan="2"
+            Background="{StaticResource CardBgBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+            CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center"
+            MaxWidth="920" MaxHeight="520">
+      <Canvas Name="CropCanvas" Background="Black">
+        <Image Name="FrameImage" Stretch="None" />
+        <!-- Border vung crop (co-dan bang drag) -->
+        <Border Name="CropBorder"
+                Background="#2D4CC3FF" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2"
+                CornerRadius="4"
+                Canvas.Left="100" Canvas.Top="100" Width="400" Height="225"
+                PointerPressed="CropBorder_PointerPressed"
+                PointerMoved="CropBorder_PointerMoved"
+                PointerReleased="CropBorder_PointerReleased"
+                Cursor="SizeAll"/>
+        <!-- 4 nut keo tai 4 goc -->
+        <Thumb Name="HdTL" Width="14" Height="14" Canvas.Left="93" Canvas.Top="93"
+               Background="{StaticResource AccentBrush}" BorderBrush="White" BorderThickness="1"
+               Cursor="SizeNorthwestSoutheast"
+               PointerPressed="HandleThumb_PointerPressed"
+               PointerMoved="HandleThumb_PointerMoved"
+               PointerReleased="HandleThumb_PointerReleased" Tag="TL"/>
+        <Thumb Name="HdTR" Width="14" Height="14" Canvas.Left="486" Canvas.Top="93"
+               Background="{StaticResource AccentBrush}" BorderBrush="White" BorderThickness="1"
+               Cursor="SizeNortheastSouthwest"
+               PointerPressed="HandleThumb_PointerPressed"
+               PointerMoved="HandleThumb_PointerMoved"
+               PointerReleased="HandleThumb_PointerReleased" Tag="TR"/>
+        <Thumb Name="HdBL" Width="14" Height="14" Canvas.Left="93" Canvas.Top="316"
+               Background="{StaticResource AccentBrush}" BorderBrush="White" BorderThickness="1"
+               Cursor="SizeNortheastSouthwest"
+               PointerPressed="HandleThumb_PointerPressed"
+               PointerMoved="HandleThumb_PointerMoved"
+               PointerReleased="HandleThumb_PointerReleased" Tag="BL"/>
+        <Thumb Name="HdBR" Width="14" Height="14" Canvas.Left="486" Canvas.Top="316"
+               Background="{StaticResource AccentBrush}" BorderBrush="White" BorderThickness="1"
+               Cursor="SizeNorthwestSoutheast"
+               PointerPressed="HandleThumb_PointerPressed"
+               PointerMoved="HandleThumb_PointerMoved"
+               PointerReleased="HandleThumb_PointerReleased" Tag="BR"/>
+      </Canvas>
+    </Border>
+
+    <!-- Dieu khien -->
+    <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
+      <Grid ColumnDefinitions="*,Auto,*">
+        <TextBlock Name="PercentLabel" Text="X: 0%  Y: 0%  W: 0%  H: 0%" FontSize="11"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+        <TextBlock Name="SizeLabel" Text="--" FontSize="11"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+      </Grid>
+
+      <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+        <Button Name="BtnReset" Content="Dat lai" Classes="ghost" MinWidth="80"/>
+        <Button Name="BtnApply" Content="Ap dung" Classes="primary" MinWidth="80"/>
+        <Button Name="BtnClose" Content="Dong" Classes="ghost" MinWidth="80"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+
+</Window>

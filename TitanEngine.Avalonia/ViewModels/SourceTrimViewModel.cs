@@ -42,6 +42,10 @@ public partial class SourceTrimViewModel : ObservableObject
     [ObservableProperty] private string _imageTimelineDuration = "";
     [ObservableProperty] private string _audioEditSummary = "No audio cuts applied";
     [ObservableProperty] private double _externalAudioSpeed = 1.0;
+    [ObservableProperty] private double _cropXPercent;
+    [ObservableProperty] private double _cropYPercent;
+    [ObservableProperty] private double _cropWidthPercent = 1.0;
+    [ObservableProperty] private double _cropHeightPercent = 1.0;
     [ObservableProperty] private bool _randomVisible;
     [ObservableProperty] private string _randomButtonLabel = "🎲 RANDOM VIDEO × AUDIO";
 

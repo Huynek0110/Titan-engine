@@ -1,9 +1,12 @@
 using System;
+using System.IO;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using TitanEngine.Avalonia.ViewModels;
+using TitanEngine.Avalonia.Views;
 
 namespace TitanEngine.Avalonia.Views.Controls;
 
@@ -12,6 +15,24 @@ public partial class SourceTrimView : UserControl
     public SourceTrimView()
     {
         InitializeComponent();
+        BtnCropVideo.Click += async (_, _) =>
+        {
+            if (DataContext is not SourceTrimViewModel st) return;
+            var path = st.VideoPaths.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            var win = new CropPreviewWindow(path,
+                st.CropXPercent, st.CropYPercent, st.CropWidthPercent, st.CropHeightPercent);
+            var owner = TopLevel.GetTopLevel(this) is Window w ? w : null;
+            if (owner is null) return;
+            await win.ShowDialog(owner);
+            if (win.Applied)
+            {
+                st.CropXPercent = win.CropXPercent;
+                st.CropYPercent = win.CropYPercent;
+                st.CropWidthPercent = win.CropWidthPercent;
+                st.CropHeightPercent = win.CropHeightPercent;
+            }
+        };
     }
 
     private MainWindowViewModel? Root => TopLevel.GetTopLevel(this)?.DataContext as MainWindowViewModel;
