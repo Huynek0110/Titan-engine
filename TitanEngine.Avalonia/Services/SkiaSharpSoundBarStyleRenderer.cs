@@ -592,7 +592,8 @@ public static class SkiaSharpSoundBarStyleRenderer
     /// <summary>
     /// Renders one frame of the requested style onto <paramref name="canvas"/>.
     /// </summary>
-    // PaintCache có hiệu lực chỉ trong một lần DrawFrame (render tuần tự, không song tiến).
+    // PaintCache cache SKPaint cross-frame (tái dùng qua các khung, không xóa mỗi khung).
+    // Giới hạn 128 entry, Clear() (dispose) khi vượt ngưỡng để kiểm soát native resource.
     // ThreadStatic để mỗi engine thread có cache riêng — tránh tranh chấp cross-thread.
     [ThreadStatic]
     private static PaintCache? _tsFramePaintCache;
@@ -755,7 +756,6 @@ public static class SkiaSharpSoundBarStyleRenderer
         var ctx = new FrameContext(settings, palette, frames ?? Array.Empty<AudioFrameData>(),
             currentFrameIndex, state, width, height);
 
-        FramePaintCache.BeginFrame();
         try
         {
             canvas.Save();
@@ -781,7 +781,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         finally
         {
             canvas.Restore();
-            FramePaintCache.EndFrame();
+            // FramePaintCache giữ cross-frame (không Clear/EndFrame mỗi khung) để tái dùng SKPaint.
             ctx.CheckinScratchPaths();
             ctx.CheckinScratchArrays();
             ctx.CheckinScratchPointArrays();
@@ -2617,26 +2617,19 @@ public static class SkiaSharpSoundBarStyleRenderer
     private static SKPaint CreateRadialGlowPaint(SKColor color, double alpha, SKPoint center, double radius)
         => FramePaintCache.GetRadialGlow(color, alpha, center, radius);
 
-    // Cache SKPaint/SKShader trong một khung vẽ. Các instance được tạo lần đầu, dùng lại cho
-    // toàn bộ khung (không được Dispose bởi caller), rồi giải phóng ở EndFrame.
+    // Cache SKPaint cross-frame: tạo 1 lần per tham số, dùng lại qua nhiều khung.
+    // Giới hạn 128 entry per dictionary; khi vượt ngưỡng → Clear() (dispose native) và bắt đầu lại.
+    // ThreadStatic (qua lớp ngoài) → mỗi engine thread có cache riêng.
     private sealed class PaintCache
     {
+        private const int MaxEntries = 128;
+
         private readonly Dictionary<StrokeKey, SKPaint> _strokeCache = new(32);
         private readonly Dictionary<uint, SKPaint> _fillCache = new(32);
 
-        public void BeginFrame()
-        {
-            _strokeCache.Clear();
-            _fillCache.Clear();
-        }
-
-        public void EndFrame()
-        {
-            foreach (var p in _strokeCache.Values) p.Dispose();
-            foreach (var p in _fillCache.Values) p.Dispose();
-            _strokeCache.Clear();
-            _fillCache.Clear();
-        }
+        // Không BeginFrame/EndFrame mỗi khung — cache giữ nguyên cross-frame để tái dùng SKPaint.
+        public void BeginFrame() { }
+        public void EndFrame() { }
 
         public SKPaint GetStroke(SKColor color, double thickness, SKStrokeCap cap)
         {
@@ -2653,6 +2646,8 @@ public static class SkiaSharpSoundBarStyleRenderer
                     StrokeJoin = SKStrokeJoin.Round
                 };
                 _strokeCache[key] = paint;
+                if (_strokeCache.Count > MaxEntries)
+                    ClearStrokeCache();
             }
             return paint;
         }
@@ -2669,8 +2664,24 @@ public static class SkiaSharpSoundBarStyleRenderer
                     Color = color
                 };
                 _fillCache[key] = paint;
+                if (_fillCache.Count > MaxEntries)
+                    ClearFillCache();
             }
             return paint;
+        }
+
+        private void ClearStrokeCache()
+        {
+            foreach (var p in _strokeCache.Values)
+                p.Dispose();
+            _strokeCache.Clear();
+        }
+
+        private void ClearFillCache()
+        {
+            foreach (var p in _fillCache.Values)
+                p.Dispose();
+            _fillCache.Clear();
         }
 
         // Radial glow shader cross-frame cache — shader được tạo lại 1 lần per tham số,
