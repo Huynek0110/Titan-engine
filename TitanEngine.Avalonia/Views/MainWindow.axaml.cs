@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -18,7 +20,16 @@ public partial class MainWindow : Window
         vm.RootWindow = this;
         UserPrompt.Owner = this;
 
-        // Thay thế WPF DwmSetWindowAttribute (DWMWA_MICA/Acrylic backdrop) —
+        // Nut xem preview video (ban 1): mo cua so thanh thoi gian + trich frame ffmpeg.
+        BtnVideoPreview.Click += (_, _) =>
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            var path = vm.SourceTrim.VideoPaths.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            _ = new VideoPreviewWindow(path).ShowDialog(this);
+        };
+
+        // Thay the WPF DwmSetWindowAttribute (DWMWA_MICA/Acrylic backdrop) —
         // Avalonia-native, cross-platform (WPF P/Invoke chỉ chạy Windows).
         // Mica/AcrylicBlur chỉ áp dụng trên Windows; Blur là fallback tối đa platform.
         // SkiaSharp vẽ toàn bộ nền overlay nên transparency chỉ cần cho khung trong suốt.

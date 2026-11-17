@@ -1,0 +1,41 @@
+<Window x:Class="TitanEngine.Avalonia.Views.VideoPreviewWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="960" d:DesignHeight="540"
+        Title="Video Preview — Titan Engine"
+        Height="600" Width="960"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PanelBgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <!-- Khung xem frame (tĩnh, mirror WatermarkEditorWindow) -->
+    <Border Grid.Row="0" Grid.RowSpan="2"
+            Background="{StaticResource PanelBgBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+            CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center"
+            MaxWidth="920" MaxHeight="460">
+      <Image Name="FrameImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border>
+
+    <!-- Thanh thời gian -->
+    <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="8">
+      <Grid ColumnDefinitions="*,Auto,*">
+        <TextBlock Name="TimeLabel" Text="00:00 / 00:00" FontSize="11"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+        <Slider Name="TimelineSlider" Grid.Column="1" Margin="8,0"
+                Minimum="0" Maximum="100" Value="0"
+                VerticalAlignment="Center"/>
+        <TextBlock Name="DurationLabel" Text="--" FontSize="11"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+      </Grid>
+
+      <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+        <Button Name="BtnClose" Content="Đóng" Classes="ghost" MinWidth="80"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+
+</Window>

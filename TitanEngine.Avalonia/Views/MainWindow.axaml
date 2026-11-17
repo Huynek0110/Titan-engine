@@ -38,6 +38,8 @@
           <v:WatermarkView DataContext="{Binding Watermark}" />
           <v:ColorGradingView DataContext="{Binding ColorGrading}" />
           <v:ExportView DataContext="{Binding Export}" />
+          <Button Name="BtnVideoPreview" Content="Xem preview video" Classes="primary"
+                  HorizontalAlignment="Left" Margin="0,12,0,0" MinWidth="160"/>
         </StackPanel>
       </ScrollViewer>
     </Grid>
