@@ -756,6 +756,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         var ctx = new FrameContext(settings, palette, frames ?? Array.Empty<AudioFrameData>(),
             currentFrameIndex, state, width, height);
 
+        FramePaintCache.BeginFrame();
         try
         {
             canvas.Save();
@@ -781,7 +782,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         finally
         {
             canvas.Restore();
-            // FramePaintCache giữ cross-frame (không Clear/EndFrame mỗi khung) để tái dùng SKPaint.
+            FramePaintCache.EndFrame();
             ctx.CheckinScratchPaths();
             ctx.CheckinScratchArrays();
             ctx.CheckinScratchPointArrays();
@@ -2427,14 +2428,16 @@ public static class SkiaSharpSoundBarStyleRenderer
         return gained >= 1f ? 1f : gained;
     }
 
-    // Pink-tilt chỉ phụ thuộc vào bandCount → cache tĩnh, tránh cấp float[] mới mỗi ApplyPinkTilt.
+    // Pink-tilt chỉ phụ thuộc vào bandCount → cache ThreadStatic, tránh cấp float[] mới mỗi ApplyPinkTilt.
     // Mảng chỉ đọc (caller không modify), cùng bandCount luôn trả cùng tham chiếu.
-    private static readonly Dictionary<int, float[]> _pinkTiltCache = new(16);
+    [ThreadStatic]
+    private static Dictionary<int, float[]>? _tsPinkTiltCache;
+    private static Dictionary<int, float[]> PinkTiltCache => _tsPinkTiltCache ??= new(16);
 
     private static float[] GetPinkTilt(int bandCount)
     {
         int count = Math.Max(1, bandCount);
-        if (_pinkTiltCache.TryGetValue(count, out var cached))
+        if (PinkTiltCache.TryGetValue(count, out var cached))
             return cached;
 
         var tilt = new float[count];
@@ -2445,7 +2448,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             double db = Math.Clamp(PinkTiltDbPerOctave * octaves, 0.0, PinkTiltMaxDb);
             tilt[i] = (float)Math.Pow(10.0, db / 20.0);
         }
-        _pinkTiltCache[count] = tilt;
+        PinkTiltCache[count] = tilt;
         return tilt;
     }
 
@@ -2627,9 +2630,19 @@ public static class SkiaSharpSoundBarStyleRenderer
         private readonly Dictionary<StrokeKey, SKPaint> _strokeCache = new(32);
         private readonly Dictionary<uint, SKPaint> _fillCache = new(32);
 
-        // Không BeginFrame/EndFrame mỗi khung — cache giữ nguyên cross-frame để tái dùng SKPaint.
-        public void BeginFrame() { }
-        public void EndFrame() { }
+        public void BeginFrame()
+        {
+            _strokeCache.Clear();
+            _fillCache.Clear();
+        }
+
+        public void EndFrame()
+        {
+            foreach (var p in _strokeCache.Values) p.Dispose();
+            foreach (var p in _fillCache.Values) p.Dispose();
+            _strokeCache.Clear();
+            _fillCache.Clear();
+        }
 
         public SKPaint GetStroke(SKColor color, double thickness, SKStrokeCap cap)
         {
@@ -2684,9 +2697,10 @@ public static class SkiaSharpSoundBarStyleRenderer
             _fillCache.Clear();
         }
 
-        // Radial glow shader cross-frame cache — shader được tạo lại 1 lần per tham số,
-        // dùng lại qua nhiều khung. Mảng colors/offsets chỉ cấp khi cache miss.
-        private static readonly Dictionary<uint, SKShader> _radialGlowShaderCache = new(64);
+        // Radial glow shader cross-frame cache (per PaintCache instance → per thread).
+        // Shader được tạo lại 1 lần per tham số, dùng lại qua nhiều khung.
+        // Mảng colors/offsets chỉ cấp khi cache miss.
+        private readonly Dictionary<uint, SKShader> _radialGlowShaderCache = new(64);
 
         private static uint RadialGlowShaderKey(SKColor color, double alpha, SKPoint center, double radius)
         {
@@ -2701,7 +2715,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             }
         }
 
-        private static SKShader GetRadialGlowShader(uint key, SKPoint center, double radius, SKColor color, double alpha)
+        private SKShader GetRadialGlowShader(uint key, SKPoint center, double radius, SKColor color, double alpha)
         {
             if (_radialGlowShaderCache.TryGetValue(key, out var shader))
                 return shader;
@@ -2860,20 +2874,22 @@ public static class SkiaSharpSoundBarStyleRenderer
         return frames[i];
     }
 
-    // ResolvedPalette chỉ phụ thuộc vào palette (immutable record) → cache tĩnh theo Id,
+    // ResolvedPalette chỉ phụ thuộc vào palette (immutable record) → cache ThreadStatic theo Id,
     // tránh parse lại hex + build 180 angular brushes mỗi frame.
-    private static readonly Dictionary<string, ResolvedPalette> _resolvedPaletteCache = new(32);
+    [ThreadStatic]
+    private static Dictionary<string, ResolvedPalette>? _tsResolvedPaletteCache;
+    private static Dictionary<string, ResolvedPalette> ResolvedPaletteCache => _tsResolvedPaletteCache ??= new(32);
 
     private static ResolvedPalette ResolvePalette(ColorPreset preset)
     {
         ColorPreset safe = preset ?? ColorPresets.Default;
         string id = safe.Id ?? string.Empty;
 
-        if (_resolvedPaletteCache.TryGetValue(id, out var cached))
+        if (ResolvedPaletteCache.TryGetValue(id, out var cached))
             return cached;
 
         var resolved = BuildResolvedPalette(safe);
-        _resolvedPaletteCache[id] = resolved;
+        ResolvedPaletteCache[id] = resolved;
         return resolved;
     }
 
