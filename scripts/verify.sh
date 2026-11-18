@@ -252,6 +252,26 @@ step_publish_e2e() {
   [ -d "$TI/publish-e2e" ] && ok "publish-e2e output dir tồn tại" || bad "publish-e2e thiếu output dir"
 }
 
+# --- buoc kiem tra soundbar RendererVersion vs hash file ---------------------
+
+step_soundbar_version() {
+  hr; say "BUOC — soundbar RendererVersion vs hash file"
+  local hashfile="$REPO_ROOT/scripts/soundbar-hashes.txt"
+  local codever
+  codever=$(grep -o 'private const string RendererVersion = "soundbar-r[0-9]*";' "$REPO_ROOT/TitanEngine.Core/SoundBarVisualizerPreset.cs" | grep -o 'soundbar-r[0-9]*')
+  local filever=""
+  if [ -f "$hashfile" ]; then
+    filever=$(sed -n '1p' "$hashfile" | sed -n 's/^RendererVersion=//p')
+  fi
+  if [ -z "$codever" ]; then bad "soundbar: khong tim RendererVersion trong code"; return 1; fi
+  if [ ! -f "$hashfile" ]; then bad "soundbar: thieu scripts/soundbar-hashes.txt"; return 1; fi
+  if [ "$filever" != "$codever" ]; then
+    bad "soundbar: hash file RendererVersion='$filever' khong khop code '$codever'"
+    return 1
+  fi
+  ok "soundbar RendererVersion=$codever khop hash file"
+}
+
 # --- main ------------------------------------------------------------------
 
 hr; say "TitanEngine verify — mode=$MODE"
@@ -262,11 +282,13 @@ case "$MODE" in
     step_build || true
     step_doctor || true
     step_test_escape || true
+    step_soundbar_version || true
     ;;
   full)
     step_build || true
     step_doctor || true
     step_test_escape || true
+    step_soundbar_version || true
     step_render_jobs || true
     step_e2e || true
     step_screenshot || true
