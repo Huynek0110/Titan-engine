@@ -289,50 +289,45 @@ public static class SkiaSharpSoundBarStyleRenderer
                 if (_peakLevels == null)
                 {
                     _peakLevels = GetScratchDoubleArray(BarCount);
-                    ComputePeakLevels(this, _peakLevels, BarCount);
+                    for (int i = 0; i < BarCount; i++)
+                        _peakLevels[i] = SampleBandPeakStatic(this, i, BarCount);
                 }
                 return _peakLevels;
             }
         }
 
-        // Scratch pools CHIA SẢ cross-frame (static ở lớp ngoài). FrameContext chỉ giữ
-        // checkout index (int) — rẻ, không cấp phát mỗi khung.
-        private int _scratchPathCheckout;
-        private int _scratchArrayCheckout;
-        private int _scratchPointArrayCheckout;
-        private int _scratchFloatArrayCheckout;
-        private int _scratchBoolArrayCheckout;
-        private int _scratchPathArrayCheckout;
-        private int _scratchColumnListCheckout;
-        private int _scratchCapListCheckout;
-        private int _scratchRaySpecListCheckout;
-        private int _scratchDoubleListCheckout;
-        private int _scratchStarListCheckout;
-        private int _scratchPeakBandListCheckout;
-        private int _scratchBucketListCheckout;
+        // Scratch SKPath dùng lại trong suốt một khung (Reset trước mỗi lần dùng),
+        // kết thúc cấp phát SKPath mới mỗi Build*Geometry.
+        private readonly List<SKPath> _scratchPaths = new(8);
+        private int _scratchCheckout;
 
         public SKPath GetScratchPath()
         {
-            if (_scratchPathCheckout < StaticScratchPaths.Count)
+            if (_scratchCheckout < _scratchPaths.Count)
             {
-                var p = StaticScratchPaths[_scratchPathCheckout];
+                var p = _scratchPaths[_scratchCheckout];
                 p.Reset();
-                _scratchPathCheckout++;
+                _scratchCheckout++;
                 return p;
             }
             var p2 = new SKPath();
-            StaticScratchPaths.Add(p2);
-            _scratchPathCheckout++;
+            _scratchPaths.Add(p2);
+            _scratchCheckout++;
             return p2;
         }
 
-        public void CheckinScratchPaths() => _scratchPathCheckout = 0;
+        public void CheckinScratchPaths() => _scratchCheckout = 0;
+
+        // Scratch mảng double dùng lại trong khung (không Reset vì mảng được ghi đè全部).
+        // Tránh cấp double[] mới cho envelopeTop/envelopeBottom/ringValues mỗi frame.
+        private readonly List<double[]> _scratchArrays = new(8);
+        private int _scratchArrayCheckout;
 
         public double[] GetScratchDoubleArray(int size)
         {
-            if (_scratchArrayCheckout < StaticScratchArrays.Count)
+            if (_scratchArrayCheckout < _scratchArrays.Count)
             {
-                var a = StaticScratchArrays[_scratchArrayCheckout];
+                var a = _scratchArrays[_scratchArrayCheckout];
                 if (a.Length >= size)
                 {
                     _scratchArrayCheckout++;
@@ -340,18 +335,23 @@ public static class SkiaSharpSoundBarStyleRenderer
                 }
             }
             var a2 = new double[Math.Max(size, 16)];
-            StaticScratchArrays.Add(a2);
+            _scratchArrays.Add(a2);
             _scratchArrayCheckout++;
             return a2;
         }
 
         public void CheckinScratchArrays() => _scratchArrayCheckout = 0;
 
+        // Scratch mảng SKPoint dùng lại trong khung (không Reset vì mảng được ghi đè全部).
+        // Tránh cấp SKPoint[] mới cho top[]/bottom[] trong DrawWaveRibbon mỗi frame.
+        private readonly List<SKPoint[]> _scratchPointArrays = new(8);
+        private int _scratchPointArrayCheckout;
+
         public SKPoint[] GetScratchSKPointArray(int size)
         {
-            if (_scratchPointArrayCheckout < StaticScratchPointArrays.Count)
+            if (_scratchPointArrayCheckout < _scratchPointArrays.Count)
             {
-                var a = StaticScratchPointArrays[_scratchPointArrayCheckout];
+                var a = _scratchPointArrays[_scratchPointArrayCheckout];
                 if (a.Length >= size)
                 {
                     _scratchPointArrayCheckout++;
@@ -359,18 +359,22 @@ public static class SkiaSharpSoundBarStyleRenderer
                 }
             }
             var a2 = new SKPoint[Math.Max(size, 16)];
-            StaticScratchPointArrays.Add(a2);
+            _scratchPointArrays.Add(a2);
             _scratchPointArrayCheckout++;
             return a2;
         }
 
         public void CheckinScratchPointArrays() => _scratchPointArrayCheckout = 0;
 
+        // Scratch mảng float dùng lại trong khung.
+        private readonly List<float[]> _scratchFloatArrays = new(8);
+        private int _scratchFloatArrayCheckout;
+
         public float[] GetScratchFloatArray(int size)
         {
-            if (_scratchFloatArrayCheckout < StaticScratchFloatArrays.Count)
+            if (_scratchFloatArrayCheckout < _scratchFloatArrays.Count)
             {
-                var a = StaticScratchFloatArrays[_scratchFloatArrayCheckout];
+                var a = _scratchFloatArrays[_scratchFloatArrayCheckout];
                 if (a.Length >= size)
                 {
                     _scratchFloatArrayCheckout++;
@@ -378,37 +382,23 @@ public static class SkiaSharpSoundBarStyleRenderer
                 }
             }
             var a2 = new float[Math.Max(size, 16)];
-            StaticScratchFloatArrays.Add(a2);
+            _scratchFloatArrays.Add(a2);
             _scratchFloatArrayCheckout++;
             return a2;
         }
 
         public void CheckinScratchFloatArrays() => _scratchFloatArrayCheckout = 0;
 
-        public bool[] GetScratchBoolArray(int size)
-        {
-            if (_scratchBoolArrayCheckout < StaticScratchBoolArrays.Count)
-            {
-                var a = StaticScratchBoolArrays[_scratchBoolArrayCheckout];
-                if (a.Length >= size)
-                {
-                    _scratchBoolArrayCheckout++;
-                    return a;
-                }
-            }
-            var a2 = new bool[Math.Max(size, 16)];
-            StaticScratchBoolArrays.Add(a2);
-            _scratchBoolArrayCheckout++;
-            return a2;
-        }
-
-        public void CheckinScratchBoolArrays() => _scratchBoolArrayCheckout = 0;
+        // Scratch mảng SKPath[] dùng lại trong khung (phần tử lấy từ _scratchPaths pool).
+        // Tránh cấp SKPath[] mới cho hueGeometries/lit/haloGeometries/coreGeometries mỗi frame.
+        private readonly List<SKPath[]> _scratchPathArrays = new(8);
+        private int _scratchPathArrayCheckout;
 
         public SKPath[] GetScratchSKPathArray(int size)
         {
-            if (_scratchPathArrayCheckout < StaticScratchPathArrays.Count)
+            if (_scratchPathArrayCheckout < _scratchPathArrays.Count)
             {
-                var a = StaticScratchPathArrays[_scratchPathArrayCheckout];
+                var a = _scratchPathArrays[_scratchPathArrayCheckout];
                 if (a.Length >= size)
                 {
                     _scratchPathArrayCheckout++;
@@ -416,39 +406,47 @@ public static class SkiaSharpSoundBarStyleRenderer
                 }
             }
             var a2 = new SKPath[Math.Max(size, 16)];
-            StaticScratchPathArrays.Add(a2);
+            _scratchPathArrays.Add(a2);
             _scratchPathArrayCheckout++;
             return a2;
         }
 
         public void CheckinScratchPathArrays() => _scratchPathArrayCheckout = 0;
 
+        // Scratch List<ColumnSpec> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<ColumnSpec>> _scratchColumnLists = new(4);
+        private int _scratchColumnListCheckout;
+
         public List<ColumnSpec> GetScratchColumnList()
         {
-            if (_scratchColumnListCheckout < StaticScratchColumnLists.Count)
+            if (_scratchColumnListCheckout < _scratchColumnLists.Count)
             {
-                var list = StaticScratchColumnLists[_scratchColumnListCheckout];
+                var list = _scratchColumnLists[_scratchColumnListCheckout];
                 list.Clear();
                 _scratchColumnListCheckout++;
                 return list;
             }
             var list2 = new List<ColumnSpec>();
-            StaticScratchColumnLists.Add(list2);
+            _scratchColumnLists.Add(list2);
             _scratchColumnListCheckout++;
             return list2;
         }
 
+        // Scratch List<(double X, double Y, double Width)> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<(double X, double Y, double Width)>> _scratchCapLists = new(4);
+        private int _scratchCapListCheckout;
+
         public List<(double X, double Y, double Width)> GetScratchCapList()
         {
-            if (_scratchCapListCheckout < StaticScratchCapLists.Count)
+            if (_scratchCapListCheckout < _scratchCapLists.Count)
             {
-                var list = StaticScratchCapLists[_scratchCapListCheckout];
+                var list = _scratchCapLists[_scratchCapListCheckout];
                 list.Clear();
                 _scratchCapListCheckout++;
                 return list;
             }
             var list2 = new List<(double X, double Y, double Width)>();
-            StaticScratchCapLists.Add(list2);
+            _scratchCapLists.Add(list2);
             _scratchCapListCheckout++;
             return list2;
         }
@@ -456,95 +454,113 @@ public static class SkiaSharpSoundBarStyleRenderer
         public void CheckinScratchColumnLists() => _scratchColumnListCheckout = 0;
         public void CheckinScratchCapLists() => _scratchCapListCheckout = 0;
 
+        // Scratch List<RaySpec> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<RaySpec>> _scratchRaySpecLists = new(4);
+        private int _scratchRaySpecListCheckout;
+
         public List<RaySpec> GetScratchRaySpecList()
         {
-            if (_scratchRaySpecListCheckout < StaticScratchRaySpecLists.Count)
+            if (_scratchRaySpecListCheckout < _scratchRaySpecLists.Count)
             {
-                var list = StaticScratchRaySpecLists[_scratchRaySpecListCheckout];
+                var list = _scratchRaySpecLists[_scratchRaySpecListCheckout];
                 list.Clear();
                 _scratchRaySpecListCheckout++;
                 return list;
             }
             var list2 = new List<RaySpec>();
-            StaticScratchRaySpecLists.Add(list2);
+            _scratchRaySpecLists.Add(list2);
             _scratchRaySpecListCheckout++;
             return list2;
         }
 
+        // Scratch List<double> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<double>> _scratchDoubleLists = new(8);
+        private int _scratchDoubleListCheckout;
+
         public List<double> GetScratchDoubleList()
         {
-            if (_scratchDoubleListCheckout < StaticScratchDoubleLists.Count)
+            if (_scratchDoubleListCheckout < _scratchDoubleLists.Count)
             {
-                var list = StaticScratchDoubleLists[_scratchDoubleListCheckout];
+                var list = _scratchDoubleLists[_scratchDoubleListCheckout];
                 list.Clear();
                 _scratchDoubleListCheckout++;
                 return list;
             }
             var list2 = new List<double>();
-            StaticScratchDoubleLists.Add(list2);
+            _scratchDoubleLists.Add(list2);
             _scratchDoubleListCheckout++;
             return list2;
         }
 
+        // Scratch List<SoundBarRenderState.Star> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<SoundBarRenderState.Star>> _scratchStarLists = new(4);
+        private int _scratchStarListCheckout;
+
         public List<SoundBarRenderState.Star> GetScratchStarList()
         {
-            if (_scratchStarListCheckout < StaticScratchStarLists.Count)
+            if (_scratchStarListCheckout < _scratchStarLists.Count)
             {
-                var list = StaticScratchStarLists[_scratchStarListCheckout];
+                var list = _scratchStarLists[_scratchStarListCheckout];
                 list.Clear();
                 _scratchStarListCheckout++;
                 return list;
             }
             var list2 = new List<SoundBarRenderState.Star>();
-            StaticScratchStarLists.Add(list2);
+            _scratchStarLists.Add(list2);
             _scratchStarListCheckout++;
             return list2;
         }
 
+        // Scratch List<(int Index, float Peak)> dùng lại trong khung (Clear trước mỗi lần dùng).
+        private readonly List<List<(int Index, float Peak)>> _scratchPeakBandLists = new(4);
+        private int _scratchPeakBandListCheckout;
+
         public List<(int Index, float Peak)> GetScratchPeakBandList()
         {
-            if (_scratchPeakBandListCheckout < StaticScratchPeakBandLists.Count)
+            if (_scratchPeakBandListCheckout < _scratchPeakBandLists.Count)
             {
-                var list = StaticScratchPeakBandLists[_scratchPeakBandListCheckout];
+                var list = _scratchPeakBandLists[_scratchPeakBandListCheckout];
                 list.Clear();
                 _scratchPeakBandListCheckout++;
                 return list;
             }
             var list2 = new List<(int Index, float Peak)>();
-            StaticScratchPeakBandLists.Add(list2);
+            _scratchPeakBandLists.Add(list2);
             _scratchPeakBandListCheckout++;
             return list2;
         }
 
+        // Scratch List<ColumnSpec> dùng làm giá trị bucket trong DrawColumns (Clear trước mỗi lần dùng).
+        private readonly List<List<ColumnSpec>> _scratchBucketLists = new(8);
+        private int _scratchBucketListCheckout;
+
         public List<ColumnSpec> GetScratchBucketList()
         {
-            if (_scratchBucketListCheckout < StaticScratchBucketLists.Count)
+            if (_scratchBucketListCheckout < _scratchBucketLists.Count)
             {
-                var list = StaticScratchBucketLists[_scratchBucketListCheckout];
+                var list = _scratchBucketLists[_scratchBucketListCheckout];
                 list.Clear();
                 _scratchBucketListCheckout++;
                 return list;
             }
             var list2 = new List<ColumnSpec>();
-            StaticScratchBucketLists.Add(list2);
+            _scratchBucketLists.Add(list2);
             _scratchBucketListCheckout++;
             return list2;
         }
 
         // Scratch Dictionary<(int Height, bool Downward), List<ColumnSpec>> dùng trong DrawColumns.
-        // ThreadStatic để mỗi thread có Dictionary riêng — tránh tranh chấp cross-thread.
-        // Khi clear, toàn bộ bucket list trong dictionary được trả về pool.
-        [ThreadStatic]
-        private static Dictionary<(int Height, bool Downward), List<ColumnSpec>>? _tsColumnBuckets;
-        private static Dictionary<(int Height, bool Downward), List<ColumnSpec>> ScratchColumnBuckets =>
-            _tsColumnBuckets ??= new(16);
+        // Static vì vẽ tuần tự (không song tiến) → reuse Dictionary qua các khung, tránh cấp
+        // Dictionary mới mỗi frame. Khi clear, toàn bộ bucket list trong dictionary được trả
+        // về pool (checkout về 0, list sẽ được Clear khi tái lấy qua GetScratchBucketList).
+        private static readonly Dictionary<(int Height, bool Downward), List<ColumnSpec>> _scratchColumnBuckets =
+            new(16);
 
         public Dictionary<(int Height, bool Downward), List<ColumnSpec>> GetScratchColumnBuckets()
         {
             _scratchBucketListCheckout = 0; // trả toàn bộ bucket list về pool
-            var dict = ScratchColumnBuckets;
-            dict.Clear();
-            return dict;
+            _scratchColumnBuckets.Clear();
+            return _scratchColumnBuckets;
         }
 
         public void CheckinScratchRaySpecLists() => _scratchRaySpecListCheckout = 0;
@@ -592,104 +608,15 @@ public static class SkiaSharpSoundBarStyleRenderer
     /// <summary>
     /// Renders one frame of the requested style onto <paramref name="canvas"/>.
     /// </summary>
-    // PaintCache cache SKPaint cross-frame (tái dùng qua các khung, không xóa mỗi khung).
-    // Giới hạn 128 entry, Clear() (dispose) khi vượt ngưỡng để kiểm soát native resource.
-    // ThreadStatic để mỗi engine thread có cache riêng — tránh tranh chấp cross-thread.
-    [ThreadStatic]
-    private static PaintCache? _tsFramePaintCache;
-    private static PaintCache FramePaintCache => _tsFramePaintCache ??= new();
+    // PaintCache có hiệu lực chỉ trong một lần DrawFrame (render tuần tự, không song tiến).
+    // Mọi SKPaint/SKShader được tạo lại trong khung được cache theo khóa, dùng lại cho toàn bộ
+    // khung, rồi giải phóng ở EndFrame → giảm đáng kể cấp phát native mỗi frame.
+    private static readonly PaintCache _paintCache = new();
 
     // Cross-frame SKShader cache (không xóa mỗi khung, chỉ clear khi >64 entry).
-    // Shader được tạo lại khi tham số thay đổi; cache hit khi tham số trùng. ThreadStatic để
-    // mỗi thread có cache riêng — tránh tranh chấp cross-thread.
-    [ThreadStatic]
-    private static ShaderCache? _tsShaderCache;
-    private static ShaderCache FrameShaderCache => _tsShaderCache ??= new(64);
-
-    // Cross-frame SKShader→SKPaint wrapper cache. Shader đã chia sẻ cross-frame qua
-    // FrameShaderCache; paint wrapper cũng được tái dùng thay vì new mỗi khung. Clear khi >64 entry.
-    // ThreadStatic để mỗi thread có cache riêng — tránh tranh chấp cross-thread.
-    [ThreadStatic]
-    private static Dictionary<uint, SKPaint>? _tsShaderPaintCache;
-    private static Dictionary<uint, SKPaint> ShaderPaintCache => _tsShaderPaintCache ??= new(64);
-
-    // ========================================================================
-    // Scratch pools CHIA SẢ cross-frame (không phải per-FrameContext).
-    // FrameContext được new mỗi khung, nên nếu pool nằm trong FrameContext thì
-    //pool cũng bị tirar lại mỗi khung. Đặt pool ở đây (static) để tái dùng qua các khung.
-    // FrameContext chỉ giữ checkout index (int) — rẻ, không cấp phát.
-    // ========================================================================
-    [ThreadStatic]
-    private static List<SKPath>? _tsScratchPaths;
-    private static List<SKPath> StaticScratchPaths => _tsScratchPaths ??= new(8);
-
-    [ThreadStatic]
-    private static List<double[]>? _tsScratchArrays;
-    private static List<double[]> StaticScratchArrays => _tsScratchArrays ??= new(8);
-
-    [ThreadStatic]
-    private static List<SKPoint[]>? _tsScratchPointArrays;
-    private static List<SKPoint[]> StaticScratchPointArrays => _tsScratchPointArrays ??= new(8);
-
-    [ThreadStatic]
-    private static List<float[]>? _tsScratchFloatArrays;
-    private static List<float[]> StaticScratchFloatArrays => _tsScratchFloatArrays ??= new(8);
-
-    [ThreadStatic]
-    private static List<bool[]>? _tsScratchBoolArrays;
-    private static List<bool[]> StaticScratchBoolArrays => _tsScratchBoolArrays ??= new(8);
-
-    [ThreadStatic]
-    private static List<SKPath[]>? _tsScratchPathArrays;
-    private static List<SKPath[]> StaticScratchPathArrays => _tsScratchPathArrays ??= new(8);
-
-    [ThreadStatic]
-    private static List<List<ColumnSpec>>? _tsScratchColumnLists;
-    private static List<List<ColumnSpec>> StaticScratchColumnLists => _tsScratchColumnLists ??= new(4);
-
-    [ThreadStatic]
-    private static List<List<(double X, double Y, double Width)>>? _tsScratchCapLists;
-    private static List<List<(double X, double Y, double Width)>> StaticScratchCapLists => _tsScratchCapLists ??= new(4);
-
-    [ThreadStatic]
-    private static List<List<RaySpec>>? _tsScratchRaySpecLists;
-    private static List<List<RaySpec>> StaticScratchRaySpecLists => _tsScratchRaySpecLists ??= new(4);
-
-    [ThreadStatic]
-    private static List<List<double>>? _tsScratchDoubleLists;
-    private static List<List<double>> StaticScratchDoubleLists => _tsScratchDoubleLists ??= new(8);
-
-    [ThreadStatic]
-    private static List<List<SoundBarRenderState.Star>>? _tsScratchStarLists;
-    private static List<List<SoundBarRenderState.Star>> StaticScratchStarLists => _tsScratchStarLists ??= new(4);
-
-    [ThreadStatic]
-    private static List<List<(int Index, float Peak)>>? _tsScratchPeakBandLists;
-    private static List<List<(int Index, float Peak)>> StaticScratchPeakBandLists => _tsScratchPeakBandLists ??= new(4);
-
-    [ThreadStatic]
-    private static List<List<ColumnSpec>>? _tsScratchBucketLists;
-    private static List<List<ColumnSpec>> StaticScratchBucketLists => _tsScratchBucketLists ??= new(8);
-
-    private static SKPaint GetShaderPaint(uint key, SKShader shader)
-    {
-        if (ShaderPaintCache.TryGetValue(key, out var paint))
-            return paint;
-
-        // Giữ cache bounded: xóa BEFORE khi thêm mới, tránh dispose paint vừa tạo
-        // (và tránh dispose shader — shader được sở hữu bởi FrameShaderCache, paint chỉ là wrapper).
-        if (ShaderPaintCache.Count >= 64)
-            ShaderPaintCache.Clear();
-
-        paint = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Shader = shader
-        };
-        ShaderPaintCache[key] = paint;
-        return paint;
-    }
+    // Shader được tạo lại khi tham số thay đổi; cache hit khi tham số trùng (ví dụ đoạn
+    // im lặng → alpha không đổi giữa các khung). Key gồm byte alpha chính xác → pixel-perfect.
+    private static readonly ShaderCache _shaderCache = new(64);
 
     // Hash tất cả tham số shader thành uint key (không cấp mảng). Mảng colors/offsets chỉ
     // được tạo khi cache miss (trong lambda create).
@@ -716,7 +643,7 @@ public static class SkiaSharpSoundBarStyleRenderer
     // bên trong lambda create → chỉ tạo khi cache miss. Cache hit không cấp phát gì.
     private static SKShader GetLinearShader2(uint key, SKPoint start, SKPoint end,
         SKColor c0, float o0, SKColor c1, float o1, SKShaderTileMode tileMode)
-        => FrameShaderCache.GetOrCreate(key, () =>
+        => _shaderCache.GetOrCreate(key, () =>
         {
             var colors = new SKColor[] { c0, c1 };
             var offsets = new float[] { o0, o1 };
@@ -726,7 +653,7 @@ public static class SkiaSharpSoundBarStyleRenderer
     private static SKShader GetLinearShader3(uint key, SKPoint start, SKPoint end,
         SKColor c0, float o0, SKColor c1, float o1, SKColor c2, float o2,
         SKShaderTileMode tileMode)
-        => FrameShaderCache.GetOrCreate(key, () =>
+        => _shaderCache.GetOrCreate(key, () =>
         {
             var colors = new SKColor[] { c0, c1, c2 };
             var offsets = new float[] { o0, o1, o2 };
@@ -736,7 +663,7 @@ public static class SkiaSharpSoundBarStyleRenderer
     private static SKShader GetLinearShader4(uint key, SKPoint start, SKPoint end,
         SKColor c0, float o0, SKColor c1, float o1, SKColor c2, float o2,
         SKColor c3, float o3, SKShaderTileMode tileMode)
-        => FrameShaderCache.GetOrCreate(key, () =>
+        => _shaderCache.GetOrCreate(key, () =>
         {
             var colors = new SKColor[] { c0, c1, c2, c3 };
             var offsets = new float[] { o0, o1, o2, o3 };
@@ -756,7 +683,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         var ctx = new FrameContext(settings, palette, frames ?? Array.Empty<AudioFrameData>(),
             currentFrameIndex, state, width, height);
 
-        FramePaintCache.BeginFrame();
+        _paintCache.BeginFrame();
         try
         {
             canvas.Save();
@@ -782,12 +709,11 @@ public static class SkiaSharpSoundBarStyleRenderer
         finally
         {
             canvas.Restore();
-            FramePaintCache.EndFrame();
+            _paintCache.EndFrame();
             ctx.CheckinScratchPaths();
             ctx.CheckinScratchArrays();
             ctx.CheckinScratchPointArrays();
             ctx.CheckinScratchFloatArrays();
-            ctx.CheckinScratchBoolArrays();
             ctx.CheckinScratchPathArrays();
             ctx.CheckinScratchColumnLists();
             ctx.CheckinScratchCapLists();
@@ -1168,18 +1094,17 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-        double[] levels = ResolveRadialLevels(ctx, rawLevels, barCount);
-        int levelCount = barCount;
+        double[] levels = ResolveRadialLevels(ctx, rawLevels);
 
         double beat = RadialBeatScale(ctx);
-        for (int i = 0; i < levelCount; i++)
+        for (int i = 0; i < levels.Length; i++)
             levels[i] = Math.Min(1.0, levels[i] * beat);
 
         var tipRadii = ctx.GetScratchDoubleArray(barCount);
         var angles = ctx.GetScratchDoubleArray(barCount);
         var rays = ctx.GetScratchRaySpecList();
 
-        FillRadialBarSet(levels, levelCount, center, inner, outer, rotation, span, tipRadii, angles, rays);
+        FillRadialBarSet(levels, center, inner, outer, rotation, span, tipRadii, angles, rays);
 
         DrawAmbientBloom(canvas, ctx, center, outer);
 
@@ -1204,7 +1129,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             Math.Min(1.0, 0.50 * ctx.GlowIntensity) * ctx.AlphaFactor, center, hubR);
         canvas.DrawCircle((float)center.X, (float)center.Y, (float)hubR, hubPaint);
 
-        DrawRadialWedges(canvas, ctx, center, inner, tipRadii, angles, barCount, span);
+        DrawRadialWedges(canvas, ctx, center, inner, tipRadii, angles, span);
         DrawRadialRays(canvas, ctx, rays, Math.Max(0.6, (outer - inner) * 0.030), SKStrokeCap.Round, RadialHaloExtent(outer));
     }
 
@@ -1350,8 +1275,7 @@ public static class SkiaSharpSoundBarStyleRenderer
         }
         var haloAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
         var coreAlphas = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
-        var used = ctx.GetScratchBoolArray(AudioRingDotBuckets);
-        Array.Clear(used, 0, AudioRingDotBuckets);
+        var used = new bool[AudioRingDotBuckets];
         var haloRadii = ctx.GetScratchDoubleArray(AudioRingDotBuckets);
 
         for (int b = 0; b < AudioRingDotBuckets; b++)
@@ -1362,7 +1286,9 @@ public static class SkiaSharpSoundBarStyleRenderer
             haloAlphas[b] = Math.Clamp(ctx.GlowIntensity * AudioRingHaloAlphaRatio * (0.55 + (0.45 * q)), 0.0, 1.0);
         }
 
-        for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
+        try
+        {
+            for (int latticeRing = 0; latticeRing < ringCount; latticeRing++)
             {
                 double t = ringCount == 1 ? 0.5 : latticeRing / (double)(ringCount - 1);
                 double latRad = (-AudioRingLatitudeMaxDegrees + (t * 2.0 * AudioRingLatitudeMaxDegrees)) * Math.PI / 180.0;
@@ -1468,6 +1394,15 @@ public static class SkiaSharpSoundBarStyleRenderer
             }
             double dustAlpha = Math.Min(1.0, 0.42 * ctx.AlphaFactor * (1.0 + (0.35 * pulse)));
             canvas.DrawPath(dustPath, StrokePaint(WithAlpha(ctx.Resolved.Glow, dustAlpha), dustPen, SKStrokeCap.Round));
+        }
+        finally
+        {
+            for (int b = 0; b < AudioRingDotBuckets; b++)
+            {
+                haloGeometries[b]?.Dispose();
+                coreGeometries[b]?.Dispose();
+            }
+        }
     }
 
     // ========================================================================
@@ -1527,13 +1462,12 @@ public static class SkiaSharpSoundBarStyleRenderer
             for (int i = 0; i < barCount; i++)
                 rawRingLevels[i] = ctx.SampleBandRange(i, barCount, ring * slice, slice, true);
 
-            double[] levels = ResolveRadialLevels(ctx, rawRingLevels, barCount);
-            int levelCount = barCount;
-            for (int i = 0; i < levelCount; i++)
+            double[] levels = ResolveRadialLevels(ctx, rawRingLevels);
+            for (int i = 0; i < levels.Length; i++)
                 levels[i] = Math.Min(1.0, levels[i] * beat);
             rays.Clear();
 
-            FillRadialBarSet(levels, levelCount, center, ringInner, ringOuter, rotation, span, tipRadii, angles, rays);
+            FillRadialBarSet(levels, center, ringInner, ringOuter, rotation, span, tipRadii, angles, rays);
 
             int ringColorShift = (int)Math.Round(36.0 * ring / Math.Max(1, ringCount - 1));
 
@@ -1543,7 +1477,7 @@ public static class SkiaSharpSoundBarStyleRenderer
                 ctx.GlowIntensity * 0.5, ctx.AlphaFactor, SKStrokeCap.Round,
                 Math.Max(2.0, stride * 0.12));
 
-            DrawRadialWedges(canvas, ctx, center, ringInner, tipRadii, angles, barCount, span, ringColorShift);
+            DrawRadialWedges(canvas, ctx, center, ringInner, tipRadii, angles, span, ringColorShift);
 
             double slotArc = (2.0 * Math.PI * Math.Max(1.0, (ringInner + ringOuter) * 0.5)) / Math.Max(1, barCount);
             double rayThickness = Math.Clamp(ringThickness * 0.28, 0.8, Math.Max(0.8, slotArc * 0.55));
@@ -1672,14 +1606,13 @@ public static class SkiaSharpSoundBarStyleRenderer
         for (int i = 0; i < barCount; i++)
             rawLevels[i] = ctx.SampleBand(i, barCount, true);
 
-        double[] levels = ResolveRadialLevels(ctx, rawLevels, barCount);
-        int levelCount = barCount;
+        double[] levels = ResolveRadialLevels(ctx, rawLevels);
         double beat = RadialBeatScale(ctx);
-        for (int i = 0; i < levelCount; i++)
+        for (int i = 0; i < levels.Length; i++)
             levels[i] = Math.Min(1.0, levels[i] * beat);
 
         var rays = ctx.GetScratchRaySpecList();
-        FillRadialBarSet(levels, levelCount, center, inner, outer, rotation, span, null, null, rays);
+        FillRadialBarSet(levels, center, inner, outer, rotation, span, null, null, rays);
 
         DrawAmbientBloom(canvas, ctx, center, outer);
 
@@ -1782,11 +1715,15 @@ public static class SkiaSharpSoundBarStyleRenderer
             new SKPoint(0, (float)plot.Bottom),
             rc0, 0f, rc1, 0.5f, rc2, 1f, rc2, 1f, SKShaderTileMode.Clamp, 3);
         // Cache sở hữu lifetime → không dùng using.
-        var fillPaint = GetShaderPaint(ribbonKey,
-            GetLinearShader3(ribbonKey,
+        var fillPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Shader = GetLinearShader3(ribbonKey,
                 new SKPoint(0, (float)plot.Top),
                 new SKPoint(0, (float)plot.Bottom),
-                rc0, 0f, rc1, 0.5f, rc2, 1f, SKShaderTileMode.Clamp));
+                rc0, 0f, rc1, 0.5f, rc2, 1f, SKShaderTileMode.Clamp)
+        };
         canvas.DrawPath(ribbonPath, fillPaint);
 
         double averageMagnitude = columns > 0 ? magnitudeSum / columns : 0.0;
@@ -1921,11 +1858,15 @@ public static class SkiaSharpSoundBarStyleRenderer
                 new SKPoint(0, (float)(plot.Bottom - columnReach)),
                 new SKPoint(0, (float)plot.Bottom),
                 bc0, 0f, bc1, 1f, bc1, 1f, bc1, 1f, SKShaderTileMode.Clamp, 2);
-            var backlightPaint = GetShaderPaint(blKey,
-                GetLinearShader2(blKey,
+            using var backlightPaint = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Shader = GetLinearShader2(blKey,
                     new SKPoint(0, (float)(plot.Bottom - columnReach)),
                     new SKPoint(0, (float)plot.Bottom),
-                    bc0, 0f, bc1, 1f, SKShaderTileMode.Clamp));
+                    bc0, 0f, bc1, 1f, SKShaderTileMode.Clamp)
+            };
             canvas.DrawRect(new SKRect((float)(centerX - thickness), (float)(plot.Bottom - columnReach),
                 (float)(centerX + thickness), (float)plot.Bottom), backlightPaint);
 
@@ -2186,11 +2127,15 @@ public static class SkiaSharpSoundBarStyleRenderer
             new SKPoint(0, (float)baselineY),
             new SKPoint(0, (float)(baselineY + stripHeight)),
             sc0, 0f, sc1, 0.45f, sc2, 1f, sc2, 1f, SKShaderTileMode.Clamp, 3);
-        var brushPaint = GetShaderPaint(spillKey,
-            GetLinearShader3(spillKey,
+        using var brushPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Shader = GetLinearShader3(spillKey,
                 new SKPoint(0, (float)baselineY),
                 new SKPoint(0, (float)(baselineY + stripHeight)),
-                sc0, 0f, sc1, 0.45f, sc2, 1f, SKShaderTileMode.Clamp));
+                sc0, 0f, sc1, 0.45f, sc2, 1f, SKShaderTileMode.Clamp)
+        };
         canvas.DrawRect(new SKRect((float)plotLeft, (float)baselineY,
             (float)(plotLeft + plotWidth), (float)(baselineY + stripHeight)), brushPaint);
     }
@@ -2231,11 +2176,15 @@ public static class SkiaSharpSoundBarStyleRenderer
             new SKPoint(0, (float)baseY),
             new SKPoint(0, (float)(baseY + (maxReflection * 0.45))),
             gc0, 0f, gc1, 1f, gc1, 1f, gc1, 1f, SKShaderTileMode.Clamp, 2);
-        var brushPaint = GetShaderPaint(glossyKey,
-            GetLinearShader2(glossyKey,
+        using var brushPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Shader = GetLinearShader2(glossyKey,
                 new SKPoint(0, (float)baseY),
                 new SKPoint(0, (float)(baseY + (maxReflection * 0.45))),
-                gc0, 0f, gc1, 1f, SKShaderTileMode.Clamp));
+                gc0, 0f, gc1, 1f, SKShaderTileMode.Clamp)
+        };
         canvas.DrawPath(reflection, brushPaint);
     }
 
@@ -2307,15 +2256,16 @@ public static class SkiaSharpSoundBarStyleRenderer
 
     private static double RadialHaloExtent(double outer) => Math.Max(2.0, outer * RadialHaloFraction);
 
-    private static double[] ResolveRadialLevels(FrameContext ctx, double[] rawLevels, int count)
+    private static double[] ResolveRadialLevels(FrameContext ctx, double[] rawLevels)
     {
+        int count = rawLevels.Length;
         var levels = ctx.GetScratchDoubleArray(count);
         if (count <= 0)
             return levels;
 
         var sorted = ctx.GetScratchDoubleArray(count);
         Array.Copy(rawLevels, sorted, count);
-        Array.Sort(sorted, 0, count);
+        Array.Sort(sorted);
         int referenceIndex = Math.Clamp((int)(count * RadialPercentile), 0, count - 1);
         double reference = sorted[referenceIndex];
 
@@ -2428,16 +2378,14 @@ public static class SkiaSharpSoundBarStyleRenderer
         return gained >= 1f ? 1f : gained;
     }
 
-    // Pink-tilt chỉ phụ thuộc vào bandCount → cache ThreadStatic, tránh cấp float[] mới mỗi ApplyPinkTilt.
+    // Pink-tilt chỉ phụ thuộc vào bandCount → cache tĩnh, tránh cấp float[] mới mỗi ApplyPinkTilt.
     // Mảng chỉ đọc (caller không modify), cùng bandCount luôn trả cùng tham chiếu.
-    [ThreadStatic]
-    private static Dictionary<int, float[]>? _tsPinkTiltCache;
-    private static Dictionary<int, float[]> PinkTiltCache => _tsPinkTiltCache ??= new(16);
+    private static readonly Dictionary<int, float[]> _pinkTiltCache = new(16);
 
     private static float[] GetPinkTilt(int bandCount)
     {
         int count = Math.Max(1, bandCount);
-        if (PinkTiltCache.TryGetValue(count, out var cached))
+        if (_pinkTiltCache.TryGetValue(count, out var cached))
             return cached;
 
         var tilt = new float[count];
@@ -2448,13 +2396,14 @@ public static class SkiaSharpSoundBarStyleRenderer
             double db = Math.Clamp(PinkTiltDbPerOctave * octaves, 0.0, PinkTiltMaxDb);
             tilt[i] = (float)Math.Pow(10.0, db / 20.0);
         }
-        PinkTiltCache[count] = tilt;
+        _pinkTiltCache[count] = tilt;
         return tilt;
     }
 
-    private static void FillRadialBarSet(double[] levels, int count, SKPoint center, double inner, double outer,
+    private static void FillRadialBarSet(double[] levels, SKPoint center, double inner, double outer,
         double rotation, double span, double[]? tipRadii, double[]? angles, List<RaySpec> rays)
     {
+        int count = levels.Length;
         if (tipRadii != null && angles != null)
             count = Math.Min(count, Math.Min(tipRadii.Length, angles.Length));
 
@@ -2473,8 +2422,9 @@ public static class SkiaSharpSoundBarStyleRenderer
     }
 
     private static void DrawRadialWedges(SKCanvas canvas, FrameContext ctx, SKPoint center, double inner,
-        double[] tipRadii, double[] angles, int count, double spanDegrees, int colorSectorShift = 0)
+        double[] tipRadii, double[] angles, double spanDegrees, int colorSectorShift = 0)
     {
+        int count = Math.Min(tipRadii.Length, angles.Length);
         if (count <= 0)
             return;
 
@@ -2607,26 +2557,24 @@ public static class SkiaSharpSoundBarStyleRenderer
     {
         double rx = Math.Max(0.25, radiusX);
         double ry = Math.Max(0.25, radiusY);
+        SKSize size = new((float)(rx * 2.0), (float)(ry * 2.0));
         path.AddOval(new SKRect((float)(center.X - rx), (float)(center.Y - ry),
             (float)(center.X + rx), (float)(center.Y + ry)));
     }
 
     private static SKPaint StrokePaint(SKColor color, double thickness, SKStrokeCap cap)
-        => FramePaintCache.GetStroke(color, thickness, cap);
+        => _paintCache.GetStroke(color, thickness, cap);
 
     private static SKPaint FillPaint(SKColor color)
-        => FramePaintCache.GetFill(color);
+        => _paintCache.GetFill(color);
 
     private static SKPaint CreateRadialGlowPaint(SKColor color, double alpha, SKPoint center, double radius)
-        => FramePaintCache.GetRadialGlow(color, alpha, center, radius);
+        => _paintCache.GetRadialGlow(color, alpha, center, radius);
 
-    // Cache SKPaint cross-frame: tạo 1 lần per tham số, dùng lại qua nhiều khung.
-    // Giới hạn 128 entry per dictionary; khi vượt ngưỡng → Clear() (dispose native) và bắt đầu lại.
-    // ThreadStatic (qua lớp ngoài) → mỗi engine thread có cache riêng.
+    // Cache SKPaint/SKShader trong một khung vẽ. Các instance được tạo lần đầu, dùng lại cho
+    // toàn bộ khung (không được Dispose bởi caller), rồi giải phóng ở EndFrame.
     private sealed class PaintCache
     {
-        private const int MaxEntries = 128;
-
         private readonly Dictionary<StrokeKey, SKPaint> _strokeCache = new(32);
         private readonly Dictionary<uint, SKPaint> _fillCache = new(32);
 
@@ -2659,8 +2607,6 @@ public static class SkiaSharpSoundBarStyleRenderer
                     StrokeJoin = SKStrokeJoin.Round
                 };
                 _strokeCache[key] = paint;
-                if (_strokeCache.Count > MaxEntries)
-                    ClearStrokeCache();
             }
             return paint;
         }
@@ -2677,30 +2623,13 @@ public static class SkiaSharpSoundBarStyleRenderer
                     Color = color
                 };
                 _fillCache[key] = paint;
-                if (_fillCache.Count > MaxEntries)
-                    ClearFillCache();
             }
             return paint;
         }
 
-        private void ClearStrokeCache()
-        {
-            foreach (var p in _strokeCache.Values)
-                p.Dispose();
-            _strokeCache.Clear();
-        }
-
-        private void ClearFillCache()
-        {
-            foreach (var p in _fillCache.Values)
-                p.Dispose();
-            _fillCache.Clear();
-        }
-
-        // Radial glow shader cross-frame cache (per PaintCache instance → per thread).
-        // Shader được tạo lại 1 lần per tham số, dùng lại qua nhiều khung.
-        // Mảng colors/offsets chỉ cấp khi cache miss.
-        private readonly Dictionary<uint, SKShader> _radialGlowShaderCache = new(64);
+        // Radial glow shader cross-frame cache — shader được tạo lại 1 lần per tham số,
+        // dùng lại qua nhiều khung. Mảng colors/offsets chỉ cấp khi cache miss.
+        private static readonly Dictionary<uint, SKShader> _radialGlowShaderCache = new(64);
 
         private static uint RadialGlowShaderKey(SKColor color, double alpha, SKPoint center, double radius)
         {
@@ -2715,7 +2644,7 @@ public static class SkiaSharpSoundBarStyleRenderer
             }
         }
 
-        private SKShader GetRadialGlowShader(uint key, SKPoint center, double radius, SKColor color, double alpha)
+        private static SKShader GetRadialGlowShader(uint key, SKPoint center, double radius, SKColor color, double alpha)
         {
             if (_radialGlowShaderCache.TryGetValue(key, out var shader))
                 return shader;
@@ -2742,8 +2671,13 @@ public static class SkiaSharpSoundBarStyleRenderer
         {
             var key = RadialGlowShaderKey(color, alpha, center, radius);
             var shader = GetRadialGlowShader(key, center, radius, color, alpha);
-            // Shader chia sẻ cross-frame, paint wrapper cũng được tái dùng qua ShaderPaintCache.
-            return GetShaderPaint(key, shader);
+            // Tạo paint mỏng mỗi lần gọi; shader được chia sẻ cross-frame, không Dispose cùng paint.
+            return new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Shader = shader
+            };
         }
 
         private static uint ColorKey(SKColor c) =>
@@ -2874,22 +2808,20 @@ public static class SkiaSharpSoundBarStyleRenderer
         return frames[i];
     }
 
-    // ResolvedPalette chỉ phụ thuộc vào palette (immutable record) → cache ThreadStatic theo Id,
+    // ResolvedPalette chỉ phụ thuộc vào palette (immutable record) → cache tĩnh theo Id,
     // tránh parse lại hex + build 180 angular brushes mỗi frame.
-    [ThreadStatic]
-    private static Dictionary<string, ResolvedPalette>? _tsResolvedPaletteCache;
-    private static Dictionary<string, ResolvedPalette> ResolvedPaletteCache => _tsResolvedPaletteCache ??= new(32);
+    private static readonly Dictionary<string, ResolvedPalette> _resolvedPaletteCache = new(32);
 
     private static ResolvedPalette ResolvePalette(ColorPreset preset)
     {
         ColorPreset safe = preset ?? ColorPresets.Default;
         string id = safe.Id ?? string.Empty;
 
-        if (ResolvedPaletteCache.TryGetValue(id, out var cached))
+        if (_resolvedPaletteCache.TryGetValue(id, out var cached))
             return cached;
 
         var resolved = BuildResolvedPalette(safe);
-        ResolvedPaletteCache[id] = resolved;
+        _resolvedPaletteCache[id] = resolved;
         return resolved;
     }
 
@@ -2980,11 +2912,9 @@ public static class SkiaSharpSoundBarStyleRenderer
             HashCode.Combine(PaletteId, BaseY, Height, Downward, Alpha);
     }
 
-    // ThreadStatic để mỗi thread có Dictionary riêng — tránh tranh chấp cross-thread.
-    [ThreadStatic]
-    private static Dictionary<ColumnPaintKey, SKPaint>? _tsColumnPaintCache;
-    private static Dictionary<ColumnPaintKey, SKPaint> ColumnPaintCache =>
-        _tsColumnPaintCache ??= new(1024);
+    // Rendering tuần tự (không song tiến) → Dictionary thường đủ, tránh chi phí ConcurrentDictionary.
+    private static readonly Dictionary<ColumnPaintKey, SKPaint> _columnPaintCache =
+        new(1024);
 
     private static SKPaint GetColumnPaint(FrameContext ctx, double baseY, double tipY, int alpha)
     {
@@ -2999,15 +2929,15 @@ public static class SkiaSharpSoundBarStyleRenderer
             Alpha = Math.Clamp(alpha, 0, 255),
         };
 
-        if (ColumnPaintCache.TryGetValue(key, out SKPaint? cached))
+        if (_columnPaintCache.TryGetValue(key, out SKPaint? cached))
             return cached;
 
         SKPaint paint = BuildColumnPaint(ctx.Resolved, baseY, tipY, alpha, downward);
-        ColumnPaintCache[key] = paint;
+        _columnPaintCache[key] = paint;
 
         // Bound the cache like WPF (clear above ~4096 entries) to keep long renders bounded.
-        if (ColumnPaintCache.Count > 4096)
-            ColumnPaintCache.Clear();
+        if (_columnPaintCache.Count > 4096)
+            _columnPaintCache.Clear();
 
         return paint;
     }
@@ -3015,52 +2945,12 @@ public static class SkiaSharpSoundBarStyleRenderer
     private static SKPaint GetPlotGradientPaint(FrameContext ctx, double baseY, double tipY)
         => GetColumnPaint(ctx, baseY, tipY, (int)ctx.Alpha);
 
-    // Stop arrays (màu + offset của gradient cột) chỉ phụ thuộc vào (PaletteId, alpha) —
-    // không phụ thuộc baseY/tipY. Cache theo key đó để tránh cấp List<SKColor>/List<float> +
-    // ToArray() mỗi cache miss (âm thanh động → miss gần như mỗi frame, mỗi bar). Skia sao
-    // chép mảng trong CreateLinearGradient nên tái dùng mảng cached an toàn.
-    private readonly struct StopArrays
-    {
-        public readonly SKColor[] Colors;
-        public readonly float[] Offsets;
-        public StopArrays(SKColor[] colors, float[] offsets) { Colors = colors; Offsets = offsets; }
-    }
-
-    [ThreadStatic]
-    private static Dictionary<(string PaletteId, int Alpha), StopArrays>? _tsStopArrayCache;
-    private static Dictionary<(string PaletteId, int Alpha), StopArrays> StopArrayCache =>
-        _tsStopArrayCache ??= new(64);
-
     private static SKPaint BuildColumnPaint(ResolvedPalette resolved, double baseY, double tipY, int alpha, bool downward)
     {
         double alphaFactor = alpha / 255.0;
         double[] offsets = resolved.RampOffsets;
         SKColor[] colors = resolved.RampColors;
 
-        var stopKey = (resolved.Id, Math.Clamp(alpha, 0, 255));
-        if (!StopArrayCache.TryGetValue(stopKey, out var stops))
-        {
-            stops = BuildStopArrays(offsets, colors, alphaFactor, alpha, resolved.Core);
-            StopArrayCache[stopKey] = stops;
-            if (StopArrayCache.Count > 64)
-                StopArrayCache.Clear();
-        }
-
-        return new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill,
-            Shader = SKShader.CreateLinearGradient(
-                new SKPoint(0, (float)baseY),
-                new SKPoint(0, (float)tipY),
-                stops.Colors,
-                stops.Offsets,
-                SKShaderTileMode.Clamp)
-        };
-    }
-
-    private static StopArrays BuildStopArrays(double[] offsets, SKColor[] colors, double alphaFactor, int alpha, SKColor core)
-    {
         // Build the stops list first (White-hot tip technique), then create the shader once.
         var stopColors = new List<SKColor>();
         var stopOffsets = new List<float>();
@@ -3080,7 +2970,7 @@ public static class SkiaSharpSoundBarStyleRenderer
 
         if (!hasStopAtTipStart && TipStart > lastOffset)
         {
-            stopColors.Add(WithAlpha(core, alphaFactor));
+            stopColors.Add(WithAlpha(resolved.Core, alphaFactor));
             stopOffsets.Add((float)TipStart);
             lastOffset = TipStart;
         }
@@ -3091,7 +2981,17 @@ public static class SkiaSharpSoundBarStyleRenderer
             stopOffsets.Add(1f);
         }
 
-        return new StopArrays(stopColors.ToArray(), stopOffsets.ToArray());
+        return new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill,
+            Shader = SKShader.CreateLinearGradient(
+                new SKPoint(0, (float)baseY),
+                new SKPoint(0, (float)tipY),
+                stopColors.ToArray(),
+                stopOffsets.ToArray(),
+                SKShaderTileMode.Clamp)
+        };
     }
 
     private static double MidLevelStatic(FrameContext ctx)
@@ -3117,32 +3017,20 @@ public static class SkiaSharpSoundBarStyleRenderer
         return pulse;
     }
 
-    // PeakLevels cho toàn bộ bar trong 1 pass: frames ở ngoài, bars ở trong → FrameAt chỉ gọi
-    // 1 lần/frame thay vì barCount lần/frame. Kết quả bit-identical với SampleBandPeakStatic
-    // (max là commutative, cùng công thức contribution, cùng Clamp cuối).
-    private static void ComputePeakLevels(FrameContext ctx, double[] peakLevels, int barCount)
+    private static double SampleBandPeakStatic(FrameContext ctx, int barIndex, int barCount)
     {
-        Array.Clear(peakLevels, 0, barCount);
+        double peak = 0.0;
         for (int k = 0; k <= PeakCapMaxLookback; k++)
         {
             AudioFrameData? back = FrameAt(ctx.Frames, ctx.Index - k);
             if (back == null)
                 break;
-            float[]? bands = back.Bands;
-            int length = bands?.Length ?? 0;
-            if (length == 0 || barCount <= 0)
-                continue;
-            double decay = PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames);
-            for (int i = 0; i < barCount; i++)
-            {
-                int idx = Math.Clamp((int)Math.Floor((i / (double)barCount) * length), 0, length - 1);
-                double contribution = ApplyPinkTilt(Math.Clamp(bands![idx] * ctx.Sensitivity, 0f, 1f), idx, length) - decay;
-                if (contribution > peakLevels[i])
-                    peakLevels[i] = contribution;
-            }
+            double contribution = SampleBandFrameStatic(back, barIndex, barCount, ctx.Sensitivity)
+                - (PeakCapFallPerFrame * Math.Max(0, k - PeakCapHoldFrames));
+            if (contribution > peak)
+                peak = contribution;
         }
-        for (int i = 0; i < barCount; i++)
-            peakLevels[i] = Math.Clamp(peakLevels[i], 0.0, 1.0);
+        return Math.Clamp(peak, 0.0, 1.0);
     }
 
     private static float SampleBandFrameStatic(AudioFrameData? frame, int barIndex, int barCount, float sensitivity)
