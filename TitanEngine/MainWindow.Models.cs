@@ -166,6 +166,9 @@ namespace TitanEngine {
         public bool EnableLoudnorm { get; set; }
         public string? Audio1Effect { get; set; }
         public int Audio1EffectIntensity { get; set; } = 100;
+        public bool EnableAudioDucking { get; set; } = false;
+        public string AudioDuckingPreset { get; set; } = "medium";
+        public string AudioDuckingDirection { get; set; } = "audio1_to_audio2";
         public string? TextOverlay { get; set; }
         public string? TextOverlayPosition { get; set; }
         public string? TextAlign { get; set; }
@@ -290,6 +293,12 @@ namespace TitanEngine {
                     info += $" | ExtAudSpd:{ExternalAudioSpeed:0.00}x";
                 if (AudioSegments != null && AudioSegments.Count > 0)
                     info += $" | AudCuts:{AudioSegments.Count}";
+                if (EnableAudioDucking)
+                {
+                    string duckDir = string.Equals(AudioDuckingDirection, "audio2_to_audio1", StringComparison.OrdinalIgnoreCase) ? "A2→A1" : "A1→A2";
+                    string duckPreset = string.IsNullOrWhiteSpace(AudioDuckingPreset) ? "medium" : AudioDuckingPreset.Trim();
+                    info += $" | Duck:{duckPreset}({duckDir})";
+                }
                 if (!string.IsNullOrWhiteSpace(TemplateName) &&
                     !TemplateName.Equals("None", StringComparison.OrdinalIgnoreCase))
                     info += $" | Tpl:{TemplateName}";
@@ -521,6 +530,9 @@ namespace TitanEngine {
         public double? SourceAudioSpeed { get; set; }
         public double? ExternalAudioSpeed { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
+        public bool? EnableAudioDucking { get; set; }
+        public string? AudioDuckingPreset { get; set; }
+        public string? AudioDuckingDirection { get; set; }
 
         public string? UpscaleMode { get; set; }
         public double? SharpnessIntensity { get; set; }
@@ -574,6 +586,9 @@ namespace TitanEngine {
         public string? AudioTrimEnd { get; set; }
         public string? AudioTrimDuration { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
+        public bool? EnableAudioDucking { get; set; }
+        public string? AudioDuckingPreset { get; set; }
+        public string? AudioDuckingDirection { get; set; }
         public string? OutputVideo { get; set; }
 
         // [NEW] Video Information Fields
@@ -663,6 +678,9 @@ namespace TitanEngine {
         public string? AudioTrimEnd { get; set; }
         public string? AudioTrimDuration { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
+        public bool? EnableAudioDucking { get; set; }
+        public string? AudioDuckingPreset { get; set; }
+        public string? AudioDuckingDirection { get; set; }
         public string? OutputVideo { get; set; }
         public string? SourceFileName { get; set; }
         public string? OutputFileName { get; set; }
@@ -727,6 +745,9 @@ namespace TitanEngine {
         public string? AudioTrimEnd { get; set; }
         public string? AudioTrimDuration { get; set; }
         public List<AudioEditSegment>? AudioSegments { get; set; }
+        public bool EnableAudioDucking { get; set; }
+        public string? AudioDuckingPreset { get; set; }
+        public string? AudioDuckingDirection { get; set; }
         public string? OutputVideo { get; set; }
         public string? TemplateName { get; set; }
         public string? OverlayEffect { get; set; }

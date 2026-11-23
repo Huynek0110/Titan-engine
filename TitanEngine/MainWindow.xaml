@@ -528,6 +528,42 @@
                                     <TextBox x:Name="txtAudioPath2" Grid.Column="0" IsReadOnly="True" Text="Select Audio 2..." FontStyle="Italic" Opacity="0.5"/>
                                     <Button x:Name="btnBrowseAudio2" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseAudio2_Click"/>
                                 </Grid>
+                                <Border BorderBrush="#262D38" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="#12161D">
+                                    <StackPanel>
+                                        <CheckBox x:Name="chkEnableAudioDucking"
+                                                  Content="Audio Ducking (Tự động giảm nhạc nền)"
+                                                  Foreground="#4CC3FF"
+                                                  IsChecked="False"
+                                                  Checked="ChkEnableAudioDucking_Changed"
+                                                  Unchecked="ChkEnableAudioDucking_Changed"
+                                                  ToolTip="Tự động giảm âm lượng mượt mà cho track nhạc nền (mặc định Audio 2) khi track giọng nói (mặc định Audio 1) phát, và tự phục hồi âm lượng khi giọng nói dừng. Tự động bỏ qua nếu thiếu Audio 1/2 hoặc đang bật Merge Audio (Concat)."/>
+                                        <StackPanel x:Name="pnlAudioDuckingOptions" Visibility="Collapsed" Margin="0,8,0,0">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="Mức giảm nhạc" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+                                                    <ComboBox x:Name="cmbAudioDuckingPreset" Height="26" FontSize="11" SelectedIndex="1" ToolTip="Nhẹ (~-8 dB) / Vừa (~-14 dB, mặc định) / Mạnh (~-20 dB)">
+                                                        <ComboBoxItem Content="Nhẹ (Light)" Tag="light"/>
+                                                        <ComboBoxItem Content="Vừa (Medium)" Tag="medium" IsSelected="True"/>
+                                                        <ComboBoxItem Content="Mạnh (Strong)" Tag="strong"/>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2">
+                                                    <TextBlock Text="Chiều Ducking" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,4"/>
+                                                    <ComboBox x:Name="cmbAudioDuckingDirection" Height="26" FontSize="11" SelectedIndex="0" ToolTip="Chọn track kích hoạt (giọng nói) và track bị giảm âm lượng (nhạc nền)">
+                                                        <ComboBoxItem Content="Audio 1 → giảm Audio 2" Tag="audio1_to_audio2" IsSelected="True"/>
+                                                        <ComboBoxItem Content="Audio 2 → giảm Audio 1" Tag="audio2_to_audio1"/>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                            </Grid>
+                                            <TextBlock Text="Mặc định: Audio 1 (Voice) làm nhỏ Audio 2 (BGM). Tự bỏ qua nếu thiếu 1 track hoặc dùng Merge Audio (Concat)." Foreground="#6B7480" FontSize="9" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
                                 <CheckBox x:Name="chkMergeAudios" Content="Merge Audio Tracks Into One Output (Concat)" Foreground="#C9D2DE" Margin="0,8,0,0" Checked="MergeOptionChanged" Unchecked="MergeOptionChanged"/>
                                 <Button x:Name="btnRandomCombos" Content="🎲 RANDOM VIDEO × AUDIO" Visibility="Collapsed" Background="#2A2110" BorderBrush="#4CC3FF" Foreground="#F2D27E" FontWeight="Bold" Margin="0,8,0,0" Height="44" Click="BtnRandomCombos_Click" ToolTip="Tạo mọi tổ hợp Video/Image × Audio thành nhiều queue, giữ nguyên toàn bộ setting hiện tại"/>
                                 <Button x:Name="btnEditAudio" Content="EDIT AUDIO DURATIONS" Background="#241E38" BorderBrush="#8B7CF6" Margin="0,10,0,0" Click="BtnOpenAudioEditor_Click"/>

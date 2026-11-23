@@ -62,9 +62,13 @@ templateName, enableCrossTransitions, crossTransitionType, crossTransitionDurati
 | `videoVolume`, `audioVolume`, `audio2Volume` / `secondaryAudioVolume` | 0.0–2.0 |
 | `sourceAudioSpeed`, `externalAudioSpeed` | 0.1–8.0 |
 | `audioTrimStart/End/Duration`, `audioSegments[]` | trim / audio editor |
+| `enableAudioDucking` | tự động ducking khi stack Audio 1 + Audio 2 (mặc định `false`) |
+| `audioDuckingPreset` | `"light" \| "medium" \| "strong"` (mặc định `"medium"`) |
+| `audioDuckingDirection` | `"audio1_to_audio2" \| "audio2_to_audio1"` (mặc định `"audio1_to_audio2"`) |
 | `enableLoudnorm` | loudnorm sau mix |
 
-Alias được chấp nhận: `audioVol`, `musicVolume`, `audio2Vol`.
+Alias được chấp nhận: `audioVol`, `musicVolume`, `audio2Vol`; với `enableAudioDucking`: `audioDucking`, `autoDucking`, `ducking`, `duckAudio`.
+Ducking tự động skip an toàn khi đang concat (`mergeAudio`), thiếu một trong hai track, hoặc track trigger/bị duck mute; các field ducking cũng có mặt trong response/status/queue DTOs.
 
 ### Hình ảnh / effect
 

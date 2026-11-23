@@ -1456,9 +1456,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string? externalAudioPath = job.AudioPath;
                 bool externalAudioVolumePreApplied = false;
                 double? externalAudioVolumeOverride = null;
-                if (job.MergeAudio && job.MergeAudioPaths.Count > 1)
+                bool externalAudioPreProcessedForDucking = false;
+                bool isConcatAudioMode = job.MergeAudio && job.MergeAudioPaths != null && job.MergeAudioPaths.Count > 1;
+                if (isConcatAudioMode)
                 {
-                    onLog($"[AUDIO-MERGE] Concatenating {job.MergeAudioPaths.Count} audio track(s)...");
+                    onLog($"[AUDIO-MERGE] Concatenating {job.MergeAudioPaths!.Count} audio track(s)...");
                     string audioMergeTag = $"audio_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
                     (tempAudioConcatListPath, tempMergedAudioPath) = await MergeAudiosToTempTrackAsync(job.MergeAudioPaths, outDir, audioMergeTag, token, onLog);
                     externalAudioPath = tempMergedAudioPath;
@@ -1468,56 +1470,164 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string? secondaryAudioPath = string.IsNullOrWhiteSpace(job.SecondaryAudioPath)
                     ? null
                     : Path.GetFullPath(job.SecondaryAudioPath.Trim());
-                if (!string.IsNullOrWhiteSpace(secondaryAudioPath) && File.Exists(secondaryAudioPath))
+                bool hasValidAudio1 = !string.IsNullOrWhiteSpace(externalAudioPath) && File.Exists(externalAudioPath);
+                bool hasValidAudio2 = !string.IsNullOrWhiteSpace(secondaryAudioPath) && File.Exists(secondaryAudioPath);
+
+                bool applyAudioDucking = false;
+                AudioDuckingParams duckParams = default;
+                if (job.EnableAudioDucking)
                 {
-                    if (!string.IsNullOrWhiteSpace(externalAudioPath) && File.Exists(externalAudioPath))
+                    if (job.MergeAudio || isConcatAudioMode)
                     {
-                        onLog("[AUDIO-OVERLAY] Mixing external audio track 1 + track 2...");
-                        string audioOverlayTag = $"audio_overlay_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
-                        tempAudioOverlayMixPath = await MixAudiosToTempTrackAsync(
-                            new[] { externalAudioPath, secondaryAudioPath },
-                            new[] { job.AudioVolume, job.SecondaryAudioVolume },
-                            outDir,
-                            audioOverlayTag,
-                            token,
-                            onLog);
-                        externalAudioPath = tempAudioOverlayMixPath;
-                        externalAudioVolumePreApplied = true;
-                        onLog($"[AUDIO-OVERLAY] Ready: {Path.GetFileName(externalAudioPath)}");
+                        onLog("[AUDIO-DUCK-SKIP] Audio Ducking skipped: Concat/Merge Audio mode (mergeAudio / audioFiles) is active.");
+                    }
+                    else if (!hasValidAudio1 && !hasValidAudio2)
+                    {
+                        onLog("[AUDIO-DUCK-SKIP] Audio Ducking skipped: Audio 1 and Audio 2 are missing.");
+                    }
+                    else if (!hasValidAudio1)
+                    {
+                        onLog("[AUDIO-DUCK-SKIP] Audio Ducking skipped: Audio 1 is missing.");
+                    }
+                    else if (!hasValidAudio2)
+                    {
+                        onLog("[AUDIO-DUCK-SKIP] Audio Ducking skipped: Audio 2 is missing.");
                     }
                     else
                     {
-                        externalAudioPath = secondaryAudioPath;
-                        externalAudioVolumeOverride = job.SecondaryAudioVolume;
-                        onLog("[AUDIO-OVERLAY] Track 1 missing; using audio track 2 as external audio.");
+                        duckParams = ResolveAudioDuckingParams(job.AudioDuckingPreset, job.AudioDuckingDirection);
+                        bool reverseDirection = duckParams.Direction == "audio2_to_audio1";
+                        double a1Vol = Math.Clamp(job.AudioVolume, 0.0, 2.0);
+                        double a2Vol = Math.Clamp(job.SecondaryAudioVolume, 0.0, 2.0);
+                        double triggerVol = reverseDirection ? a2Vol : a1Vol;
+                        double targetVol = reverseDirection ? a1Vol : a2Vol;
+                        string triggerLabel = reverseDirection ? "Audio 2" : "Audio 1";
+                        string targetLabel = reverseDirection ? "Audio 1" : "Audio 2";
+
+                        if (triggerVol <= 0.0001)
+                        {
+                            onLog($"[AUDIO-DUCK-SKIP] Audio Ducking skipped: trigger track ({triggerLabel}) is muted (volume=0%).");
+                        }
+                        else if (targetVol <= 0.0001)
+                        {
+                            onLog($"[AUDIO-DUCK-SKIP] Audio Ducking skipped: ducked track ({targetLabel}) is muted (volume=0%).");
+                        }
+                        else
+                        {
+                            applyAudioDucking = true;
+                        }
                     }
                 }
-                else if (!string.IsNullOrWhiteSpace(job.SecondaryAudioPath))
-                {
-                    onLog($"[AUDIO-OVERLAY-WARN] Audio track 2 not found: {job.SecondaryAudioPath}");
-                }
 
-                if (!string.IsNullOrWhiteSpace(externalAudioPath) && File.Exists(externalAudioPath))
+                if (applyAudioDucking)
                 {
-                    string audioEditTag = $"audioedit_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
-                    string? editedAudio = await PrepareEditedAudioTrackAsync(externalAudioPath, job, outDir, audioEditTag, token, onLog);
-                    if (!string.IsNullOrWhiteSpace(editedAudio) && File.Exists(editedAudio))
+                    string audio1ForMix = externalAudioPath!;
+                    string audio2ForMix = secondaryAudioPath!;
+                    string audioDuckTag = $"audioduck_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                    bool audio1HasEditedSegments = false;
+                    bool audio2HasEditedSegments = false;
+
+                    string? editedAudio1 = await PrepareEditedAudioTrackAsync(audio1ForMix, job, outDir, $"{audioDuckTag}_a1", token, onLog);
+                    if (!string.IsNullOrWhiteSpace(editedAudio1) && File.Exists(editedAudio1))
                     {
-                        tempEditedAudioPath = editedAudio;
-                        tempTemplateArtifacts.Add(editedAudio);
-                        externalAudioPath = editedAudio;
-                        onLog($"[AUDIO-EDIT] Using edited external audio: {Path.GetFileName(editedAudio)}");
+                        tempEditedAudioPath = editedAudio1;
+                        tempTemplateArtifacts.Add(editedAudio1);
+                        audio1ForMix = editedAudio1;
+                        audio1HasEditedSegments = true;
+                        onLog($"[AUDIO-EDIT] Using edited Audio 1 for ducking mix: {Path.GetFileName(editedAudio1)}");
+                    }
+
+                    string? editedAudio2 = await PrepareEditedAudioTrackAsync(audio2ForMix, job, outDir, $"{audioDuckTag}_a2", token, onLog);
+                    if (!string.IsNullOrWhiteSpace(editedAudio2) && File.Exists(editedAudio2))
+                    {
+                        tempEditedAudioPath ??= editedAudio2;
+                        tempTemplateArtifacts.Add(editedAudio2);
+                        audio2ForMix = editedAudio2;
+                        audio2HasEditedSegments = true;
+                        onLog($"[AUDIO-EDIT] Using edited Audio 2 for ducking mix: {Path.GetFileName(editedAudio2)}");
                     }
 
                     // Audio 1 voice FX pre-pass: Echo & Church use IR convolution reverb
-                    // (real reverb tails instead of aecho's discrete repeats).
-                    string? fxAudio = await PrepareAudioFxTrackAsync(externalAudioPath, job, outDir, audioEditTag, token, onLog);
-                    if (!string.IsNullOrWhiteSpace(fxAudio) && File.Exists(fxAudio))
+                    // before sidechain mixing so reverb stays on Audio 1 only.
+                    string? fxAudio1 = await PrepareAudioFxTrackAsync(audio1ForMix, job, outDir, audioDuckTag, token, onLog);
+                    if (!string.IsNullOrWhiteSpace(fxAudio1) && File.Exists(fxAudio1))
                     {
-                        tempTemplateArtifacts.Add(fxAudio);
-                        try { tempTemplateArtifacts.Add(Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(externalAudioPath)}.wav")); } catch { }
-                        externalAudioPath = fxAudio;
-                        onLog($"[AUDIO1-FX] Using FX-processed external audio: {Path.GetFileName(fxAudio)}");
+                        tempTemplateArtifacts.Add(fxAudio1);
+                        try { tempTemplateArtifacts.Add(Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(audio1ForMix)}.wav")); } catch { }
+                        audio1ForMix = fxAudio1;
+                        onLog($"[AUDIO1-FX] Using FX-processed Audio 1 for ducking mix: {Path.GetFileName(fxAudio1)}");
+                    }
+
+                    string audioOverlayTag = $"audio_overlay_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                    tempAudioOverlayMixPath = await MixAudiosWithDuckingToTempTrackAsync(
+                        audio1ForMix,
+                        audio2ForMix,
+                        job,
+                        duckParams,
+                        audio1HasEditedSegments,
+                        audio2HasEditedSegments,
+                        outDir,
+                        audioOverlayTag,
+                        token,
+                        onLog);
+                    externalAudioPath = tempAudioOverlayMixPath;
+                    externalAudioVolumePreApplied = true;
+                    externalAudioPreProcessedForDucking = true;
+                    onLog($"[AUDIO-DUCK] Ready: {Path.GetFileName(externalAudioPath)}");
+                }
+                else
+                {
+                    if (hasValidAudio2)
+                    {
+                        if (hasValidAudio1)
+                        {
+                            onLog("[AUDIO-OVERLAY] Mixing external audio track 1 + track 2...");
+                            string audioOverlayTag = $"audio_overlay_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                            tempAudioOverlayMixPath = await MixAudiosToTempTrackAsync(
+                                new[] { externalAudioPath!, secondaryAudioPath! },
+                                new[] { job.AudioVolume, job.SecondaryAudioVolume },
+                                outDir,
+                                audioOverlayTag,
+                                token,
+                                onLog);
+                            externalAudioPath = tempAudioOverlayMixPath;
+                            externalAudioVolumePreApplied = true;
+                            onLog($"[AUDIO-OVERLAY] Ready: {Path.GetFileName(externalAudioPath)}");
+                        }
+                        else
+                        {
+                            externalAudioPath = secondaryAudioPath;
+                            externalAudioVolumeOverride = job.SecondaryAudioVolume;
+                            onLog("[AUDIO-OVERLAY] Track 1 missing; using audio track 2 as external audio.");
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(job.SecondaryAudioPath))
+                    {
+                        onLog($"[AUDIO-OVERLAY-WARN] Audio track 2 not found: {job.SecondaryAudioPath}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(externalAudioPath) && File.Exists(externalAudioPath))
+                    {
+                        string audioEditTag = $"audioedit_{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                        string? editedAudio = await PrepareEditedAudioTrackAsync(externalAudioPath, job, outDir, audioEditTag, token, onLog);
+                        if (!string.IsNullOrWhiteSpace(editedAudio) && File.Exists(editedAudio))
+                        {
+                            tempEditedAudioPath = editedAudio;
+                            tempTemplateArtifacts.Add(editedAudio);
+                            externalAudioPath = editedAudio;
+                            onLog($"[AUDIO-EDIT] Using edited external audio: {Path.GetFileName(editedAudio)}");
+                        }
+
+                        // Audio 1 voice FX pre-pass: Echo & Church use IR convolution reverb
+                        // (real reverb tails instead of aecho's discrete repeats).
+                        string? fxAudio = await PrepareAudioFxTrackAsync(externalAudioPath, job, outDir, audioEditTag, token, onLog);
+                        if (!string.IsNullOrWhiteSpace(fxAudio) && File.Exists(fxAudio))
+                        {
+                            tempTemplateArtifacts.Add(fxAudio);
+                            try { tempTemplateArtifacts.Add(Path.Combine(GetTitanTempDir(), $"fx_ir_{Path.GetFileNameWithoutExtension(externalAudioPath)}.wav")); } catch { }
+                            externalAudioPath = fxAudio;
+                            onLog($"[AUDIO1-FX] Using FX-processed external audio: {Path.GetFileName(fxAudio)}");
+                        }
                     }
                 }
 
@@ -1596,7 +1706,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             timelineInputs,
                             job,
                             externalAudioPath,
-                            onLog);
+                            onLog,
+                            externalSpeedAlreadyApplied: externalAudioPreProcessedForDucking);
                     }
 
                     if (singleImageFastPath)
@@ -1743,7 +1854,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 bool hasExternalAudio = !string.IsNullOrEmpty(externalAudioPath) && File.Exists(externalAudioPath);
                 if (hasExternalAudio)
                 {
-                    if (string.IsNullOrWhiteSpace(tempEditedAudioPath))
+                    if (string.IsNullOrWhiteSpace(tempEditedAudioPath) && !externalAudioPreProcessedForDucking)
                     {
                         if (!string.IsNullOrWhiteSpace(job.AudioTrimStart) && job.AudioTrimStart != "00:00:00")
                         {
@@ -2005,7 +2116,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     externalAudioPath,
                     hasSourceAudio,
                     hasExternalAudio,
-                    onLog);
+                    onLog,
+                    externalSpeedAlreadyApplied: externalAudioPreProcessedForDucking);
 
                 // ── DURATION MASTER LOGIC ──────────────────────────────────────
                 // If Audio 1 is present AND source is an IMAGE timeline:
@@ -2536,7 +2648,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             bool gateFollowsVideo = ResolveFullPathSafe(soundBarAnalysis.SourcePath).Equals(
                                 ResolveFullPathSafe(videoToEncode),
                                 StringComparison.OrdinalIgnoreCase);
-                            double soundBarSourceSpeed = gateFollowsVideo ? videoAudioSpeed : externalAudioSpeed;
+                            bool gateFollowsPreProcessedDuckMix = externalAudioPreProcessedForDucking &&
+                                !string.IsNullOrWhiteSpace(externalAudioPath) &&
+                                ResolveFullPathSafe(soundBarAnalysis.SourcePath).Equals(
+                                    ResolveFullPathSafe(externalAudioPath),
+                                    StringComparison.OrdinalIgnoreCase);
+                            double soundBarSourceSpeed = gateFollowsVideo
+                                ? videoAudioSpeed
+                                : (gateFollowsPreProcessedDuckMix ? 1.0 : externalAudioSpeed);
                             double soundBarSourceToOutputScale = 1.0 / Math.Max(0.10, soundBarSourceSpeed);
 
                             soundBarAudibleIntervals = await AudioSpectrumAnalyzer.AnalyzeAudibleIntervalsAsync(
@@ -3043,7 +3162,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     ? BuildSourceAudioInputFilterChain(job, normalizedSpeed, sourceAudioSpeed, job.SlowMotionAudio, onLog)
                     : string.Empty;
                 string externalAudioInputChain = hasExternalAudio
-                    ? BuildExternalAudioInputFilterChain(job, onLog, externalAudioVolumePreApplied, externalAudioVolumeOverride)
+                    ? BuildExternalAudioInputFilterChain(
+                        job,
+                        onLog,
+                        externalAudioVolumePreApplied,
+                        externalAudioVolumeOverride,
+                        skipSpeed: externalAudioPreProcessedForDucking,
+                        skipAudio1Fx: externalAudioPreProcessedForDucking)
                     : string.Empty;
                 string audioPostProcessChain = hasAnyAudio
                     ? BuildAudioPostProcessFilterChain(job, fadeSettings, onLog)
@@ -7724,7 +7849,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             RenderJob job,
             Action<string> onLog,
             bool skipVolume = false,
-            double? volumeOverride = null)
+            double? volumeOverride = null,
+            bool skipSpeed = false,
+            bool skipAudio1Fx = false)
         {
             var filters = new List<string>();
 
@@ -7741,7 +7868,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
 
             double externalAudioSpeed = Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
-            if (Math.Abs(externalAudioSpeed - 1.0) > 0.0001)
+            if (skipSpeed)
+            {
+                if (Math.Abs(externalAudioSpeed - 1.0) > 0.0001)
+                    onLog($"[FILTER-EXTERNAL-AUDIO-SPEED] External audio speed ({externalAudioSpeed:F4}x) already applied during audio ducking mix.");
+            }
+            else if (Math.Abs(externalAudioSpeed - 1.0) > 0.0001)
             {
                 string audioPlaybackFilter = BuildPlaybackSpeedAudioFilter(externalAudioSpeed);
                 if (!string.IsNullOrWhiteSpace(audioPlaybackFilter))
@@ -7753,7 +7885,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             // Audio 1 voice FX (echo/reverb/robot/...) applied to the external Audio 1 track
             string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect, job.Audio1EffectIntensity);
-            if (!string.IsNullOrWhiteSpace(audio1Fx))
+            if (skipAudio1Fx)
+            {
+                if (!string.IsNullOrWhiteSpace(audio1Fx))
+                    onLog($"[AUDIO1-FX] {job.Audio1Effect} @ {job.Audio1EffectIntensity}% already applied during audio ducking mix.");
+            }
+            else if (!string.IsNullOrWhiteSpace(audio1Fx))
             {
                 filters.Add(audio1Fx);
                 onLog($"[AUDIO1-FX] {job.Audio1Effect} @ {job.Audio1EffectIntensity}%: {audio1Fx}");
@@ -8368,7 +8505,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string? externalAudioPath,
             bool hasSourceAudio,
             bool hasExternalAudio,
-            Action<string> onLog)
+            Action<string> onLog,
+            bool externalSpeedAlreadyApplied = false)
         {
             double audioDuration = double.PositiveInfinity;
 
@@ -8393,7 +8531,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 double externalBaseDuration = Math.Max(0.0, externalMeta.Duration);
                 if (externalBaseDuration > 0.01)
                 {
-                    double externalSpeed = Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
+                    double externalSpeed = externalSpeedAlreadyApplied
+                        ? 1.0
+                        : Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
                     double externalEffectiveDuration = externalBaseDuration / externalSpeed;
                     if (externalEffectiveDuration > 0.01)
                         audioDuration = Math.Min(audioDuration, externalEffectiveDuration);
@@ -8412,7 +8552,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private static async Task<double> GetEstimatedExternalAudioOutputDurationSecondsAsync(
             RenderJob job,
             string? externalAudioPath,
-            Action<string>? onLog = null)
+            Action<string>? onLog = null,
+            bool externalSpeedAlreadyApplied = false)
         {
             if (string.IsNullOrWhiteSpace(externalAudioPath) || !File.Exists(externalAudioPath))
                 return 0.0;
@@ -8422,7 +8563,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (externalBaseDuration <= 0.01)
                 return 0.0;
 
-            double externalSpeed = Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
+            double externalSpeed = externalSpeedAlreadyApplied
+                ? 1.0
+                : Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
             double externalEffectiveDuration = externalBaseDuration / externalSpeed;
             if (externalEffectiveDuration > 0.01 && onLog != null)
                 onLog($"[DURATION-SYNC] External audio effective duration: {externalEffectiveDuration:F2}s");
@@ -8434,7 +8577,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             IReadOnlyList<string> timelineInputs,
             RenderJob job,
             string? externalAudioPath,
-            Action<string> onLog)
+            Action<string> onLog,
+            bool externalSpeedAlreadyApplied = false)
         {
             int imageCount = timelineInputs?.Count(IsImageSourcePath) ?? 0;
             if (imageCount <= 0)
@@ -8446,7 +8590,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 : defaultPerImage * imageCount;
 
             double effectiveDuration = requestedTotalDuration;
-            double externalAudioDuration = await GetEstimatedExternalAudioOutputDurationSecondsAsync(job, externalAudioPath, null);
+            double externalAudioDuration = await GetEstimatedExternalAudioOutputDurationSecondsAsync(
+                job,
+                externalAudioPath,
+                null,
+                externalSpeedAlreadyApplied);
             if (externalAudioDuration > 0.01)
             {
                 if (externalAudioDuration < effectiveDuration - 0.01)
@@ -11462,6 +11610,49 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return (concatListPath, mergedAudioPath);
         }
 
+        public readonly record struct AudioDuckingParams(
+            string Preset,
+            string Direction,
+            double Threshold,
+            double Ratio,
+            double AttackMs,
+            double ReleaseMs,
+            double Knee,
+            string Detection);
+
+        public static string NormalizeAudioDuckingPreset(string? raw)
+        {
+            string normalized = (raw ?? string.Empty).Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "light" or "nhe" or "nhẹ" or "soft" or "low" or "subtle" => "light",
+                "strong" or "manh" or "mạnh" or "hard" or "high" or "heavy" or "aggressive" => "strong",
+                _ => "medium"
+            };
+        }
+
+        public static string NormalizeAudioDuckingDirection(string? raw)
+        {
+            string normalized = (raw ?? string.Empty).Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "audio2_to_audio1" or "audio2->audio1" or "a2_to_a1" or "a2->a1" or "reverse" or "reversed" or "swap" or "swapped" or "audio2" => "audio2_to_audio1",
+                _ => "audio1_to_audio2"
+            };
+        }
+
+        public static AudioDuckingParams ResolveAudioDuckingParams(string? preset, string? direction)
+        {
+            string normPreset = NormalizeAudioDuckingPreset(preset);
+            string normDir = NormalizeAudioDuckingDirection(direction);
+            return normPreset switch
+            {
+                "light" => new AudioDuckingParams(normPreset, normDir, Threshold: 0.04, Ratio: 4.0, AttackMs: 30.0, ReleaseMs: 600.0, Knee: 4.0, Detection: "rms"),
+                "strong" => new AudioDuckingParams(normPreset, normDir, Threshold: 0.015, Ratio: 14.0, AttackMs: 20.0, ReleaseMs: 900.0, Knee: 2.828, Detection: "rms"),
+                _ => new AudioDuckingParams(normPreset, normDir, Threshold: 0.025, Ratio: 8.0, AttackMs: 25.0, ReleaseMs: 750.0, Knee: 4.0, Detection: "rms")
+            };
+        }
+
         public static async Task<string> MixAudiosToTempTrackAsync(
             IReadOnlyList<string> audioPaths,
             IReadOnlyList<double> audioVolumes,
@@ -11515,6 +11706,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             args.Append($"\"{mixedAudioPath}\"");
 
             onLog($"[AUDIO-OVERLAY] Mixing {normalizedPaths.Count} audio track(s) with independent volume.");
+            onLog($"[AUDIO-OVERLAY-FILTER] {string.Join(";", filterParts)}");
             var (exitCode, stderr) = await RunFfmpegCaptureAsync(args.ToString(), token);
             if (exitCode != 0 || !File.Exists(mixedAudioPath) || new FileInfo(mixedAudioPath).Length <= 0)
             {
@@ -11523,6 +11715,147 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                         .Take(8));
                 throw new Exception($"Audio overlay mix failed: {summary}");
+            }
+
+            return mixedAudioPath;
+        }
+
+        public static async Task<string> MixAudiosWithDuckingToTempTrackAsync(
+            string audio1Path,
+            string audio2Path,
+            RenderJob job,
+            AudioDuckingParams ducking,
+            bool audio1HasEditedSegments,
+            bool audio2HasEditedSegments,
+            string outDir,
+            string mixTag,
+            CancellationToken token,
+            Action<string> onLog)
+        {
+            if (string.IsNullOrWhiteSpace(audio1Path))
+                throw new InvalidOperationException("Audio ducking mix requires Audio 1 path.");
+            if (string.IsNullOrWhiteSpace(audio2Path))
+                throw new InvalidOperationException("Audio ducking mix requires Audio 2 path.");
+
+            string fullAudio1Path = Path.GetFullPath(audio1Path.Trim());
+            if (!File.Exists(fullAudio1Path))
+                throw new FileNotFoundException($"Audio 1 source does not exist: {fullAudio1Path}");
+
+            string fullAudio2Path = Path.GetFullPath(audio2Path.Trim());
+            if (!File.Exists(fullAudio2Path))
+                throw new FileNotFoundException($"Audio 2 source does not exist: {fullAudio2Path}");
+
+            string tempWorkDir = GetTitanTempDir();
+            string safeTag = string.IsNullOrWhiteSpace(mixTag)
+                ? Guid.NewGuid().ToString("N").Substring(0, 8)
+                : Regex.Replace(mixTag.Trim(), @"[^\w\-]+", "_");
+            string mixedAudioPath = Path.Combine(tempWorkDir, $"mix_{safeTag}_audio.m4a");
+
+            string trimStart = (job.AudioTrimStart ?? string.Empty).Trim();
+            string trimDuration = (job.AudioTrimDuration ?? string.Empty).Trim();
+            string effectiveTrimDuration = trimDuration;
+            if (string.IsNullOrWhiteSpace(effectiveTrimDuration) &&
+                AudioEditHelpers.TryParseFlexibleTime(job.AudioTrimEnd, out double parsedTrimEnd))
+            {
+                double parsedTrimStart = 0.0;
+                if (!string.IsNullOrWhiteSpace(trimStart))
+                    AudioEditHelpers.TryParseFlexibleTime(trimStart, out parsedTrimStart);
+                double computedDuration = parsedTrimEnd - parsedTrimStart;
+                if (computedDuration > 0.01)
+                    effectiveTrimDuration = FfmpegDouble(computedDuration, 3);
+            }
+
+            var args = new StringBuilder("-y ");
+            if (!audio1HasEditedSegments)
+            {
+                if (!string.IsNullOrWhiteSpace(trimStart) && trimStart != "00:00:00")
+                    args.Append($"-ss {trimStart} ");
+                if (!string.IsNullOrWhiteSpace(effectiveTrimDuration))
+                    args.Append($"-t {effectiveTrimDuration} ");
+            }
+            args.Append($"-i \"{fullAudio1Path}\" ");
+
+            if (!audio2HasEditedSegments)
+            {
+                if (!string.IsNullOrWhiteSpace(trimStart) && trimStart != "00:00:00")
+                    args.Append($"-ss {trimStart} ");
+                if (!string.IsNullOrWhiteSpace(effectiveTrimDuration))
+                    args.Append($"-t {effectiveTrimDuration} ");
+            }
+            args.Append($"-i \"{fullAudio2Path}\" ");
+
+            double externalSpeed = Math.Clamp(job.ExternalAudioSpeed, 0.10, 8.0);
+            double a1Vol = Math.Clamp(job.AudioVolume, 0.0, 2.0);
+            string audio1Fx = BuildAudio1EffectChain(job.Audio1Effect, job.Audio1EffectIntensity);
+            bool fxUses44100Rate = !string.IsNullOrWhiteSpace(audio1Fx) &&
+                                   audio1Fx.Contains("asetrate=44100", StringComparison.OrdinalIgnoreCase);
+
+            var a1Filters = new List<string>
+            {
+                fxUses44100Rate
+                    ? "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+                    : "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+            };
+
+            if (Math.Abs(externalSpeed - 1.0) > 0.0001)
+            {
+                string speedFilter = BuildPlaybackSpeedAudioFilter(externalSpeed);
+                if (!string.IsNullOrWhiteSpace(speedFilter))
+                    a1Filters.Add(speedFilter);
+            }
+
+            if (!string.IsNullOrWhiteSpace(audio1Fx))
+            {
+                a1Filters.Add(audio1Fx);
+                a1Filters.Add("aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS");
+            }
+            else if (Math.Abs(externalSpeed - 1.0) > 0.0001)
+            {
+                a1Filters.Add("asetpts=PTS-STARTPTS");
+            }
+
+            a1Filters.Add($"volume={FfmpegDouble(a1Vol, 4)}");
+
+            double a2Vol = Math.Clamp(job.SecondaryAudioVolume, 0.0, 2.0);
+            var a2Filters = new List<string>
+            {
+                "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+            };
+            if (Math.Abs(externalSpeed - 1.0) > 0.0001)
+            {
+                string speedFilter = BuildPlaybackSpeedAudioFilter(externalSpeed);
+                if (!string.IsNullOrWhiteSpace(speedFilter))
+                {
+                    a2Filters.Add(speedFilter);
+                    a2Filters.Add("asetpts=PTS-STARTPTS");
+                }
+            }
+            a2Filters.Add($"volume={FfmpegDouble(a2Vol, 4)}");
+
+            string scFilter =
+                $"sidechaincompress=threshold={FfmpegDouble(ducking.Threshold, 4)}:ratio={FfmpegDouble(ducking.Ratio, 3)}:attack={FfmpegDouble(ducking.AttackMs, 2)}:release={FfmpegDouble(ducking.ReleaseMs, 2)}:makeup=1:knee={FfmpegDouble(ducking.Knee, 3)}:detection={ducking.Detection}";
+
+            // apad MUST stay on the sidechain trigger branch only (never on the mix branch),
+            // so a shorter trigger track pads silence for sidechaincompress without extending or clipping the longer track.
+            string filterComplex = ducking.Direction == "audio2_to_audio1"
+                ? $"[0:a]{string.Join(",", a1Filters)}[a1_ready];[1:a]{string.Join(",", a2Filters)}[a2_ready];[a2_ready]asplit=2[a2_sc_raw][a2_mix];[a2_sc_raw]apad[a2_sc];[a1_ready][a2_sc]{scFilter}[a1_ducked];[a2_mix][a1_ducked]amix=inputs=2:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95[aout]"
+                : $"[0:a]{string.Join(",", a1Filters)}[a1_ready];[1:a]{string.Join(",", a2Filters)}[a2_ready];[a1_ready]asplit=2[a1_sc_raw][a1_mix];[a1_sc_raw]apad[a1_sc];[a2_ready][a1_sc]{scFilter}[a2_ducked];[a1_mix][a2_ducked]amix=inputs=2:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95[aout]";
+
+            args.Append($"-filter_complex \"{filterComplex}\" ");
+            args.Append("-map \"[aout]\" -vn -c:a aac -b:a 192k -ar 48000 -ac 2 ");
+            args.Append($"\"{mixedAudioPath}\"");
+
+            onLog($"[AUDIO-DUCK] Mixing Audio 1 + Audio 2 with sidechain ducking (preset={ducking.Preset}, direction={ducking.Direction}, threshold={FfmpegDouble(ducking.Threshold, 4)}, ratio={FfmpegDouble(ducking.Ratio, 1)}, attack={FfmpegDouble(ducking.AttackMs, 0)}ms, release={FfmpegDouble(ducking.ReleaseMs, 0)}ms).");
+            onLog($"[AUDIO-DUCK-FILTER] {filterComplex}");
+
+            var (exitCode, stderr) = await RunFfmpegCaptureAsync(args.ToString(), token);
+            if (exitCode != 0 || !File.Exists(mixedAudioPath) || new FileInfo(mixedAudioPath).Length <= 0)
+            {
+                string summary = string.Join(" | ",
+                    (stderr ?? string.Empty)
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Take(8));
+                throw new Exception($"Audio ducking mix failed: {summary}");
             }
 
             return mixedAudioPath;
@@ -12403,6 +12736,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (chkSnowOverlay2 != null) chkSnowOverlay2.IsChecked = false;
             if (chkSnowOverlay3 != null) chkSnowOverlay3.IsChecked = false;
             if (chkOverlayIntro != null) chkOverlayIntro.IsChecked = false;
+            if (pnlAudioDuckingOptions != null)
+                pnlAudioDuckingOptions.Visibility = (chkEnableAudioDucking?.IsChecked == true) ? Visibility.Visible : Visibility.Collapsed;
             UpdateAudioEditSummary();
             UpdateSnowfallOpacityUi();
 
@@ -12716,6 +13051,27 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 txtAudioPath2.Text = Path.GetFileName(_secondaryAudioPath);
                 LogSystem($"[INPUT] Audio 2 overlay: {Path.GetFileName(_secondaryAudioPath)}");
             }
+        }
+
+        private void ChkEnableAudioDucking_Changed(object sender, RoutedEventArgs e)
+        {
+            if (pnlAudioDuckingOptions != null)
+            {
+                bool enabled = chkEnableAudioDucking?.IsChecked == true;
+                pnlAudioDuckingOptions.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private (bool Enabled, string Preset, string Direction) ResolveAudioDuckingSettingsFromUi()
+        {
+            bool enabled = chkEnableAudioDucking?.IsChecked == true;
+            string? rawPreset = (cmbAudioDuckingPreset?.SelectedItem as ComboBoxItem)?.Tag?.ToString()
+                ?? (cmbAudioDuckingPreset?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+            string? rawDirection = (cmbAudioDuckingDirection?.SelectedItem as ComboBoxItem)?.Tag?.ToString()
+                ?? (cmbAudioDuckingDirection?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+            string preset = EngineCore.NormalizeAudioDuckingPreset(rawPreset);
+            string direction = EngineCore.NormalizeAudioDuckingDirection(rawDirection);
+            return (enabled, preset, direction);
         }
 
         private async void BtnOpenAudioEditor_Click(object sender, RoutedEventArgs e)
@@ -16108,6 +16464,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 double selectedPlaybackSpeed = ResolveSelectedPlaybackSpeed();
                 _slowMotionSpeed = selectedPlaybackSpeed;
                 var fadeSettings = ResolveFadeSettingsFromUi();
+                var duckSettings = ResolveAudioDuckingSettingsFromUi();
                 double imageTimelineDurationSeconds = 0.0;
                 if (txtImageTimelineDuration != null &&
                     TryParseFlexibleDouble(txtImageTimelineDuration.Text, out double parsedImageTimelineDuration))
@@ -16215,6 +16572,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     Audio1EffectIntensity = (int)sldAudio1FxIntensity.Value,
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
+                    EnableAudioDucking = duckSettings.Enabled,
+                    AudioDuckingPreset = duckSettings.Preset,
+                    AudioDuckingDirection = duckSettings.Direction,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
                     UpscaleMode = _upscaleMode,
@@ -16553,6 +16913,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 double selectedPlaybackSpeed = ResolveSelectedPlaybackSpeed();
                 _slowMotionSpeed = selectedPlaybackSpeed;
                 var fadeSettings = ResolveFadeSettingsFromUi();
+                var duckSettings = ResolveAudioDuckingSettingsFromUi();
                 double imageTimelineDurationSeconds = 0.0;
                 if (txtImageTimelineDuration != null &&
                     TryParseFlexibleDouble(txtImageTimelineDuration.Text, out double parsedImageTimelineDuration))
@@ -16655,6 +17016,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     Audio1Effect = (cmbAudio1Fx.SelectedItem as ComboBoxItem)?.Content.ToString(),
                     Audio1EffectIntensity = (int)sldAudio1FxIntensity.Value,
                     SecondaryAudioVolume = sldAudio2Vol.Value / 100.0,
+                    EnableAudioDucking = duckSettings.Enabled,
+                    AudioDuckingPreset = duckSettings.Preset,
+                    AudioDuckingDirection = duckSettings.Direction,
                     SourceAudioSpeed = sldSourceAudioSpeed.Value,
                     ExternalAudioSpeed = sldExternalAudioSpeed.Value,
                     UpscaleMode = _upscaleMode,
@@ -17177,6 +17541,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = state.EnableDashedPolaroidScrapbook || (queuedJob?.EnableDashedPolaroidScrapbook ?? false),
                         EnableBrandLogo = state.EnableBrandLogo || (queuedJob?.EnableBrandLogo ?? false),
                         BrandLogoPosition = state.BrandLogoPosition ?? queuedJob?.BrandLogoPosition,
+                        EnableAudioDucking = state.EnableAudioDucking || (queuedJob?.EnableAudioDucking ?? false),
+                        AudioDuckingPreset = state.AudioDuckingPreset ?? queuedJob?.AudioDuckingPreset,
+                        AudioDuckingDirection = state.AudioDuckingDirection ?? queuedJob?.AudioDuckingDirection,
                         SnowfallPreset = state.SnowfallPreset ?? queuedJob?.SnowfallPreset,
                         SnowfallMode = state.SnowfallMode ?? queuedJob?.SnowfallMode,
                         SnowfallOpacity = state.SnowfallOpacity > 0.0 ? state.SnowfallOpacity : queuedJob?.SnowfallOpacity,
@@ -17312,6 +17679,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = pendingJob.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = pendingJob.EnableBrandLogo,
                             BrandLogoPosition = pendingJob.BrandLogoPosition,
+                            EnableAudioDucking = pendingJob.EnableAudioDucking,
+                            AudioDuckingPreset = pendingJob.AudioDuckingPreset,
+                            AudioDuckingDirection = pendingJob.AudioDuckingDirection,
                             MusicSyncMode = pendingJob.MusicSyncMode,
                             CropZoomPercent = pendingJob.CropZoomPercent,
                             CropAspectRatio = pendingJob.CropAspectRatio
@@ -18118,6 +18488,18 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     0.0, 2.0
                 );
 
+                bool enableAudioDucking = request.EnableAudioDucking ??
+                    GetFeatureBool(request, "enableAudioDucking", "audioDucking", "autoDucking", "ducking", "duckAudio") ??
+                    false;
+
+                string audioDuckingPreset = EngineCore.NormalizeAudioDuckingPreset(FirstNonEmpty(
+                    request.AudioDuckingPreset,
+                    GetFeatureString(request, "audioDuckingPreset", "duckingPreset", "duckingStrength", "duckStrength", "duckingLevel")));
+
+                string audioDuckingDirection = EngineCore.NormalizeAudioDuckingDirection(FirstNonEmpty(
+                    request.AudioDuckingDirection,
+                    GetFeatureString(request, "audioDuckingDirection", "duckingDirection", "duckDirection")));
+
                 double sourceAudioSpeed = Math.Clamp(
                     request.SourceAudioSpeed ??
                     GetFeatureDouble(request, "sourceAudioSpeed", "audioSpeed", "sourceAudioRate") ??
@@ -18342,6 +18724,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     VideoVolume = videoVolume,
                     AudioVolume = audioVolume,
                     SecondaryAudioVolume = audio2Volume,
+                    EnableAudioDucking = enableAudioDucking,
+                    AudioDuckingPreset = audioDuckingPreset,
+                    AudioDuckingDirection = audioDuckingDirection,
                     Audio1Effect = request.Audio1Effect ?? GetFeatureString(request, "audio1Effect", "voiceFx", "audioEffect"),
                     Audio1EffectIntensity = request.Audio1EffectIntensity.HasValue
                         ? (int)Math.Clamp(request.Audio1EffectIntensity.Value, 0, 100)
@@ -18549,6 +18934,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                     EnableBrandLogo = job.EnableBrandLogo,
                     BrandLogoPosition = job.BrandLogoPosition,
+                    EnableAudioDucking = job.EnableAudioDucking,
+                    AudioDuckingPreset = job.AudioDuckingPreset,
+                    AudioDuckingDirection = job.AudioDuckingDirection,
                     SnowfallPreset = job.SnowfallPreset,
                     SnowfallMode = job.SnowfallMode,
                     SnowfallOpacity = job.SnowfallOpacity,
@@ -18611,6 +18999,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
                         BrandLogoPosition = job.BrandLogoPosition,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         SnowfallPreset = job.SnowfallPreset,
                         SnowfallMode = job.SnowfallMode,
                         SnowfallOpacity = job.SnowfallOpacity,
@@ -18672,6 +19063,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                                 EnableBrandLogo = job.EnableBrandLogo,
                                 BrandLogoPosition = job.BrandLogoPosition,
+                                EnableAudioDucking = job.EnableAudioDucking,
+                                AudioDuckingPreset = job.AudioDuckingPreset,
+                                AudioDuckingDirection = job.AudioDuckingDirection,
                                 MusicSyncMode = job.MusicSyncMode,
                                 ImageTimelineDurationSeconds = job.ImageTimelineDurationSeconds
                             });
@@ -18697,6 +19091,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                                 EnableBrandLogo = job.EnableBrandLogo,
                                 BrandLogoPosition = job.BrandLogoPosition,
+                                EnableAudioDucking = job.EnableAudioDucking,
+                                AudioDuckingPreset = job.AudioDuckingPreset,
+                                AudioDuckingDirection = job.AudioDuckingDirection,
                                 MusicSyncMode = job.MusicSyncMode,
                                 ImageTimelineDurationSeconds = job.ImageTimelineDurationSeconds
                             });
@@ -18744,6 +19141,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
                         BrandLogoPosition = job.BrandLogoPosition,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         SnowfallPreset = job.SnowfallPreset,
                         SnowfallMode = job.SnowfallMode,
                         SnowfallOpacity = job.SnowfallOpacity,
@@ -18808,6 +19208,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
                         BrandLogoPosition = job.BrandLogoPosition,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         SnowfallPreset = job.SnowfallPreset,
                         SnowfallMode = job.SnowfallMode,
                         SnowfallOpacity = job.SnowfallOpacity,
@@ -18877,6 +19280,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = job.EnableBrandLogo,
                             BrandLogoPosition = job.BrandLogoPosition,
+                            EnableAudioDucking = job.EnableAudioDucking,
+                            AudioDuckingPreset = job.AudioDuckingPreset,
+                            AudioDuckingDirection = job.AudioDuckingDirection,
                             SnowfallPreset = job.SnowfallPreset,
                             SnowfallMode = job.SnowfallMode,
                             SnowfallOpacity = job.SnowfallOpacity,
@@ -18930,6 +19336,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = job.EnableBrandLogo,
                             BrandLogoPosition = job.BrandLogoPosition,
+                            EnableAudioDucking = job.EnableAudioDucking,
+                            AudioDuckingPreset = job.AudioDuckingPreset,
+                            AudioDuckingDirection = job.AudioDuckingDirection,
                             MusicSyncMode = job.MusicSyncMode,
                             ImageTimelineDurationSeconds = job.ImageTimelineDurationSeconds
                         });
@@ -18979,6 +19388,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = job.EnableBrandLogo,
                             BrandLogoPosition = job.BrandLogoPosition,
+                            EnableAudioDucking = job.EnableAudioDucking,
+                            AudioDuckingPreset = job.AudioDuckingPreset,
+                            AudioDuckingDirection = job.AudioDuckingDirection,
                             SnowfallPreset = job.SnowfallPreset,
                             SnowfallMode = job.SnowfallMode,
                             SnowfallOpacity = job.SnowfallOpacity,
@@ -19028,6 +19440,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = job.EnableBrandLogo,
                             BrandLogoPosition = job.BrandLogoPosition,
+                            EnableAudioDucking = job.EnableAudioDucking,
+                            AudioDuckingPreset = job.AudioDuckingPreset,
+                            AudioDuckingDirection = job.AudioDuckingDirection,
                             SnowfallPreset = job.SnowfallPreset,
                             SnowfallMode = job.SnowfallMode,
                             SnowfallOpacity = job.SnowfallOpacity,
@@ -19076,6 +19491,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                             EnableBrandLogo = job.EnableBrandLogo,
                             BrandLogoPosition = job.BrandLogoPosition,
+                            EnableAudioDucking = job.EnableAudioDucking,
+                            AudioDuckingPreset = job.AudioDuckingPreset,
+                            AudioDuckingDirection = job.AudioDuckingDirection,
                             SnowfallPreset = job.SnowfallPreset,
                             SnowfallMode = job.SnowfallMode,
                             SnowfallOpacity = job.SnowfallOpacity,
@@ -19125,6 +19543,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
                         BrandLogoPosition = job.BrandLogoPosition,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         MusicSyncMode = job.MusicSyncMode
                     });
                 }
@@ -19168,6 +19589,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
                         BrandLogoPosition = job.BrandLogoPosition,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         MusicSyncMode = job.MusicSyncMode
                     });
                 }
@@ -19282,6 +19706,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         state.MergeVideos = true;
                     if (!state.MergeAudio && previous.MergeAudio)
                         state.MergeAudio = true;
+                    if (!state.EnableAudioDucking && previous.EnableAudioDucking)
+                        state.EnableAudioDucking = true;
+                    if (string.IsNullOrWhiteSpace(state.AudioDuckingPreset))
+                        state.AudioDuckingPreset = previous.AudioDuckingPreset;
+                    if (string.IsNullOrWhiteSpace(state.AudioDuckingDirection))
+                        state.AudioDuckingDirection = previous.AudioDuckingDirection;
                 }
 
                 _apiJobStates[state.JobId] = state;
@@ -19383,7 +19813,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         OverlayIntroOpacity = state.OverlayIntroOpacity,
                         RainOverlayPreset = state.RainOverlayPreset,
                         RainOverlayIntensity = state.RainOverlayIntensity,
-                        MusicSyncMode = state.MusicSyncMode
+                        MusicSyncMode = state.MusicSyncMode,
+                        EnableAudioDucking = state.EnableAudioDucking,
+                        AudioDuckingPreset = state.AudioDuckingPreset,
+                        AudioDuckingDirection = state.AudioDuckingDirection
                     };
                 }
 
@@ -19450,7 +19883,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             OverlayIntroOpacity = queueState.OverlayIntroOpacity,
                             RainOverlayPreset = queueState.RainOverlayPreset,
                             RainOverlayIntensity = queueState.RainOverlayIntensity,
-                            MusicSyncMode = queueState.MusicSyncMode
+                            MusicSyncMode = queueState.MusicSyncMode,
+                            EnableAudioDucking = queueState.EnableAudioDucking,
+                            AudioDuckingPreset = queueState.AudioDuckingPreset,
+                            AudioDuckingDirection = queueState.AudioDuckingDirection
                         };
                     }
                 }
@@ -19512,6 +19948,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 EnableDashedPolaroidScrapbook = state?.EnableDashedPolaroidScrapbook ?? job.EnableDashedPolaroidScrapbook,
                 EnableBrandLogo = state?.EnableBrandLogo ?? job.EnableBrandLogo,
                 BrandLogoPosition = state?.BrandLogoPosition ?? job.BrandLogoPosition,
+                EnableAudioDucking = (state?.EnableAudioDucking ?? false) || job.EnableAudioDucking,
+                AudioDuckingPreset = (!string.IsNullOrWhiteSpace(state?.AudioDuckingPreset) ? state?.AudioDuckingPreset : null) ?? job.AudioDuckingPreset,
+                AudioDuckingDirection = (!string.IsNullOrWhiteSpace(state?.AudioDuckingDirection) ? state?.AudioDuckingDirection : null) ?? job.AudioDuckingDirection,
                 SnowfallPreset = state?.SnowfallPreset ?? job.SnowfallPreset,
                 SnowfallMode = state?.SnowfallMode ?? job.SnowfallMode,
                 SnowfallOpacity = (state?.SnowfallOpacity > 0.0 ? state?.SnowfallOpacity : null) ?? job.SnowfallOpacity,
@@ -19621,6 +20060,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableRgbPolaroidScrapbook = queueJob.EnableRgbPolaroidScrapbook,
                         EnableDashedPolaroidScrapbook = queueJob.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = queueJob.EnableBrandLogo,
+                        EnableAudioDucking = queueJob.EnableAudioDucking,
+                        AudioDuckingPreset = queueJob.AudioDuckingPreset,
+                        AudioDuckingDirection = queueJob.AudioDuckingDirection,
                         MusicSyncMode = queueJob.MusicSyncMode,
                         ImageTimelineDurationSeconds = queueJob.ImageTimelineDurationSeconds
                     });
@@ -19654,6 +20096,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableRgbPolaroidScrapbook = queueJob.EnableRgbPolaroidScrapbook,
                         EnableDashedPolaroidScrapbook = queueJob.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = queueJob.EnableBrandLogo,
+                        EnableAudioDucking = queueJob.EnableAudioDucking,
+                        AudioDuckingPreset = queueJob.AudioDuckingPreset,
+                        AudioDuckingDirection = queueJob.AudioDuckingDirection,
                         MusicSyncMode = queueJob.MusicSyncMode
                     });
                     break;
@@ -19684,6 +20129,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableRgbPolaroidScrapbook = queueJob.EnableRgbPolaroidScrapbook,
                         EnableDashedPolaroidScrapbook = queueJob.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = queueJob.EnableBrandLogo,
+                        EnableAudioDucking = queueJob.EnableAudioDucking,
+                        AudioDuckingPreset = queueJob.AudioDuckingPreset,
+                        AudioDuckingDirection = queueJob.AudioDuckingDirection,
                         MusicSyncMode = queueJob.MusicSyncMode
                     });
 
@@ -19731,6 +20179,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 EnableRgbPolaroidScrapbook = job.EnableRgbPolaroidScrapbook,
                 EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                 EnableBrandLogo = job.EnableBrandLogo,
+                EnableAudioDucking = job.EnableAudioDucking,
+                AudioDuckingPreset = job.AudioDuckingPreset,
+                AudioDuckingDirection = job.AudioDuckingDirection,
                 MusicSyncMode = job.MusicSyncMode
             });
 
@@ -19794,6 +20245,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         EnableRgbPolaroidScrapbook = job.EnableRgbPolaroidScrapbook,
                         EnableDashedPolaroidScrapbook = job.EnableDashedPolaroidScrapbook,
                         EnableBrandLogo = job.EnableBrandLogo,
+                        EnableAudioDucking = job.EnableAudioDucking,
+                        AudioDuckingPreset = job.AudioDuckingPreset,
+                        AudioDuckingDirection = job.AudioDuckingDirection,
                         MusicSyncMode = job.MusicSyncMode,
                         WebhookUrl = job.WebhookUrl
                     });

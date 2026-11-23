@@ -97,6 +97,23 @@ Slow motion được tính vào độ dài ước tính (`GetEstimatedOutputDura
 Model: Small (mặc định) / Medium / Large-v3-Turbo, tự tải từ HuggingFace nếu thiếu.
 Ngôn ngữ: auto / vi / en / ja / ko / zh.
 
+### 4.5 Audio Ducking (Auto-Ducking)
+
+- Mặc định **tắt** (`EnableAudioDucking = false`) để giữ hành vi mix phẳng mặc định.
+- Chỉ áp dụng ở chế độ **Stack** khi có **đủ cả Audio 1 và Audio 2**, `MergeAudio` concat không bật, và cả track trigger lẫn track bị duck đều không mute (`volume > 0`); ngược lại bỏ qua an toàn với `[AUDIO-DUCK-SKIP]`.
+- Chạy qua `MixAudiosWithDuckingToTempTrackAsync`:
+  1. Audio 1 và Audio 2 chạy trước Cuts/Trim (`PrepareEditedAudioTrackAsync`) nếu có, và Audio 1 chạy trước IR Reverb (`PrepareAudioFxTrackAsync`) nếu có.
+  2. Chuẩn hoá cả hai stream (`aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS`; nếu dùng Voice FX dựa trên `asetrate` thì chuẩn hoá 44.1 kHz trước khi chạy Voice FX rồi chuẩn hoá lại 48 kHz).
+  3. Áp dụng `atempo` + inline Voice FX + `volume` cho từng stream.
+  4. Tách nhánh trigger bằng `asplit=2` và chỉ gắn `apad` trên nhánh sidechain trigger (`[a*_sc]`).
+  5. Nén sidechain bằng `sidechaincompress` (`makeup=1:detection=rms`):
+     - `light`: `threshold=0.04` / `ratio=4` / `attack=30` / `release=600` / `knee=4`
+     - `medium`: `threshold=0.025` / `ratio=8` / `attack=25` / `release=750` / `knee=4`
+     - `strong`: `threshold=0.015` / `ratio=14` / `attack=20` / `release=900` / `knee=2.828`
+  6. Mix kết quả bằng `amix=inputs=2:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95`.
+- Ở Stage B, audio gốc của video `[0:a]` (nếu có) vẫn mix với temp mix qua `amix(..., normalize=0),alimiter=limit=0.95`, và `afade` / `loudnorm` luôn chạy cuối cùng.
+- Soundbar `audio1` / `audio2` vẫn decode trực tiếp từ file gốc; còn `auto` / `external` đọc temp track đã duck.
+
 ## 5. Encoder selection
 
 | Profile | Điều kiện | Encoder | Preset | Quality flag |
@@ -323,6 +340,7 @@ lỗi thì log WARN và render tiếp. **Fail-fast cho asset bắt buộc:** rai
 |---|---|
 | `[OUTPUT]` | Đường dẫn output |
 | `[AUDIO-MERGE]` / `[AUDIO-OVERLAY]` / `[AUDIO-EDIT]` | Audio prep |
+| `[AUDIO-DUCK]` / `[AUDIO-DUCK-FILTER]` / `[AUDIO-DUCK-SKIP]` / `[AUDIO-OVERLAY-FILTER]` | Audio auto-ducking & overlay filter |
 | `[TEMPLATE]` / `[TRANSITION]` / `[MERGE]` | Timeline |
 | `[PREPROCESSING]` | Upscale ngoài |
 | `[ENCODER]` / `[ENCODER-WARN]` / `[ENCODER-RETRY]` | Chọn/retry encoder |

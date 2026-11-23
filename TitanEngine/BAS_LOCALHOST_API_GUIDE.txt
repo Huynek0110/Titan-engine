@@ -33,6 +33,7 @@ Audio overlay rule:
 - `audio2Volume` or `secondaryAudioVolume` controls Audio 2 volume
 - If both `audioFile` and `audioFile2` exist, Titan mixes them together before render
 - If only `audioFile2` exists, Titan uses it as the external audio track
+- Auto-ducking (optional, Stack mode only): `enableAudioDucking` (default `false`), `audioDuckingPreset` (`"light" | "medium" | "strong"`, default `"medium"`), `audioDuckingDirection` (`"audio1_to_audio2" | "audio2_to_audio1"`, default `"audio1_to_audio2"`)
 
 ============================================================
 1) UI MERGE VIDEOS / IMAGES (MANUAL APP USAGE)
@@ -208,6 +209,9 @@ Audio overlay note:
   "secondaryAudioVolume": 1.0,
   "sourceAudioSpeed": 1.0,
   "externalAudioSpeed": 1.0,
+  "enableAudioDucking": false,
+  "audioDuckingPreset": "medium",
+  "audioDuckingDirection": "audio1_to_audio2",
 
   "upscaleMode": "2x Upscale (FSR + DLSS)",
   "sharpnessIntensity": 1.0,
@@ -559,6 +563,9 @@ Use these fields when you want 2 audio layers in the same render:
 - audioVolume: volume for Audio 1
 - audio2Volume: volume for Audio 2
 - secondaryAudioVolume: alias of audio2Volume
+- enableAudioDucking: boolean, default false (aliases: audioDucking, autoDucking, ducking, duckAudio)
+- audioDuckingPreset: "light" | "medium" | "strong" (default "medium")
+- audioDuckingDirection: "audio1_to_audio2" | "audio2_to_audio1" (default "audio1_to_audio2")
 
 Behavior:
 - If only audioFile exists, Titan uses it as the external audio track.
@@ -566,6 +573,18 @@ Behavior:
 - If both exist, Titan mixes them together first, then continues with the normal external-audio pipeline.
 - If audioFiles is also used, that is still the concat/merge mode for multiple audio sources.
 - audioFile2 is not concat mode. It is a second layer that gets stacked onto Audio 1.
+
+Audio Ducking (Auto-Ducking):
+- Disabled by default (`enableAudioDucking: false`) for backward compatibility (plain flat mix).
+- When `enableAudioDucking: true`, Titan uses sidechain compression so the trigger track automatically lowers (ducks) the target track while active and restores it smoothly during pauses.
+- Presets:
+  - "light": gentle ducking
+  - "medium" (default): balanced voiceover over BGM ducking
+  - "strong": deep ducking for loud BGM under speech
+- Directions:
+  - "audio1_to_audio2" (default): Audio 1 triggers ducking on Audio 2 (e.g. Audio 1 voice ducks Audio 2 BGM)
+  - "audio2_to_audio1": Audio 2 triggers ducking on Audio 1
+- Automatic safe skip: if Audio 1 or Audio 2 is missing, `mergeAudio` concat mode is active, or trigger/target volume is 0%, Titan logs `[AUDIO-DUCK-SKIP]` and safely falls back to normal audio handling without failing.
 
 Recommended BAS JSON:
 {
@@ -576,6 +595,19 @@ Recommended BAS JSON:
   "audioVolume": 1.0,
   "audio2Volume": 0.8,
   "externalAudioSpeed": 1.0
+}
+
+Recommended BAS JSON (Audio Ducking: Audio 1 voice ducks Audio 2 BGM):
+{
+  "inputFile": "C:\\Users\\lemin\\Desktop\\input.mp4",
+  "outputVideo": "C:\\Users\\lemin\\Desktop\\output\\audio_ducked.mp4",
+  "audioFile": "C:\\Users\\lemin\\Desktop\\voice.wav",
+  "audioFile2": "C:\\Users\\lemin\\Desktop\\bgm.wav",
+  "audioVolume": 1.0,
+  "audio2Volume": 1.0,
+  "enableAudioDucking": true,
+  "audioDuckingPreset": "medium",
+  "audioDuckingDirection": "audio1_to_audio2"
 }
 
 If you want a single audio track made from many files:
@@ -794,6 +826,9 @@ Video/audio tuning:
 - audio2Volume
 - sourceAudioSpeed
 - externalAudioSpeed
+- enableAudioDucking
+- audioDuckingPreset
+- audioDuckingDirection
 - musicSyncMode
 
 Soundbar (GET /api/soundbar/presets returns its own, smaller payload):
