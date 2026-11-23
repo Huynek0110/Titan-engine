@@ -96,6 +96,8 @@ namespace TitanEngine
                 Directory.CreateDirectory(tempRoot);
                 Directory.CreateDirectory(previewDir);
 
+                var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+
                 for (int i = 0; i < frameCount; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -109,10 +111,8 @@ namespace TitanEngine
                         DrawParticles(dc, recipe, particles, renderW, renderH, cycleSeconds, progress);
                     }
 
-                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                    overlayBitmap.Clear();
                     overlayBitmap.Render(overlayVisual);
-                    if (overlayBitmap.CanFreeze)
-                        overlayBitmap.Freeze();
 
                     string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
                     SaveBitmap(overlayBitmap, overlayFile);
@@ -120,7 +120,7 @@ namespace TitanEngine
                     if (i < 8)
                     {
                         string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        SaveBitmap(overlayBitmap, previewFile);
+                        File.Copy(overlayFile, previewFile, overwrite: true);
                     }
                 }
             }, token);

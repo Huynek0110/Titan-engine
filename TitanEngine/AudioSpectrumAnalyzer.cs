@@ -350,6 +350,19 @@ namespace TitanEngine
                 double fps = frameRate <= 0 ? 30.0 : Math.Clamp(frameRate, 1.0, MaxFrameRate);
                 int frameCount = Math.Max(1, (int)Math.Round(loop * fps));
 
+                string analysisCacheKey = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}|{1:F3}|{2:F2}|{3:F2}",
+                    BuildSourceFileCachePrefix(inputPath),
+                    startSeconds,
+                    loop,
+                    fps);
+                if (AnalysisResultCache.TryGetValue(analysisCacheKey, out AudioAnalysisResult? cachedResult) && cachedResult != null)
+                {
+                    onLog?.Invoke($"[SOUNDBAR] Reusing cached audio analysis ({cachedResult.FrameCount} frames, fp={cachedResult.AudioFingerprint}).");
+                    return CloneAnalysisResultForReuse(cachedResult);
+                }
+
                 string root = string.IsNullOrWhiteSpace(tempRoot)
                     ? Path.Combine(Path.GetTempPath(), "TitanEngine", "soundbar_analysis")
                     : tempRoot.Trim();
@@ -424,7 +437,7 @@ namespace TitanEngine
 
                 onLog?.Invoke($"[SOUNDBAR] Analysed {frames.Length} frames, pcm={rawPath}");
 
-                return new AudioAnalysisResult
+                var result = new AudioAnalysisResult
                 {
                     SampleRate = sampleRate,
                     FftSize = DefaultFftSize,
@@ -438,6 +451,8 @@ namespace TitanEngine
                     SourcePath = inputPath,
                     Frames = frames
                 };
+                StoreBoundedCacheEntry(AnalysisResultCache, analysisCacheKey, CloneAnalysisResultForReuse(result));
+                return result;
             }
             catch (Exception ex)
             {
@@ -504,6 +519,17 @@ namespace TitanEngine
                 double scale = sourceToOutputScale > 1e-6 ? sourceToOutputScale : 1.0;
                 double sourceLimit = outputDurationSeconds / scale;
 
+                string cacheKey = $"{BuildSourceFileCachePrefix(audioPath)}|{outputDurationSeconds.ToString("F3", inv)}|{scale.ToString("F4", inv)}";
+                if (AudibleIntervalsCache.TryGetValue(cacheKey, out List<AudioInterval>? cachedIntervals))
+                {
+                    onLog?.Invoke(string.Format(
+                        inv,
+                        "[SOUNDBAR] Timeline audibility cache hit ({0} interval(s) for {1:0.##}s).",
+                        cachedIntervals.Count,
+                        outputDurationSeconds));
+                    return CloneIntervals(cachedIntervals);
+                }
+
                 // -t before -i bounds the input read; the render is never longer than the audio.
                 string filter = string.Format(
                     inv,
@@ -556,6 +582,8 @@ namespace TitanEngine
                     }
                 }
 
+                List<AudioInterval> result;
+
                 // One stretch covering the whole render means there is nothing to gate. Return the
                 // canonical form so the caller can skip building an enable expression entirely.
                 if (gated.Count == 1 && gated[0].Start <= 0.001 && gated[0].End >= outputDurationSeconds - 0.001)
@@ -564,25 +592,30 @@ namespace TitanEngine
                         inv,
                         "[SOUNDBAR] Timeline audibility: continuous audio for {0:0.##}s - no overlay gate needed.",
                         outputDurationSeconds));
-                    return new List<AudioInterval> { new AudioInterval { Start = 0.0, End = outputDurationSeconds } };
-                }
-
-                if (gated.Count == 0)
-                {
-                    onLog?.Invoke("[SOUNDBAR] Timeline audibility: no audible stretch found - the overlay will be hidden for the whole render.");
+                    result = new List<AudioInterval> { new AudioInterval { Start = 0.0, End = outputDurationSeconds } };
                 }
                 else
                 {
-                    onLog?.Invoke(string.Format(
-                        inv,
-                        "[SOUNDBAR] Timeline audibility: {0} audible stretch(es), {1:0.##}s..{2:0.##}s of {3:0.##}s; the overlay is hidden outside them.",
-                        gated.Count,
-                        gated[0].Start,
-                        gated[gated.Count - 1].End,
-                        outputDurationSeconds));
+                    if (gated.Count == 0)
+                    {
+                        onLog?.Invoke("[SOUNDBAR] Timeline audibility: no audible stretch found - the overlay will be hidden for the whole render.");
+                    }
+                    else
+                    {
+                        onLog?.Invoke(string.Format(
+                            inv,
+                            "[SOUNDBAR] Timeline audibility: {0} audible stretch(es), {1:0.##}s..{2:0.##}s of {3:0.##}s; the overlay is hidden outside them.",
+                            gated.Count,
+                            gated[0].Start,
+                            gated[gated.Count - 1].End,
+                            outputDurationSeconds));
+                    }
+
+                    result = gated;
                 }
 
-                return gated;
+                StoreBoundedCacheEntry(AudibleIntervalsCache, cacheKey, CloneIntervals(result));
+                return result;
             }
             catch (Exception ex)
             {
@@ -1128,9 +1161,122 @@ namespace TitanEngine
         /// </summary>
         private const double LoopWrapMismatchPenaltyDb = 2.0;
 
+        private const int MaxCacheEntries = 256;
+
         /// <summary>Scan results, keyed by source + loop length. Re-probing the same track is pure waste.</summary>
         private static readonly ConcurrentDictionary<string, double> AutoLoopStartCache
             = new ConcurrentDictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Cached timeline audibility gates, keyed by source + duration + speed scale.</summary>
+        private static readonly ConcurrentDictionary<string, List<AudioInterval>> AudibleIntervalsCache
+            = new ConcurrentDictionary<string, List<AudioInterval>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Cached full audio analyses, keeping AudioFingerprint deterministic across repeat renders.</summary>
+        private static readonly ConcurrentDictionary<string, AudioAnalysisResult> AnalysisResultCache
+            = new ConcurrentDictionary<string, AudioAnalysisResult>(StringComparer.OrdinalIgnoreCase);
+
+        private static AudioAnalysisResult CloneAnalysisResultForReuse(AudioAnalysisResult source)
+        {
+            return new AudioAnalysisResult
+            {
+                SampleRate = source.SampleRate,
+                FftSize = source.FftSize,
+                BandCount = source.BandCount,
+                EffectiveBandCount = source.EffectiveBandCount,
+                WaveformColumns = source.WaveformColumns,
+                FrameDurationSeconds = source.FrameDurationSeconds,
+                FrameCount = source.FrameCount,
+                AudioFilePath = string.Empty,
+                AudioFingerprint = source.AudioFingerprint,
+                SourcePath = source.SourcePath,
+                Frames = source.Frames
+            };
+        }
+
+        private static string BuildSourceFileCachePrefix(string path)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path.Trim());
+                var info = new FileInfo(fullPath);
+                long length = info.Exists ? info.Length : 0L;
+                long ticks = info.Exists ? info.LastWriteTimeUtc.Ticks : 0L;
+                return $"{fullPath}|{length}|{ticks}";
+            }
+            catch
+            {
+                return path?.Trim() ?? string.Empty;
+            }
+        }
+
+        private static void StoreBoundedCacheEntry<TValue>(
+            ConcurrentDictionary<string, TValue> cache,
+            string key,
+            TValue value)
+        {
+            cache[key] = value;
+            if (cache.Count <= MaxCacheEntries)
+                return;
+
+            foreach (string existingKey in cache.Keys)
+            {
+                if (cache.Count <= MaxCacheEntries)
+                    break;
+                if (!StringComparer.OrdinalIgnoreCase.Equals(existingKey, key))
+                    cache.TryRemove(existingKey, out _);
+            }
+        }
+
+        private static List<AudioInterval> CloneIntervals(IReadOnlyList<AudioInterval> source)
+        {
+            var copy = new List<AudioInterval>(source.Count);
+            foreach (AudioInterval interval in source)
+            {
+                copy.Add(new AudioInterval
+                {
+                    Start = interval.Start,
+                    End = interval.End
+                });
+            }
+            return copy;
+        }
+
+        private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRate, double Start)> DecodeDirectWindowAsync(
+            string ffmpegPath,
+            string inputPath,
+            string rawPath,
+            double startSeconds,
+            double loopSeconds,
+            Action<string>? onLog,
+            CancellationToken token)
+        {
+            (int directExit, string directErr, bool directCanceled) = await RunFfmpegCaptureAsync(
+                ffmpegPath, BuildDecodeArguments(inputPath, rawPath, startSeconds, loopSeconds), token).ConfigureAwait(false);
+
+            if (directCanceled || token.IsCancellationRequested)
+            {
+                TryDeleteFile(rawPath);
+                onLog?.Invoke("[SOUNDBAR] Audio decode cancelled.");
+                return (null, null, 0, 0.0);
+            }
+
+            if (directExit != 0)
+            {
+                onLog?.Invoke($"[SOUNDBAR] ffmpeg audio decode failed (exit {directExit}): {TruncateForLog(directErr)}");
+                TryDeleteFile(rawPath);
+                return (null, null, 0, 0.0);
+            }
+
+            (float[] direct, float[] directSide) = ReadRawS16StereoMidSide(rawPath, out int directRate);
+            if (direct.Length == 0)
+            {
+                onLog?.Invoke("[SOUNDBAR] ffmpeg produced no audio data; the source probably has no audio stream.");
+                TryDeleteFile(rawPath);
+                return (null, null, 0, 0.0);
+            }
+
+            return (direct, directSide, directRate, startSeconds);
+        }
 
         /// <summary>
         /// Chooses where the visual loop should begin, so that frame 0 is not a near-silent frame.
@@ -1153,7 +1299,7 @@ namespace TitanEngine
         /// <paramref name="requestedStartSeconds"/> unchanged when the scan cannot run, so a missing
         /// ffprobe or an unreadable stream degrades to the old behaviour rather than failing the job.
         /// </summary>
-private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRate, double Start)> DecodeLoopWindowAsync(
+        private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRate, double Start)> DecodeLoopWindowAsync(
             string ffmpegPath,
             string inputPath,
             string rawPath,
@@ -1165,32 +1311,19 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
             // A non-zero request is an explicit instruction; never second-guess it.
             if (requestedStartSeconds > 0.001)
             {
-                (int directExit, string directErr, bool directCanceled) = await RunFfmpegCaptureAsync(
-                    ffmpegPath, BuildDecodeArguments(inputPath, rawPath, requestedStartSeconds, loopSeconds), token).ConfigureAwait(false);
+                return await DecodeDirectWindowAsync(
+                    ffmpegPath, inputPath, rawPath, requestedStartSeconds, loopSeconds, onLog, token).ConfigureAwait(false);
+            }
 
-                if (directCanceled || token.IsCancellationRequested)
-                {
-                    TryDeleteFile(rawPath);
-                    onLog?.Invoke("[SOUNDBAR] Audio decode cancelled.");
-                    return (null, null, 0, 0.0);
-                }
-
-                if (directExit != 0)
-                {
-                    onLog?.Invoke($"[SOUNDBAR] ffmpeg audio decode failed (exit {directExit}): {TruncateForLog(directErr)}");
-                    TryDeleteFile(rawPath);
-                    return (null, null, 0, 0.0);
-                }
-
-                (float[] direct, float[] directSide) = ReadRawS16StereoMidSide(rawPath, out int directRate);
-                if (direct.Length == 0)
-                {
-                    onLog?.Invoke("[SOUNDBAR] ffmpeg produced no audio data; the source probably has no audio stream.");
-                    TryDeleteFile(rawPath);
-                    return (null, null, 0, 0.0);
-                }
-
-                return (direct, directSide, directRate, requestedStartSeconds);
+            string autoCacheKey = $"{BuildSourceFileCachePrefix(inputPath)}|{loopSeconds.ToString("F2", CultureInfo.InvariantCulture)}";
+            if (AutoLoopStartCache.TryGetValue(autoCacheKey, out double cachedStartSeconds))
+            {
+                onLog?.Invoke(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "[SOUNDBAR] Reusing cached loop start {0:0.##}s.",
+                    cachedStartSeconds));
+                return await DecodeDirectWindowAsync(
+                    ffmpegPath, inputPath, rawPath, cachedStartSeconds, loopSeconds, onLog, token).ConfigureAwait(false);
             }
 
             // AUTO. Decode a bounded prefix ONCE through the same proven decode path, measure it here
@@ -1213,8 +1346,9 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
             float[] prefix;
             float[] prefixSide;
             int rate;
+            bool scanSucceeded = scanExit == 0 && File.Exists(rawPath) && new FileInfo(rawPath).Length > 0L;
 
-            if (scanExit == 0 && File.Exists(rawPath) && new FileInfo(rawPath).Length > 0L)
+            if (scanSucceeded)
             {
                 (prefix, prefixSide) = ReadRawS16StereoMidSide(rawPath, out rate);
             }
@@ -1253,6 +1387,9 @@ private static async Task<(float[]? Samples, float[]? SideSamples, int SampleRat
 
             List<double> levels = ComputePerSecondRmsDb(prefix, rate);
             double best = ChooseLoopStart(levels, loopSeconds, out double bestScore, out double scoreAtZero);
+
+            if (scanSucceeded)
+                StoreBoundedCacheEntry(AutoLoopStartCache, autoCacheKey, best);
 
             int from = (int)Math.Round(best * rate);
             int length = (int)Math.Round(loopSeconds * rate);

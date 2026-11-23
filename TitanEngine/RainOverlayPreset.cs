@@ -178,7 +178,7 @@ namespace TitanEngine
             OverlayBackgroundType backgroundType = recipe.RuntimeAnalysis?.BackgroundType ?? ResolveBackgroundType(recipe.Asset.AssetType);
             bool useAlphaOverlay = backgroundType == OverlayBackgroundType.Alpha || backgroundType == OverlayBackgroundType.GreenScreen;
             double safeOpacity = ResolveRuntimeOpacity(recipe, backgroundType);
-            string baseFormat = useAlphaOverlay ? "rgba" : "gbrp";
+            string baseFormat = useAlphaOverlay ? "yuv420p" : "gbrp";
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
                 ? $"{safeBaseInput}format={baseFormat}[rainbase]"
                 : $"{safeBaseInput}{baseVideoFilters},format={baseFormat}[rainbase]";
@@ -196,10 +196,10 @@ namespace TitanEngine
             string mergeChain = backgroundType switch
             {
                 OverlayBackgroundType.Alpha =>
-                    $"[rainsrc]colorchannelmixer=aa={safeOpacity.ToString("F3", inv)}[rainalpha];[rainbase][rainalpha]overlay=0:0:shortest=0:eof_action=repeat:format=auto[{safeOutput}]",
+                    $"[rainsrc]colorchannelmixer=aa={safeOpacity.ToString("F3", inv)},format=yuva420p[rainalpha];[rainbase][rainalpha]overlay=0:0:shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]",
                 OverlayBackgroundType.GreenScreen =>
                     $"[rainsrc]chromakey={ResolveKeyColor(recipe.RuntimeAnalysis)}:{ResolveSimilarity(recipe.RuntimeAnalysis).ToString("F3", inv)}:{ResolveBlend(recipe.RuntimeAnalysis).ToString("F3", inv)}," +
-                    $"format=rgba,colorchannelmixer=aa={safeOpacity.ToString("F3", inv)}[rainkey];[rainbase][rainkey]overlay=0:0:shortest=0:eof_action=repeat:format=auto[{safeOutput}]",
+                    $"format=rgba,colorchannelmixer=aa={safeOpacity.ToString("F3", inv)},format=yuva420p[rainkey];[rainbase][rainkey]overlay=0:0:shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]",
                 _ =>
                     $"[rainbase][rainsrc]blend=all_mode={ResolveBlendMode(recipe.Asset.BlendMode)}:all_opacity={safeOpacity.ToString("F3", inv)}[{safeOutput}]"
             };

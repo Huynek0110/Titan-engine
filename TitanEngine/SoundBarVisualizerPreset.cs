@@ -614,12 +614,13 @@ namespace TitanEngine
                         overlayBitmap.Clear();
                         overlayBitmap.Render(overlayVisual);
 
-                        SaveBitmap(overlayBitmap, FormatSequenceFilePath(overlayPattern, i + 1));
+                        string framePath = FormatSequenceFilePath(overlayPattern, i + 1);
+                        SaveBitmap(overlayBitmap, framePath);
 
                         if (i < MaxPreviewFrames)
                         {
                             string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                            SaveBitmap(overlayBitmap, previewFile);
+                            File.Copy(framePath, previewFile, overwrite: true);
                         }
                     }
                 }, token);
@@ -810,12 +811,12 @@ namespace TitanEngine
                 : $"{safeBaseInput}{baseVideoFilters},format=yuv420p[soundbarbase]";
 
             string overlayChain =
-                $"{safeOverlayInput}format=yuva420p," +
-                $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
-                $"setpts=N/{fps}/TB," +
-                $"scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
+                $"{safeOverlayInput}scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
                 $"crop={safeWidth}:{safeHeight}," +
                 $"setsar=1," +
+                $"format=yuva420p," +
+                $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
+                $"setpts=N/{fps}/TB," +
                 $"trim=duration={duration}[soundbaroverlay]";
 
             string enableOption = string.IsNullOrWhiteSpace(overlayEnableExpression)

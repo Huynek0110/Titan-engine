@@ -91,6 +91,8 @@ namespace TitanEngine
                 Directory.CreateDirectory(tempRoot);
                 Directory.CreateDirectory(previewDir);
 
+                var overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
+
                 for (int i = 0; i < frameCount; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -105,9 +107,8 @@ namespace TitanEngine
                         DrawScratchPattern(dc, safeLayout, settings, patternIndex, localProgress);
                     }
 
-                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
+                    overlayBitmap.Clear();
                     overlayBitmap.Render(overlayVisual);
-                    if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
 
                     string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
                     SaveBitmap(overlayBitmap, overlayFile);
@@ -115,7 +116,7 @@ namespace TitanEngine
                     if (i < 8)
                     {
                         string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        SaveBitmap(overlayBitmap, previewFile);
+                        File.Copy(overlayFile, previewFile, overwrite: true);
                     }
                 }
             }, token);
@@ -152,16 +153,16 @@ namespace TitanEngine
             int safeLoopFrameCount = Math.Max(1, loopFrameCount);
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format=rgba[scratchbase]"
-                : $"{safeBaseInput}{baseVideoFilters},format=rgba[scratchbase]";
+                ? $"{safeBaseInput}format=yuv420p[scratchbase]"
+                : $"{safeBaseInput}{baseVideoFilters},format=yuv420p[scratchbase]";
 
             string overlayChain =
-                $"{safeOverlayInput}format=rgba," +
+                $"{safeOverlayInput}format=yuva420p," +
                 $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
                 $"setpts=N/{fps}/TB," +
                 $"trim=duration={duration}[scratchoverlay]";
 
-            string mergeChain = $"[scratchbase][scratchoverlay]overlay=shortest=0:eof_action=repeat:format=auto[{safeOutput}]";
+            string mergeChain = $"[scratchbase][scratchoverlay]overlay=shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]";
 
             onLog($"[SCRATCH-VIDEO] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}");
             return $"{baseChain};{overlayChain};{mergeChain}";

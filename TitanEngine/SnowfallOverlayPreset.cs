@@ -336,6 +336,8 @@ namespace TitanEngine
                 Directory.CreateDirectory(tempRoot);
                 Directory.CreateDirectory(previewDir);
 
+                var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+
                 for (int i = 0; i < frameCount; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -349,9 +351,8 @@ namespace TitanEngine
                         DrawSnowLayers(dc, renderLayout, recipe, progress);
                     }
 
-                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                    overlayBitmap.Clear();
                     overlayBitmap.Render(overlayVisual);
-                    if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
 
                     string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
                     SaveBitmap(overlayBitmap, overlayFile);
@@ -359,7 +360,7 @@ namespace TitanEngine
                     if (i < 8)
                     {
                         string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        SaveBitmap(overlayBitmap, previewFile);
+                        File.Copy(overlayFile, previewFile, overwrite: true);
                     }
                 }
             }, token);
@@ -398,18 +399,18 @@ namespace TitanEngine
             int safeLoopFrameCount = Math.Max(1, loopFrameCount);
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format=rgba[snowbase]"
-                : $"{safeBaseInput}{baseVideoFilters},format=rgba[snowbase]";
+                ? $"{safeBaseInput}format=yuv420p[snowbase]"
+                : $"{safeBaseInput}{baseVideoFilters},format=yuv420p[snowbase]";
 
             string overlayChain =
-                $"{safeOverlayInput}format=rgba," +
+                $"{safeOverlayInput}format=yuva420p," +
                 $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
                 $"setpts=N/{fps}/TB," +
                 $"trim=duration={duration}[snowoverlay]";
 
             string mergeChain =
                 $"[snowoverlay][snowbase]scale2ref=w=main_w:h=main_h:flags=lanczos[snowoverlayscaled][snowbase2];" +
-                $"[snowbase2][snowoverlayscaled]overlay=shortest=0:eof_action=repeat:format=auto[{safeOutput}]";
+                $"[snowbase2][snowoverlayscaled]overlay=shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]";
             onLog($"[SNOWFALL] Generated overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}");
             return $"{baseChain};{overlayChain};{mergeChain}";
         }
@@ -452,10 +453,10 @@ namespace TitanEngine
             double safeOpacity = backgroundType == OverlayBackgroundType.Unknown
                 ? Math.Clamp(recipe.RuntimeAnalysis?.OpacityOverride ?? recipe.Opacity, 0.08, 0.12)
                 : Math.Clamp(recipe.Opacity, 0.0, 1.0);
-            string processingFormat = useAlphaOverlay ? "rgba" : "gbrp";
+            string baseFormat = useAlphaOverlay ? "yuv420p" : "gbrp";
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format={processingFormat}[snowbase]"
-                : $"{safeBaseInput}{baseVideoFilters},format={processingFormat}[snowbase]";
+                ? $"{safeBaseInput}format={baseFormat}[snowbase]"
+                : $"{safeBaseInput}{baseVideoFilters},format={baseFormat}[snowbase]";
 
             string sourceFormat = useAlphaOverlay ? "rgba" : "gbrp";
             string sourceChain =
@@ -470,10 +471,10 @@ namespace TitanEngine
             string mergeChain = backgroundType switch
             {
                 OverlayBackgroundType.Alpha =>
-                    $"[snowasset]colorchannelmixer=aa={safeOpacity.ToString("F3", inv)}[snowasseta];[snowbase][snowasseta]overlay=shortest=0:eof_action=repeat:format=auto{enableExpr}[{safeOutput}]",
+                    $"[snowasset]colorchannelmixer=aa={safeOpacity.ToString("F3", inv)},format=yuva420p[snowasseta];[snowbase][snowasseta]overlay=shortest=0:eof_action=repeat:format=yuv420{enableExpr}[{safeOutput}]",
                 OverlayBackgroundType.GreenScreen =>
                     $"[snowasset]chromakey=0x00FF00:{Math.Clamp(recipe.RuntimeAnalysis?.Similarity ?? 0.18, 0.08, 0.35).ToString("F3", inv)}:{Math.Clamp(recipe.RuntimeAnalysis?.Blend ?? 0.08, 0.00, 0.20).ToString("F3", inv)}," +
-                    $"format=rgba,colorchannelmixer=aa={safeOpacity.ToString("F3", inv)}[snowkey];[snowbase][snowkey]overlay=shortest=0:eof_action=repeat:format=auto{enableExpr}[{safeOutput}]",
+                    $"format=rgba,colorchannelmixer=aa={safeOpacity.ToString("F3", inv)},format=yuva420p[snowkey];[snowbase][snowkey]overlay=shortest=0:eof_action=repeat:format=yuv420{enableExpr}[{safeOutput}]",
                 _ =>
                     $"[snowbase][snowasset]blend=all_mode={recipe.Asset.BlendMode}:all_opacity={safeOpacity.ToString("F3", inv)}{enableExpr}[{safeOutput}]"
             };

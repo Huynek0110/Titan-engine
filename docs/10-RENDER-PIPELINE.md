@@ -118,15 +118,19 @@ Ngôn ngữ: auto / vi / en / ja / ko / zh.
 
 | Profile | Điều kiện | Encoder | Preset | Quality flag |
 |---|---|---|---|---|
-| Auto / khác | — | `libx264` | `veryslow` | `-crf 16` |
+| `Auto` | có NVIDIA NVENC khả dụng (smoke check 256×256; > 4096px dùng `hevc_nvenc`) | `h264_nvenc` / `hevc_nvenc` | `medium` | `-cq 16` / `-cq 18` |
+| `Auto` / fallback / khác | không có NVIDIA NVENC khả dụng | `libx264` | `medium` | `-crf 16` |
 | NVIDIA | có `h264_nvenc`, target ≤ 4096px | `h264_nvenc` | `medium` | `-cq 16` |
 | NVIDIA + AV1 | có `av1_nvenc` | `av1_nvenc` | `p6` | `-cq 20` |
 | NVIDIA, target > 4096px | có `hevc_nvenc` | `hevc_nvenc` | `medium` | `-cq 18` |
-| NVIDIA thiếu encoder | — | `libx264` | `slow` | `-crf 16` |
+| NVIDIA thiếu encoder | — | `libx264` | `medium` | `-crf 16` |
 | AMD | — | `h264_amf` | `quality` | — |
 | AMD + AV1 | có `av1_amf` | `av1_amf` | `quality` | — |
-| Intel | — | `h264_qsv` | `veryslow` | — |
+| Intel | — | `h264_qsv` | `medium` | — |
 
+- `HasNvencSupport()` ngoài quét `ffmpeg -encoders` còn chạy **runtime smoke check** (encode thử frame thật `256×256`) để không báo nhầm NVENC trên máy thiếu GPU/driver NVIDIA hoạt động.
+- Profile `Auto` ưu tiên NVIDIA NVENC khi khả dụng và fallback sạch về CPU `libx264` (`medium`, `-crf 16`).
+- CPU `libx264` và Intel `h264_qsv` dùng preset `medium` (giữ nguyên chất lượng `-crf 16` trên `libx264`).
 - Output pix fmt luôn `yuv420p`.
 - libx264 nhận `-threads {FfmpegThreadCapCount()}` (3/4 số core) để tránh tranh CPU với filter.
 - Filter graph nhận `-filter_threads` / `-filter_complex_threads` cùng mức cap.
@@ -369,6 +373,18 @@ tách lỗi app khỏi lỗi graph.
 
 Single-image fast path: một ảnh + nhạc ngoài, không template/merge/upscale/trim → bỏ hẳn bước
 pre-render timeline (mất một generation nén), ảnh được scale trước một lần thay vì decode lại mỗi frame.
+
+### Tối ưu zero-quality-loss bổ sung
+
+- **Decode-once in-graph loop (`singleImageFastPath` & image template):** decode và scale ảnh tĩnh một lần trước `loop` ngay trong filter graph thay vì giải mã/scale lặp lại mỗi frame.
+- **Chuẩn hoá blend `yuv420p` + `yuva420p` + `overlay=format=yuv420`:** áp dụng thống nhất qua các preset overlay để giữ pixel domain của output cuối mà không chuyển sang `rgba` thừa.
+- **Tái dùng `RenderTargetBitmap`:** cấp phát một lần theo pass thay vì tạo mới mỗi khung, giảm áp lực Gen-2 GC.
+- **Bounded single-call `ffprobe` cache:** cache kết quả probe trong bộ nhớ có giới hạn (theo đường dẫn, kích thước, mtime) để một lần gọi `ffprobe` phục vụ đủ metadata mà không probe lặp lại.
+- **Temp intermediate encoding không `-movflags +faststart`:** chỉ output cuối mới cần dời `moov` atom; các file tạm trung gian bỏ `+faststart` để tránh thêm pass ghi lại file.
+- **SoundBar & Overlay probe:**
+  - `BuildSingleClipGraph` đặt `scale,crop,setsar=1,format=yuva420p` **trước** `loop` (chỉ scale ~150 frame loop thay vì hàng nghìn frame lặp ở đầu ra 4K/scaled) và `GenerateOverlayAsync` dùng `File.Copy` cho preview frame thay vì nén PNG lần hai.
+  - Song song hoá bước trích frame kiểm tra nền overlay (`OverlayAssetBackgroundAnalyzer.SampleCoverageAsync`, tối đa 5 frame qua `Task.WhenAll`) và chạy song song nhánh phân tích audible gate.
+  - Cache có giới hạn (≤ 256 mục, keyed theo path + length + mtime + tham số): `AutoLoopStartCache` (bỏ qua scan 120s khi auto-scan lặp lại) và `AudibleIntervalsCache` (trả defensive copy, bỏ qua `silencedetect` lặp lại trên cùng audio/duration/scale).
 
 ## 13. Bẫy
 

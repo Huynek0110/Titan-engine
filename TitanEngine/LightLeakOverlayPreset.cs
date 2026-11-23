@@ -153,32 +153,34 @@ namespace TitanEngine
             OverlayBackgroundType backgroundType = recipe.RuntimeAnalysis?.BackgroundType ?? ResolveBackgroundType(recipe.Asset.Type);
             bool useAlphaOverlay = backgroundType == OverlayBackgroundType.Alpha || backgroundType == OverlayBackgroundType.GreenScreen;
             double safeOpacityValue = ResolveRuntimeOpacity(recipe, usage.Opacity, backgroundType);
-            string processingFormat = useAlphaOverlay ? "rgba" : "gbrp";
+            string baseFormat = useAlphaOverlay ? "yuv420p" : "gbrp";
+            string overlayFormat = useAlphaOverlay ? "rgba" : "gbrp";
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format={processingFormat}[llbase]"
-                : $"{safeBaseInput}{baseVideoFilters},format={processingFormat}[llbase]";
+                ? $"{safeBaseInput}format={baseFormat}[llbase]"
+                : $"{safeBaseInput}{baseVideoFilters},format={baseFormat}[llbase]";
 
             string fadeChain = BuildFadeChain(useAlphaOverlay, safeFadeIn, safeFadeOut, fadeOutStart, inv);
             string sourceChain =
-                $"{safeOverlayInput}fps={safeFps.ToString("F3", inv)}," +
+                $"{safeOverlayInput}trim=start={Math.Max(0.0, usage.AssetStartSeconds).ToString("F3", inv)}:duration={safeUsageDuration.ToString("F3", inv)},setpts=PTS-STARTPTS," +
+                $"fps={safeFps.ToString("F3", inv)}," +
                 $"scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
-                $"crop={safeWidth}:{safeHeight},setsar=1,format={processingFormat}," +
-                $"trim=start={Math.Max(0.0, usage.AssetStartSeconds).ToString("F3", inv)}:duration={safeUsageDuration.ToString("F3", inv)}{fadeChain}" +
-                $"setpts=PTS-STARTPTS+{safeStart.ToString("F3", inv)}/TB[llasset]";
+                $"crop={safeWidth}:{safeHeight},setsar=1,format={overlayFormat}" +
+                $"{fadeChain}" +
+                $"setpts=PTS+{safeStart.ToString("F3", inv)}/TB[llasset]";
 
             string mergeChain;
             if (backgroundType == OverlayBackgroundType.Alpha)
             {
                 mergeChain =
-                    $"[llasset]colorchannelmixer=aa={safeOpacityValue.ToString("F3", inv)}[llalpha];" +
-                    $"[llbase][llalpha]overlay=0:0:shortest=0:eof_action=pass:enable='between(t,{safeStart.ToString("F3", inv)},{safeEnd.ToString("F3", inv)})'[{safeOutput}]";
+                    $"[llasset]colorchannelmixer=aa={safeOpacityValue.ToString("F3", inv)},format=yuva420p[llalpha];" +
+                    $"[llbase][llalpha]overlay=0:0:shortest=0:eof_action=pass:format=yuv420:enable='between(t,{safeStart.ToString("F3", inv)},{safeEnd.ToString("F3", inv)})'[{safeOutput}]";
             }
             else if (backgroundType == OverlayBackgroundType.GreenScreen)
             {
                 mergeChain =
                     $"[llasset]chromakey={ResolveKeyColor(recipe.RuntimeAnalysis)}:{ResolveSimilarity(recipe.RuntimeAnalysis).ToString("F3", inv)}:{ResolveBlend(recipe.RuntimeAnalysis).ToString("F3", inv)}," +
-                    $"format=rgba,colorchannelmixer=aa={safeOpacityValue.ToString("F3", inv)}[llkey];" +
-                    $"[llbase][llkey]overlay=0:0:shortest=0:eof_action=pass:enable='between(t,{safeStart.ToString("F3", inv)},{safeEnd.ToString("F3", inv)})'[{safeOutput}]";
+                    $"format=rgba,colorchannelmixer=aa={safeOpacityValue.ToString("F3", inv)},format=yuva420p[llkey];" +
+                    $"[llbase][llkey]overlay=0:0:shortest=0:eof_action=pass:format=yuv420:enable='between(t,{safeStart.ToString("F3", inv)},{safeEnd.ToString("F3", inv)})'[{safeOutput}]";
             }
             else
             {

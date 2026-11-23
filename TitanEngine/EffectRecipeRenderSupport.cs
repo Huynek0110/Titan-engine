@@ -342,15 +342,23 @@ namespace TitanEngine
             double windowEnd = window.Start + window.Duration;
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format=rgba[recipebase]"
-                : $"{safeBaseInput}{baseVideoFilters},format=rgba[recipebase]";
+                ? $"{safeBaseInput}format=yuv420p[recipebase]"
+                : $"{safeBaseInput}{baseVideoFilters},format=yuv420p[recipebase]";
+
+            bool isFullFrame = recipe.Placement == OverlayPlacement.FullFrame;
+            (int overlayWidth, int overlayHeight, int x, int y) placedGeometry = isFullFrame
+                ? default
+                : ResolvePlacementGeometry(recipe, 1920, 1920);
 
             var overlayOps = new StringBuilder();
             overlayOps.Append($"{safeOverlayInput}format=rgba,");
+            overlayOps.Append($"colorchannelmixer=aa={overlayOpacity.ToString("F3", inv)},");
+            if (!isFullFrame)
+                overlayOps.Append($"scale={placedGeometry.overlayWidth}:{placedGeometry.overlayHeight}:flags=lanczos,");
+            overlayOps.Append("format=yuva420p,");
             overlayOps.Append($"loop=loop=-1:size={safeLoopFrameCount}:start=0,");
             overlayOps.Append($"setpts=N/{fps}/TB,");
-            overlayOps.Append($"trim=duration={window.Duration.ToString("F3", inv)},");
-            overlayOps.Append($"colorchannelmixer=aa={overlayOpacity.ToString("F3", inv)}");
+            overlayOps.Append($"trim=duration={window.Duration.ToString("F3", inv)}");
 
             if (window.FadeIn > 0.001)
                 overlayOps.Append($",fade=t=in:st=0:d={window.FadeIn.ToString("F3", inv)}:alpha=1");
@@ -361,21 +369,20 @@ namespace TitanEngine
             }
             overlayOps.Append($",setpts=PTS+{window.Start.ToString("F3", inv)}/TB");
 
-            if (recipe.Placement == OverlayPlacement.FullFrame)
+            if (isFullFrame)
             {
                 string overlayChain = overlayOps.Append("[recipeseq]").ToString();
                 string mergeChain =
                     $"[recipeseq][recipebase]scale2ref=w=main_w:h=main_h:flags=lanczos[recipescaled][recipebase2];" +
-                    $"[recipebase2][recipescaled]overlay=shortest=0:eof_action=pass:format=auto:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
+                    $"[recipebase2][recipescaled]overlay=shortest=0:eof_action=pass:format=yuv420:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
 
                 onLog($"[RECIPE-OVERLAY] {recipe.Name} sequence graph ready: fps={fps}, frames={safeLoopFrameCount}, opacity={overlayOpacity:0.00}, timing={window.Start:0.00}+{window.Duration:0.00}");
                 return $"{baseChain};{overlayChain};{mergeChain}";
             }
 
-            (int overlayWidth, int overlayHeight, int x, int y) = ResolvePlacementGeometry(recipe, 1920, 1920);
             string placedChain =
-                $"{overlayOps},scale={overlayWidth}:{overlayHeight}:flags=lanczos[recipescaled];" +
-                $"[recipebase][recipescaled]overlay=x={x}:y={y}:shortest=0:eof_action=pass:format=auto:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
+                $"{overlayOps}[recipeseq];" +
+                $"[recipebase][recipeseq]overlay=x={placedGeometry.x}:y={placedGeometry.y}:shortest=0:eof_action=pass:format=yuv420:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
 
             onLog($"[RECIPE-OVERLAY] {recipe.Name} sequence graph ready (placed mode): opacity={overlayOpacity:0.00}, timing={window.Start:0.00}+{window.Duration:0.00}");
             return $"{baseChain};{placedChain}";
@@ -408,9 +415,11 @@ namespace TitanEngine
             double windowEnd = window.Start + window.Duration;
             (int overlayWidth, int overlayHeight, int x, int y) = ResolvePlacementGeometry(recipe, safeWidth, safeHeight);
 
+            bool isAlphaOverlay = recipe.AssetType == OverlayAssetType.Alpha;
+            string baseFormat = isAlphaOverlay ? "yuv420p" : "rgba";
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format=rgba[recipebase]"
-                : $"{safeBaseInput}{baseVideoFilters},format=rgba[recipebase]";
+                ? $"{safeBaseInput}format={baseFormat}[recipebase]"
+                : $"{safeBaseInput}{baseVideoFilters},format={baseFormat}[recipebase]";
 
             var overlayChain = new StringBuilder();
             overlayChain.Append($"{safeOverlayInput}fps={safeFps.ToString("F3", inv)},");
@@ -419,7 +428,7 @@ namespace TitanEngine
             overlayChain.Append(window.Duration.ToString("F3", inv));
             overlayChain.Append(",setpts=PTS-STARTPTS");
 
-            if (recipe.AssetType == OverlayAssetType.Alpha)
+            if (isAlphaOverlay)
             {
                 overlayChain.Append($",colorchannelmixer=aa={overlayOpacity.ToString("F3", inv)}");
                 if (window.FadeIn > 0.001)
@@ -429,10 +438,11 @@ namespace TitanEngine
                     double fadeOutStart = Math.Max(0.0, window.Duration - window.FadeOut);
                     overlayChain.Append($",fade=t=out:st={fadeOutStart.ToString("F3", inv)}:d={window.FadeOut.ToString("F3", inv)}:alpha=1");
                 }
+                overlayChain.Append(",format=yuva420p");
                 overlayChain.Append($",setpts=PTS+{window.Start.ToString("F3", inv)}/TB");
 
                 overlayChain.Append("[recipeoverlay]");
-                string merge = $"[recipebase][recipeoverlay]overlay=x={x}:y={y}:shortest=0:eof_action=pass:format=auto:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
+                string merge = $"[recipebase][recipeoverlay]overlay=x={x}:y={y}:shortest=0:eof_action=pass:format=yuv420:enable='between(t,{window.Start.ToString("F3", inv)},{windowEnd.ToString("F3", inv)})'[{safeOutput}]";
                 onLog($"[RECIPE-OVERLAY] {recipe.Name} asset-alpha graph ready: opacity={overlayOpacity:0.00}, placement={recipe.Placement}");
                 return $"{baseChain};{overlayChain};{merge}";
             }

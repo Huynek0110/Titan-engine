@@ -318,9 +318,10 @@ namespace TitanEngine
             bool hasAudioA = await hasAudioStreamAsync(normalizedPaths[0]);
             bool hasAudioB = await hasAudioStreamAsync(normalizedPaths[1]);
             bool hasAnyAudio = hasAudioA || hasAudioB;
+            _ = outDir;
             var tempArtifacts = new List<string>();
             string safeTag = string.IsNullOrWhiteSpace(mergeTag) ? Guid.NewGuid().ToString("N").Substring(0, 8) : Regex.Replace(mergeTag, @"[^\w\-]+", "_");
-            string outputPath = Path.Combine(outDir, $"lightleakburn_{safeTag}_source.mp4");
+            string outputPath = Path.Combine(EngineCore.GetTitanTempDir(), $"lightleakburn_{safeTag}_source.mp4");
             LightLeakOverlayRecipe? assetRecipe = ResolveTransitionAssetRecipe(
                 job,
                 transitionOffset,
@@ -367,26 +368,57 @@ namespace TitanEngine
             else
                 cmd.Append("-an ");
 
-            cmd.Append("-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ");
+            cmd.Append(EngineCore.HasNvencSupport()
+                ? "-c:v h264_nvenc -preset p2 -cq 18 -pix_fmt yuv420p "
+                : "-c:v libx264 -preset superfast -crf 18 -pix_fmt yuv420p ");
             if (hasAnyAudio)
                 cmd.Append("-c:a aac -b:a 192k -ar 48000 -ac 2 ");
 
-            cmd.Append($"-t {outputDuration.ToString("F3", CultureInfo.InvariantCulture)} -movflags +faststart \"{outputPath}\"");
+            cmd.Append($"-t {outputDuration.ToString("F3", CultureInfo.InvariantCulture)} \"{outputPath}\"");
 
+            string commandArgs = cmd.ToString();
             onLog("[LIGHT-LEAK-BURN] Rendering transition source...");
             onLog($"[LIGHT-LEAK-BURN] A={Path.GetFileName(normalizedPaths[0])} ({durationA:F2}s), B={Path.GetFileName(normalizedPaths[1])} ({durationB:F2}s), transition={transitionDuration:F2}s, output={outputDuration:F2}s");
             onLog($"[LIGHT-LEAK-BURN] Using asset-backed transition source: {Path.GetFileName(assetRecipe.Asset.FilePath)}");
             onLog($"[LIGHT-LEAK-BURN] FilterComplex: {filterComplex}");
-            onLog($"[FFMPEG-CMD] {cmd}");
+            onLog($"[FFMPEG-CMD] {commandArgs}");
 
-            var (exitCode, stderr) = await runFfmpegCaptureAsync(cmd.ToString(), token);
+            var (exitCode, stderr) = await runFfmpegCaptureAsync(commandArgs, token);
             if (exitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
             {
-                string summary = string.Join(" | ",
-                    (stderr ?? string.Empty)
-                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Take(12));
-                throw new Exception($"LightLeakBurn transition render failed: {summary}");
+                if (commandArgs.Contains("h264_nvenc", StringComparison.Ordinal))
+                {
+                    onLog($"[LIGHT-LEAK-BURN] GPU encode failed (exit {exitCode}); retrying transition on CPU (libx264)...");
+                    EngineCore.TryDeleteFileSafe(outputPath);
+                    string cpuArgs = commandArgs.Replace(
+                        "h264_nvenc -preset p2 -cq 18",
+                        "libx264 -preset superfast -crf 18",
+                        StringComparison.Ordinal);
+                    onLog($"[FFMPEG-CMD] {cpuArgs}");
+                    var (cpuExit, cpuStderr) = await runFfmpegCaptureAsync(cpuArgs, token);
+                    if (cpuExit == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                    {
+                        onLog($"[LIGHT-LEAK-BURN] Transition source ready on CPU fallback: {Path.GetFileName(outputPath)}");
+                        exitCode = cpuExit;
+                        stderr = cpuStderr;
+                    }
+                    else
+                    {
+                        string summary = string.Join(" | ",
+                            (cpuStderr ?? string.Empty)
+                                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Take(12));
+                        throw new Exception($"LightLeakBurn transition render failed (GPU exit {exitCode}, CPU retry exit {cpuExit}): {summary}");
+                    }
+                }
+                else
+                {
+                    string summary = string.Join(" | ",
+                        (stderr ?? string.Empty)
+                            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Take(12));
+                    throw new Exception($"LightLeakBurn transition render failed: {summary}");
+                }
             }
 
             return new LightLeakBurnTransitionGraph

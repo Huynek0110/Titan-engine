@@ -9,6 +9,7 @@
 
 using Microsoft.Win32;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -67,68 +68,157 @@ namespace TitanEngine
         private static string? _vfxRuntimePathPrefix;
         private static bool _isInitialized = false;
 
+        private static readonly Regex FfmpegTimeRegex = new Regex(
+            @"time=(\d{2}):(\d{2}):(\d{2}\.\d{2})|time=(\d+\.\d+)",
+            RegexOptions.Compiled);
+
+        private const int MaxMediaProbeCacheEntries = 512;
+        private readonly record struct MediaProbeCacheEntry(
+            double Duration,
+            long Bitrate,
+            int Width,
+            int Height,
+            double Fps,
+            bool HasAudio);
+        private static readonly ConcurrentDictionary<string, MediaProbeCacheEntry> _mediaProbeCache =
+            new ConcurrentDictionary<string, MediaProbeCacheEntry>(StringComparer.OrdinalIgnoreCase);
+
         // [NEW] Check if FFmpeg supports GPU encoders
+        private static readonly object _nvencCheckLock = new object();
         private static bool _hasNvencSupport = false;
         private static bool _hasHevcNvencSupport = false;
         private static bool _hasAv1NvencSupport = false;
         private static bool _hasAv1AmfSupport = false;
         private static bool _hasNvencChecked = false;
+        private static bool _hasHevcNvencRuntimeChecked = false;
+        private static bool _hasAv1NvencRuntimeChecked = false;
 
-        public static bool HasNvencSupport()
+        private static bool CanSmokeTestVideoEncoder(string codecName)
         {
-            if (_hasNvencChecked) return _hasNvencSupport;
-            _hasNvencChecked = true;
-
             try
             {
-                if (string.IsNullOrEmpty(_ffmpegPath) || !File.Exists(_ffmpegPath))
+                if (string.IsNullOrWhiteSpace(_ffmpegPath) || !File.Exists(_ffmpegPath) || string.IsNullOrWhiteSpace(codecName))
                     return false;
 
                 var psi = new ProcessStartInfo
                 {
                     FileName = _ffmpegPath,
-                    Arguments = "-encoders",
+                    Arguments = $"-hide_banner -v error -f lavfi -i color=c=black:s=256x256:d=0.04 -frames:v 1 -c:v {codecName} -f null -",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true
                 };
 
-                using (var process = Process.Start(psi))
+                using var process = Process.Start(psi);
+                if (process == null)
+                    return false;
+
+                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+
+                if (!process.WaitForExit(3000))
                 {
-                    if (process == null) return false;
-                    string output = process.StandardOutput.ReadToEnd();
-                    process.WaitForExit();
-
-                    _hasNvencSupport = output.Contains("h264_nvenc", StringComparison.OrdinalIgnoreCase);
-                    _hasHevcNvencSupport = output.Contains("hevc_nvenc", StringComparison.OrdinalIgnoreCase);
-                    _hasAv1NvencSupport = output.Contains("av1_nvenc", StringComparison.OrdinalIgnoreCase);
-                    _hasAv1AmfSupport = output.Contains("av1_amf", StringComparison.OrdinalIgnoreCase);
+                    try { process.Kill(entireProcessTree: true); } catch { try { process.Kill(); } catch { } }
+                    try { process.WaitForExit(500); } catch { }
+                    return false;
                 }
-            }
-            catch { }
 
-            return _hasNvencSupport;
+                try { Task.WaitAll(new Task[] { stdoutTask, stderrTask }, 500); } catch { }
+                return process.ExitCode == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool HasNvencSupport()
+        {
+            lock (_nvencCheckLock)
+            {
+                if (_hasNvencChecked) return _hasNvencSupport;
+
+                try
+                {
+                    if (string.IsNullOrEmpty(_ffmpegPath) || !File.Exists(_ffmpegPath))
+                        return false;
+
+                    _hasNvencChecked = true;
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = _ffmpegPath,
+                        Arguments = "-encoders",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+
+                    using (var process = Process.Start(psi))
+                    {
+                        if (process == null) return false;
+                        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+                        string output = process.StandardOutput.ReadToEnd();
+                        process.WaitForExit();
+                        try { stderrTask.Wait(500); } catch { }
+
+                        bool h264Listed = output.Contains("h264_nvenc", StringComparison.OrdinalIgnoreCase);
+                        _hasHevcNvencSupport = output.Contains("hevc_nvenc", StringComparison.OrdinalIgnoreCase);
+                        _hasAv1NvencSupport = output.Contains("av1_nvenc", StringComparison.OrdinalIgnoreCase);
+                        _hasAv1AmfSupport = output.Contains("av1_amf", StringComparison.OrdinalIgnoreCase);
+
+                        _hasNvencSupport = h264Listed && CanSmokeTestVideoEncoder("h264_nvenc");
+                    }
+                }
+                catch { }
+
+                return _hasNvencSupport;
+            }
         }
 
         public static bool HasHevcNvencSupport()
         {
-            if (!_hasNvencChecked)
-                _ = HasNvencSupport();
+            lock (_nvencCheckLock)
+            {
+                if (!_hasNvencChecked)
+                    _ = HasNvencSupport();
 
-            return _hasHevcNvencSupport;
+                if (_hasHevcNvencSupport && !_hasHevcNvencRuntimeChecked)
+                {
+                    _hasHevcNvencSupport = CanSmokeTestVideoEncoder("hevc_nvenc");
+                    _hasHevcNvencRuntimeChecked = true;
+                }
+
+                return _hasHevcNvencSupport;
+            }
         }
 
         public static bool HasAv1NvencSupport()
         {
-            if (!_hasNvencChecked) _ = HasNvencSupport();
-            return _hasAv1NvencSupport;
+            lock (_nvencCheckLock)
+            {
+                if (!_hasNvencChecked)
+                    _ = HasNvencSupport();
+
+                if (_hasAv1NvencSupport && !_hasAv1NvencRuntimeChecked)
+                {
+                    _hasAv1NvencSupport = CanSmokeTestVideoEncoder("av1_nvenc");
+                    _hasAv1NvencRuntimeChecked = true;
+                }
+
+                return _hasAv1NvencSupport;
+            }
         }
 
         public static bool HasAv1AmfSupport()
         {
-            if (!_hasNvencChecked) _ = HasNvencSupport();
-            return _hasAv1AmfSupport;
+            lock (_nvencCheckLock)
+            {
+                if (!_hasNvencChecked) _ = HasNvencSupport();
+                return _hasAv1AmfSupport;
+            }
         }
 
         public static void Initialize()
@@ -1079,72 +1169,72 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         public static async Task<(double Duration, long Bitrate)> AnalyzeMediaAsync(string filePath)
         {
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    if (!File.Exists(_ffprobePath)) return (0.0, 5000000);
-
-                    var durPsi = new ProcessStartInfo
-                    {
-                        FileName = _ffprobePath,
-                        Arguments = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        CreateNoWindow = true
-                    };
-                    string durStr = ExecuteProcessAndRead(durPsi);
-                    double.TryParse(durStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double duration);
-
-                    var brPsi = new ProcessStartInfo
-                    {
-                        FileName = _ffprobePath,
-                        Arguments = $"-v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        CreateNoWindow = true
-                    };
-                    string brStr = ExecuteProcessAndRead(brPsi);
-                    if (!long.TryParse(brStr, out long bitrate) || bitrate == 0)
-                    {
-                        if (duration > 0 && File.Exists(filePath))
-                        {
-                            long size = new FileInfo(filePath).Length;
-                            bitrate = (long)((size * 8) / duration);
-                        }
-                        else bitrate = 5000000;
-                    }
-                    return (duration, bitrate);
-                }
-                catch { return (0.0, 5000000); }
-            });
+            var details = await AnalyzeMediaDetailsAsync(filePath);
+            return (details.Duration, details.Bitrate);
         }
 
         public static async Task<(double Duration, long Bitrate, int Width, int Height, double Fps)> AnalyzeMediaDetailsAsync(string filePath)
         {
+            MediaProbeCacheEntry entry = await AnalyzeMediaInternalAsync(filePath);
+            return (entry.Duration, entry.Bitrate, entry.Width, entry.Height, entry.Fps);
+        }
+
+        private static async Task<MediaProbeCacheEntry> AnalyzeMediaInternalAsync(string filePath)
+        {
+            MediaProbeCacheEntry defaultEntry = new MediaProbeCacheEntry(0.0, 5000000, 0, 0, 0.0, false);
+            if (string.IsNullOrWhiteSpace(filePath))
+                return defaultEntry;
+
+            string fullPath;
+            FileInfo fileInfo;
+            try
+            {
+                fullPath = Path.GetFullPath(filePath.Trim());
+                fileInfo = new FileInfo(fullPath);
+                if (!fileInfo.Exists)
+                    return defaultEntry;
+            }
+            catch
+            {
+                return defaultEntry;
+            }
+
+            long fileSize = fileInfo.Length;
+            string cacheKey = $"{fullPath}|{fileSize}|{fileInfo.LastWriteTimeUtc.Ticks}";
+            if (_mediaProbeCache.TryGetValue(cacheKey, out MediaProbeCacheEntry cached))
+                return cached;
+
             return await Task.Run(() =>
             {
                 try
                 {
-                    var imageResolution = TryGetStillImageResolution(filePath);
+                    if (_mediaProbeCache.TryGetValue(cacheKey, out MediaProbeCacheEntry rechecked))
+                        return rechecked;
+
+                    var imageResolution = TryGetStillImageResolution(fullPath);
                     if (imageResolution.Width > 0 && imageResolution.Height > 0)
                     {
-                        return (0.0, 5000000, imageResolution.Width, imageResolution.Height, 30.0);
+                        var imgEntry = new MediaProbeCacheEntry(0.0, 5000000, imageResolution.Width, imageResolution.Height, 30.0, false);
+                        StoreMediaProbeCacheEntry(cacheKey, imgEntry);
+                        return imgEntry;
                     }
 
-                    if (!File.Exists(_ffprobePath))
-                        return (0.0, 5000000, 0, 0, 0.0);
+                    if (string.IsNullOrEmpty(_ffprobePath) || !File.Exists(_ffprobePath))
+                        return defaultEntry;
 
                     var psi = new ProcessStartInfo
                     {
                         FileName = _ffprobePath,
-                        Arguments = $"-v error -select_streams v:0 -show_entries stream=width,height,avg_frame_rate,r_frame_rate,bit_rate -show_entries format=duration,bit_rate -of json \"{filePath}\"",
+                        Arguments = $"-v error -show_entries stream=codec_type,width,height,avg_frame_rate,r_frame_rate,bit_rate:stream_disposition=attached_pic -show_entries format=duration,bit_rate -of json \"{fullPath}\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         CreateNoWindow = true
                     };
 
                     string json = ExecuteProcessAndRead(psi);
+                    if (string.IsNullOrWhiteSpace(json))
+                        return defaultEntry;
+
                     using JsonDocument doc = JsonDocument.Parse(json);
 
                     double duration = 0.0;
@@ -1152,17 +1242,24 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     int width = 0;
                     int height = 0;
                     double fps = 0.0;
+                    bool hasAudio = false;
 
                     if (doc.RootElement.TryGetProperty("format", out JsonElement format))
                     {
                         if (format.TryGetProperty("duration", out JsonElement durationEl))
                         {
-                            double.TryParse(durationEl.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out duration);
+                            if (durationEl.ValueKind == JsonValueKind.Number)
+                                durationEl.TryGetDouble(out duration);
+                            else if (durationEl.ValueKind == JsonValueKind.String)
+                                double.TryParse(durationEl.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out duration);
                         }
 
                         if (format.TryGetProperty("bit_rate", out JsonElement formatBitrateEl))
                         {
-                            long.TryParse(formatBitrateEl.GetString(), out bitrate);
+                            if (formatBitrateEl.ValueKind == JsonValueKind.Number)
+                                formatBitrateEl.TryGetInt64(out bitrate);
+                            else if (formatBitrateEl.ValueKind == JsonValueKind.String)
+                                long.TryParse(formatBitrateEl.GetString(), out bitrate);
                         }
                     }
 
@@ -1170,54 +1267,107 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         streams.ValueKind == JsonValueKind.Array &&
                         streams.GetArrayLength() > 0)
                     {
-                        JsonElement stream = streams[0];
+                        JsonElement? firstVideoStream = null;
+                        JsonElement? firstNonAttachedVideoStream = null;
 
-                        if (stream.TryGetProperty("width", out JsonElement widthEl))
-                            width = widthEl.GetInt32();
-
-                        if (stream.TryGetProperty("height", out JsonElement heightEl))
-                            height = heightEl.GetInt32();
-
-                        if (stream.TryGetProperty("bit_rate", out JsonElement streamBitrateEl) &&
-                            long.TryParse(streamBitrateEl.GetString(), out long streamBitrate) &&
-                            streamBitrate > 0)
+                        foreach (JsonElement stream in streams.EnumerateArray())
                         {
-                            bitrate = streamBitrate;
+                            string codecType = stream.TryGetProperty("codec_type", out JsonElement codecTypeEl)
+                                ? (codecTypeEl.GetString() ?? string.Empty)
+                                : string.Empty;
+
+                            if (codecType.Equals("audio", StringComparison.OrdinalIgnoreCase))
+                            {
+                                hasAudio = true;
+                            }
+                            else if (codecType.Equals("video", StringComparison.OrdinalIgnoreCase))
+                            {
+                                bool isAttachedPic = false;
+                                if (stream.TryGetProperty("disposition", out JsonElement dispEl) &&
+                                    dispEl.ValueKind == JsonValueKind.Object &&
+                                    dispEl.TryGetProperty("attached_pic", out JsonElement attachedPicEl))
+                                {
+                                    if (attachedPicEl.ValueKind == JsonValueKind.Number && attachedPicEl.TryGetInt32(out int apNum))
+                                        isAttachedPic = apNum != 0;
+                                    else if (attachedPicEl.ValueKind == JsonValueKind.String)
+                                        isAttachedPic = string.Equals(attachedPicEl.GetString(), "1", StringComparison.Ordinal);
+                                }
+
+                                firstVideoStream ??= stream;
+                                if (!isAttachedPic)
+                                    firstNonAttachedVideoStream ??= stream;
+                            }
                         }
 
-                        string fpsText = string.Empty;
-                        if (stream.TryGetProperty("avg_frame_rate", out JsonElement avgFpsEl))
-                            fpsText = avgFpsEl.GetString() ?? string.Empty;
-
-                        if ((string.IsNullOrWhiteSpace(fpsText) || fpsText == "0/0") &&
-                            stream.TryGetProperty("r_frame_rate", out JsonElement rFpsEl))
+                        JsonElement? selectedVideo = firstNonAttachedVideoStream ?? firstVideoStream;
+                        if (selectedVideo.HasValue)
                         {
-                            fpsText = rFpsEl.GetString() ?? string.Empty;
-                        }
+                            JsonElement vStream = selectedVideo.Value;
+                            if (vStream.TryGetProperty("width", out JsonElement widthEl) && widthEl.TryGetInt32(out int w))
+                                width = w;
 
-                        fps = ParseFpsValue(fpsText);
+                            if (vStream.TryGetProperty("height", out JsonElement heightEl) && heightEl.TryGetInt32(out int h))
+                                height = h;
+
+                            if (vStream.TryGetProperty("bit_rate", out JsonElement streamBitrateEl))
+                            {
+                                long streamBitrate = 0;
+                                if (streamBitrateEl.ValueKind == JsonValueKind.Number)
+                                    streamBitrateEl.TryGetInt64(out streamBitrate);
+                                else if (streamBitrateEl.ValueKind == JsonValueKind.String)
+                                    long.TryParse(streamBitrateEl.GetString(), out streamBitrate);
+
+                                if (streamBitrate > 0)
+                                    bitrate = streamBitrate;
+                            }
+
+                            string fpsText = string.Empty;
+                            if (vStream.TryGetProperty("avg_frame_rate", out JsonElement avgFpsEl))
+                                fpsText = avgFpsEl.GetString() ?? string.Empty;
+
+                            if ((string.IsNullOrWhiteSpace(fpsText) || fpsText == "0/0") &&
+                                vStream.TryGetProperty("r_frame_rate", out JsonElement rFpsEl))
+                            {
+                                fpsText = rFpsEl.GetString() ?? string.Empty;
+                            }
+
+                            fps = ParseFpsValue(fpsText);
+                        }
                     }
 
                     if (bitrate <= 0)
                     {
-                        if (duration > 0 && File.Exists(filePath))
-                        {
-                            long size = new FileInfo(filePath).Length;
-                            bitrate = (long)((size * 8) / duration);
-                        }
-                        else
-                        {
+                        if (duration > 0 && fileSize > 0)
+                            bitrate = (long)((fileSize * 8) / duration);
+                        if (bitrate <= 0)
                             bitrate = 5000000;
-                        }
                     }
 
-                    return (duration, bitrate, width, height, fps);
+                    var entry = new MediaProbeCacheEntry(duration, bitrate, width, height, fps, hasAudio);
+                    if (duration > 0 || width > 0 || height > 0 || hasAudio)
+                        StoreMediaProbeCacheEntry(cacheKey, entry);
+
+                    return entry;
                 }
                 catch
                 {
-                    return (0.0, 5000000, 0, 0, 0.0);
+                    return defaultEntry;
                 }
             });
+        }
+
+        private static void StoreMediaProbeCacheEntry(string cacheKey, MediaProbeCacheEntry entry)
+        {
+            if (_mediaProbeCache.Count >= MaxMediaProbeCacheEntries && !_mediaProbeCache.ContainsKey(cacheKey))
+            {
+                int toRemove = MaxMediaProbeCacheEntries / 4;
+                foreach (string key in _mediaProbeCache.Keys)
+                {
+                    if (toRemove-- <= 0) break;
+                    _mediaProbeCache.TryRemove(key, out _);
+                }
+            }
+            _mediaProbeCache[cacheKey] = entry;
         }
 
         public static async Task<VideoAssetProbeInfo> ProbeVideoAssetAsync(string filePath, CancellationToken token)
@@ -1690,7 +1840,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     !templateEnabled &&
                     !job.MergeVideos &&
                     timelineInputs.Count == 1 &&
-                    IsImageSourcePath(job.SourcePath) &&
+                    IsStaticSingleFrameImagePath(job.SourcePath) &&
                     imageFastPathVideoTrimInactive &&
                     imageFastPathUpscaleInactive &&
                     imageFastPathAudioReady;
@@ -1804,6 +1954,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     if (upscaleSuccess && File.Exists(upscaledPath))
                     {
                         videoToEncode = upscaledPath;
+                        tempTemplateArtifacts.Add(upscaledPath);
                         upscalePreprocessedExternally = true;
                         onLog($"[PREPROCESSING] External upscale complete, using: {upscaledPath}");
                         
@@ -1821,6 +1972,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 }
 
                 StringBuilder cmd = new StringBuilder();
+                double singleImageLoopFps = 30.0;
+                double singleImageLoopDuration = 0.0;
 
                 // INPUT SEEKING
                 if (!string.IsNullOrWhiteSpace(job.VideoTrimStart) && job.VideoTrimStart != "00:00:00")
@@ -1834,17 +1987,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 if (singleImageFastPath)
                 {
-                    // Loop the still for exactly the resolved timeline length. -t here is
-                    // REQUIRED, not an optimisation: an uncapped -loop 1 input renders forever.
-                    // -framerate mirrors what the pre-rendered intermediate used to carry out
-                    // of its own -r (job fps, image-only default 30), so the output fps, the
-                    // looped soundbar sequence and the duration math all see the same value.
-                    double fastPathFps = job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
+                    singleImageLoopFps = job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
                         ? Math.Clamp(job.SourceFps, 10.0, 120.0)
                         : 30.0;
-                    double fastPathDuration = Math.Max(0.10, imageTimelineTotalDurationOverride);
-                    cmd.Append($"-y {FfmpegThreadCapArguments()}-loop 1 -framerate {FfmpegDouble(fastPathFps, 3)} -t {FfmpegDouble(fastPathDuration, 3)} -i \"{videoToEncode}\" ");
-                    onLog($"[IMAGE-FASTPATH] Input: looped still @ {fastPathFps:F3}fps for {fastPathDuration:F3}s");
+                    singleImageLoopDuration = Math.Max(0.10, imageTimelineTotalDurationOverride);
+                    cmd.Append($"-y {FfmpegThreadCapArguments()}-framerate {FfmpegDouble(singleImageLoopFps, 3)} -i \"{videoToEncode}\" ");
+                    onLog($"[IMAGE-FASTPATH] Input: single-frame decode + in-graph loop @ {singleImageLoopFps:F3}fps for {singleImageLoopDuration:F3}s");
                 }
                 else
                 {
@@ -1966,18 +2114,22 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 // SELECT ENCODER - with NVENC capability check
                 string encoder = "libx264";
-                string preset = "veryslow";
+                string preset = "medium";
 
                 // [NEW] Check if NVENC is actually supported
-                bool nvencAvailable = HasNvencSupport();
-                bool hevcNvencAvailable = HasHevcNvencSupport();
                 bool isUltraHighResolutionTarget =
                     (targetResW > 0 && targetResW > 4096) ||
                     (targetResH > 0 && targetResH > 4096);
+                bool nvencAvailable = HasNvencSupport();
+                bool hevcNvencAvailable = isUltraHighResolutionTarget && HasHevcNvencSupport();
+                string hwProfile = (job.HardwareProfile ?? string.Empty).Trim();
+                bool isAutoHardwareProfile =
+                    string.IsNullOrEmpty(hwProfile) ||
+                    hwProfile.Equals("Auto", StringComparison.OrdinalIgnoreCase);
 
-                if (job.HardwareProfile.Contains("NVIDIA") && nvencAvailable)
+                if ((hwProfile.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || isAutoHardwareProfile) && nvencAvailable)
                 {
-                    if (job.HardwareProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
+                    if (hwProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
                     {
                         if (HasAv1NvencSupport())
                         {
@@ -1988,7 +2140,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         else
                         {
                             encoder = "libx264";
-                            preset = "slow";
+                            preset = "medium";
                             onLog("[ENCODER-WARN] AV1 selected but av1_nvenc is unavailable. Fallback to CPU libx264.");
                         }
                     }
@@ -2003,7 +2155,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         else
                         {
                             encoder = "libx264";
-                            preset = "slow";
+                            preset = "medium";
                             onLog("[ENCODER-WARN] 8K target detected but HEVC NVENC is unavailable.");
                             onLog("[ENCODER-FALLBACK] Using libx264 (CPU) for better compatibility.");
                         }
@@ -2015,17 +2167,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         onLog("[ENCODER] NVIDIA NVENC (medium - GPU) AVAILABLE");
                     }
                 }
-                else if (job.HardwareProfile.Contains("NVIDIA") && !nvencAvailable)
+                else if (hwProfile.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) && !nvencAvailable)
                 {
                     encoder = "libx264";
-                    preset = "slow";
+                    preset = "medium";
                     onLog($"[ENCODER-WARN] NVIDIA NVENC NOT SUPPORTED by your FFmpeg build!");
                     onLog($"[ENCODER-FALLBACK] Using libx264 (CPU) instead");
                     onLog($"[FIX] Download FFmpeg with NVENC support from: https://github.com/BtbN/FFmpeg-Builds");
                 }
-                else if (job.HardwareProfile.Contains("AMD"))
+                else if (hwProfile.Contains("AMD", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (job.HardwareProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
+                    if (hwProfile.Contains("AV1", StringComparison.OrdinalIgnoreCase))
                     {
                         if (HasAv1AmfSupport())
                         {
@@ -2036,7 +2188,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         else
                         {
                             encoder = "libx264";
-                            preset = "veryslow";
+                            preset = "medium";
                             onLog($"[ENCODER-WARN] AV1 selected but av1_amf is unavailable. Fallback to CPU libx264.");
                         }
                     }
@@ -2047,17 +2199,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         onLog($"[ENCODER] AMD AMF (quality - GPU)");
                     }
                 }
-                else if (job.HardwareProfile.Contains("Intel"))
+                else if (hwProfile.Contains("Intel", StringComparison.OrdinalIgnoreCase))
                 {
                     encoder = "h264_qsv";
-                    preset = "veryslow";
-                    onLog($"[ENCODER] Intel QSV (veryslow - GPU)");
+                    preset = "medium";
+                    onLog($"[ENCODER] Intel QSV (medium - GPU)");
                 }
                 else
                 {
                     encoder = "libx264";
-                    preset = "veryslow";
-                    onLog($"[ENCODER] libx264 (veryslow - CPU)");
+                    preset = "medium";
+                    onLog($"[ENCODER] libx264 (medium - CPU)");
                 }
 
                 string videoCodecArgs = BuildVideoCodecArgs(encoder, preset);
@@ -2658,13 +2810,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 : (gateFollowsPreProcessedDuckMix ? 1.0 : externalAudioSpeed);
                             double soundBarSourceToOutputScale = 1.0 / Math.Max(0.10, soundBarSourceSpeed);
 
-                            soundBarAudibleIntervals = await AudioSpectrumAnalyzer.AnalyzeAudibleIntervalsAsync(
-                                soundBarAnalysis.SourcePath,
-                                estimatedOutputDuration,
-                                soundBarSourceToOutputScale,
-                                onLog,
-                                token);
-
                             // Every clamp below is the DOCUMENTED contract range, and each one is the
                             // range the renderer actually consumes. Anything wider advertised values
                             // that clamp to something identical, which is worse than not offering them:
@@ -2707,7 +2852,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             var sbProfile = ResolveOverlayCanvasProfile(job, targetResW, targetResH);
                             string soundBarTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
 
-                            soundBarOverlay = await SoundBarVisualizerPreset.GenerateOverlayAsync(
+                            Task<List<AudioInterval>?> audibleIntervalsTask = AudioSpectrumAnalyzer.AnalyzeAudibleIntervalsAsync(
+                                soundBarAnalysis.SourcePath,
+                                estimatedOutputDuration,
+                                soundBarSourceToOutputScale,
+                                onLog,
+                                token);
+
+                            Task<SoundBarGeneratedOverlay?> overlayTask = SoundBarVisualizerPreset.GenerateOverlayAsync(
                                 soundBarAnalysis,
                                 sbSettings,
                                 sbPalette,
@@ -2716,6 +2868,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 soundBarTag,
                                 onLog,
                                 token);
+
+                            await Task.WhenAll(audibleIntervalsTask, overlayTask);
+                            soundBarAudibleIntervals = await audibleIntervalsTask;
+                            soundBarOverlay = await overlayTask;
 
                             if (soundBarOverlay == null)
                             {
@@ -2847,48 +3003,36 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     onLog("[FILTER-RESOLUTION] Skipping internal upscale filter - video already upscaled externally");
                 }
 
-                // IMAGE FAST-PATH PRESCALE. The looped still is re-decoded by the image2
-                // demuxer on EVERY output frame, so a large source photo pays its full decode
-                // ~30x per second. When the chain below just appended a plain resolution
-                // scale, mirror that exact expression once into a small PNG and swap the
-                // input to it - the chain's own scale then runs over identical pixels at
-                // identical dimensions. "Original" resolution (no chain scale) and crop-FX
-                // jobs keep the raw still: there the prescale would ADD a resample the graph
-                // never performs.
-                if (singleImageFastPath && !hasCropFx && !job.Resolution.Contains("Original"))
-                {
-                    string prescaleExpression;
-                    int prescaleW = targetResW, prescaleH = targetResH;
-                    if (targetResW > 0 && targetResH > 0)
-                        prescaleExpression = $"scale={targetResW}:{targetResH}:flags=lanczos";
-                    else if (targetResW == -2 && targetResH > 0)
-                        prescaleExpression = $"scale=-2:{targetResH}:flags=lanczos";
-                    else
-                        prescaleExpression = string.Empty;
+                // SINGLE-IMAGE IN-GRAPH LOOP: decode & static-filter 1 frame, then loop in-graph.
+                bool hasTimeVaryingFx =
+                    !string.IsNullOrEmpty(normalizedFxEffect) &&
+                    !normalizedFxEffect.Equals("None", StringComparison.OrdinalIgnoreCase) &&
+                    !normalizedFxEffect.Equals("Flip Horizontal (Anti-Copyright)", StringComparison.OrdinalIgnoreCase) &&
+                    !normalizedFxEffect.Equals("Crop Video (Custom Frame)", StringComparison.OrdinalIgnoreCase) &&
+                    !hasLightLeakFx &&
+                    !hasLightLeakBurnFx &&
+                    !hasScratchVideoFx;
+                bool hasTimeVaryingPreFadeFilter =
+                    job.Enable60fps ||
+                    job.RsmbIntensity > 0.01 ||
+                    hasTimeVaryingFx ||
+                    useRgbPolaroidLedEffect ||
+                    usePolaroidScrapbookEffect ||
+                    Math.Abs(normalizedSpeed - 1.0) > 0.0001 ||
+                    recipeTransitionEffect != null ||
+                    recipePostProcessEffect != null ||
+                    !string.IsNullOrWhiteSpace(job.TextOverlay) ||
+                    !string.IsNullOrEmpty(captionAssPath);
+                double effectiveStillLoopDuration = Math.Abs(normalizedSpeed - 1.0) > 0.0001
+                    ? Math.Max(singleImageLoopDuration, estimatedOutputDuration * normalizedSpeed)
+                    : (estimatedOutputDuration > 0.01 ? estimatedOutputDuration : singleImageLoopDuration);
+                string singleImageLoopFilter =
+                    $"format=yuv420p,loop=loop=-1:size=1:start=0,setpts=N/{FfmpegDouble(singleImageLoopFps, 3)}/TB,trim=duration={FfmpegDouble(Math.Max(0.10, effectiveStillLoopDuration), 3)}";
 
-                    if (!string.IsNullOrEmpty(prescaleExpression))
-                    {
-                        string? prescaled = await TryPrescaleStillForLoopAsync(
-                            videoToEncode, prescaleExpression, prescaleW, prescaleH, outDir, onLog, token);
-                        if (!string.IsNullOrWhiteSpace(prescaled))
-                        {
-                            tempTemplateArtifacts.Add(prescaled);
-                            string loopInput = $"-i \"{videoToEncode}\"";
-                            string prescaledInput = $"-i \"{prescaled}\"";
-                            if (cmd.ToString().Contains(loopInput, StringComparison.Ordinal))
-                            {
-                                cmd.Replace(loopInput, prescaledInput);
-                                // postInputInsertPoint is a NUMERIC offset captured when the
-                                // inputs were appended; the generated-overlay branches Insert()
-                                // their -i args at it LATER (the soundbar section below runs
-                                // after this block). The prescaled path is longer than the raw
-                                // still's, so without shifting the offset by the delta every
-                                // later Insert lands mid-token inside the audio input's path -
-                                // which ffmpeg rejects with exit -22 (measured, not theorised).
-                                postInputInsertPoint += prescaledInput.Length - loopInput.Length;
-                            }
-                        }
-                    }
+                if (singleImageFastPath && hasTimeVaryingPreFadeFilter)
+                {
+                    if (filterChain.Length > 0) filterChain.Append(",");
+                    filterChain.Append(singleImageLoopFilter);
                 }
 
                 // Add Motion Editor (60fps & RSMB)
@@ -3146,6 +3290,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 {
                     if (filterChain.Length > 0) filterChain.Append(",");
                     filterChain.Append(brightnessFilter);
+                }
+
+                if (singleImageFastPath && !hasTimeVaryingPreFadeFilter)
+                {
+                    if (filterChain.Length > 0) filterChain.Append(",");
+                    filterChain.Append(singleImageLoopFilter);
                 }
 
                 string fadeVideoFilter = BuildFadeVideoFilter(fadeSettings, onLog);
@@ -3743,7 +3893,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     else if (needsAudioMixing)
                     {
                         string videoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                            ? $"{currentOutputLabel}{fadeVideoFilter}[vout]"
+                            ? $"{currentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                             : $"{currentOutputLabel}format=yuv420p[vout]";
 
                         var combinedFilterComplex = new StringBuilder(string.Join(";", graphParts));
@@ -3769,7 +3919,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     else
                     {
                         string videoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                            ? $"{currentOutputLabel}{fadeVideoFilter}[vout]"
+                            ? $"{currentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                             : $"{currentOutputLabel}format=yuv420p[vout]";
 
                         string finalFilterComplex = $"{string.Join(";", graphParts)};{videoTail}";
@@ -3837,7 +3987,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string lightLeakBurnVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{lightLeakBurnStageLabel}{fadeVideoFilter}[vout]"
+                        ? $"{lightLeakBurnStageLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{lightLeakBurnStageLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4032,7 +4182,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string rgbVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{rgbCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{rgbCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{rgbCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4226,7 +4376,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string polaroid2VideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{polaroid2CurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{polaroid2CurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{polaroid2CurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4403,7 +4553,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string dashedVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{dashedCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{dashedCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{dashedCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4599,7 +4749,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string dashedVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{dashedCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{dashedCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{dashedCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4774,7 +4924,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string finalVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? lightLeakScratchStageLabel + fadeVideoFilter + "[vout]"
+                        ? lightLeakScratchStageLabel + "format=yuv420p," + fadeVideoFilter + "[vout]"
                         : lightLeakScratchStageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -4935,7 +5085,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string rainVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? rainStageLabel + fadeVideoFilter + "[vout]"
+                        ? rainStageLabel + "format=yuv420p," + fadeVideoFilter + "[vout]"
                         : rainStageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5088,7 +5238,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string dreamyDot2VideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? dreamyDot2StageLabel + fadeVideoFilter + "[vout]"
+                        ? dreamyDot2StageLabel + "format=yuv420p," + fadeVideoFilter + "[vout]"
                         : dreamyDot2StageLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5256,7 +5406,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string lightLeakVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? lightLeakCurrentOutputLabel + fadeVideoFilter + "[vout]"
+                        ? lightLeakCurrentOutputLabel + "format=yuv420p," + fadeVideoFilter + "[vout]"
                         : lightLeakCurrentOutputLabel + "format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5424,7 +5574,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string dreamyDotVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{dreamyDotCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{dreamyDotCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{dreamyDotCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5564,7 +5714,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string snowVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{snowStageLabel}{fadeVideoFilter}[vout]"
+                        ? $"{snowStageLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{snowStageLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5723,7 +5873,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string scratchVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{scratchCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{scratchCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{scratchCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -5891,7 +6041,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string recipeVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{recipeCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{recipeCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{recipeCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -6052,7 +6202,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string recipeVideoTail = !string.IsNullOrWhiteSpace(fadeVideoFilter)
-                        ? $"{recipeCurrentOutputLabel}{fadeVideoFilter}[vout]"
+                        ? $"{recipeCurrentOutputLabel}format=yuv420p,{fadeVideoFilter}[vout]"
                         : $"{recipeCurrentOutputLabel}format=yuv420p[vout]";
 
                     if (hasImageOverlayAssets)
@@ -6363,8 +6513,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 using (var process = new Process { StartInfo = psi })
                 {
                     var stderrOutput = new StringBuilder();
-                    var timeRegex = new Regex(@"time=(\d{2}):(\d{2}):(\d{2}\.\d{2})|time=(\d+\.\d+)");
                     bool firstProgress = true;
+                    double lastReportedPercent = -1.0;
+                    long lastProgressTickMs = 0;
 
                     process.ErrorDataReceived += (sender, e) =>
                     {
@@ -6386,19 +6537,19 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             }
                         }
 
-                        var match = timeRegex.Match(e.Data);
+                        var match = FfmpegTimeRegex.Match(e.Data);
                         if (match.Success && estimatedOutputDuration > 0)
                         {
                             try
                             {
                                 TimeSpan ts = TimeSpan.Zero;
-                                if (!string.IsNullOrEmpty(match.Groups[1].Value))
+                                if (match.Groups[1].Success)
                                 {
-                                    ts = TimeSpan.Parse(match.Value.Replace("time=", ""));
+                                    ts = TimeSpan.Parse(match.ValueSpan.Slice(5), CultureInfo.InvariantCulture);
                                 }
-                                else if (!string.IsNullOrEmpty(match.Groups[4].Value))
+                                else if (match.Groups[4].Success)
                                 {
-                                    double seconds = double.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
+                                    double seconds = double.Parse(match.Groups[4].ValueSpan, CultureInfo.InvariantCulture);
                                     ts = TimeSpan.FromSeconds(seconds);
                                 }
 
@@ -6406,7 +6557,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 if (percent > 100) percent = 100;
                                 // Keep UI/API below 100 until all post-steps are fully done.
                                 double inProgressPercent = Math.Min(percent, 99.5);
-                                onProgress(inProgressPercent);
+                                long nowMs = Environment.TickCount64;
+                                if (firstProgress ||
+                                    (nowMs - lastProgressTickMs) >= 100 ||
+                                    Math.Abs(inProgressPercent - lastReportedPercent) >= 0.25 ||
+                                    (inProgressPercent >= 99.5 && lastReportedPercent < 99.5))
+                                {
+                                    onProgress(inProgressPercent);
+                                    lastReportedPercent = inProgressPercent;
+                                    lastProgressTickMs = nowMs;
+                                }
 
                                 if (firstProgress)
                                 {
@@ -6453,7 +6613,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 if (needsCpuRetry)
                 {
-                    string recoveryCodecArgs = BuildVideoCodecArgs("libx264", "slow");
+                    string recoveryCodecArgs = $"{BuildVideoCodecArgs("libx264", "medium")}-threads {FfmpegThreadCapCount()} ";
                     string primaryArgs = cmd.ToString();
                     string recoveryArgs = primaryArgs.Replace(videoCodecArgs, recoveryCodecArgs);
 
@@ -6486,7 +6646,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         onLog("[OUTPUT-RECOVERY] Corruption detected. Retrying encode with libx264...");
 
-                        string recoveryCodecArgs = BuildVideoCodecArgs("libx264", "slow");
+                        string recoveryCodecArgs = $"{BuildVideoCodecArgs("libx264", "medium")}-threads {FfmpegThreadCapCount()} ";
                         string primaryArgs = cmd.ToString();
                         string recoveryArgs = primaryArgs.Replace(videoCodecArgs, recoveryCodecArgs);
 
@@ -6535,7 +6695,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             Arguments = $"-y -ss {FfmpegDouble(halfDuration, 3)} -i \"{outPath}\" -vframes 1 -q:v 2 \"{tempThumbPath}\"",
                             UseShellExecute = false, CreateNoWindow = true
                         };
-                        using (var p = Process.Start(extractPsi)) { p?.WaitForExit(); }
+                        using (var p = Process.Start(extractPsi))
+                        {
+                            if (p != null)
+                            {
+                                try { await p.WaitForExitAsync(token); }
+                                catch (OperationCanceledException) { try { p.Kill(); } catch { } throw; }
+                            }
+                        }
 
                         if (File.Exists(tempThumbPath))
                         {
@@ -6546,7 +6713,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                                 Arguments = $"-y -i \"{outPath}\" -i \"{tempThumbPath}\" -map 0:v:0 -map 0:a? -map 1 -c copy -c:v:1 mjpeg -disposition:v:1 attached_pic \"{tempMuxPath}\"",
                                 UseShellExecute = false, CreateNoWindow = true
                             };
-                            using (var p = Process.Start(muxPsi)) { p?.WaitForExit(); }
+                            using (var p = Process.Start(muxPsi))
+                            {
+                                if (p != null)
+                                {
+                                    try { await p.WaitForExitAsync(token); }
+                                    catch (OperationCanceledException) { try { p.Kill(); } catch { } throw; }
+                                }
+                            }
 
                             if (File.Exists(tempMuxPath))
                             {
@@ -6656,7 +6830,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     var psi = new System.Diagnostics.ProcessStartInfo { FileName = _ffmpegPath ?? "ffmpeg.exe", Arguments = args, UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = false };
                     using var process = new System.Diagnostics.Process { StartInfo = psi };
                     process.Start();
-                    await process.WaitForExitAsync(token);
+                    Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+                    try
+                    {
+                        await process.WaitForExitAsync(token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        try { process.Kill(); } catch { }
+                        throw;
+                    }
+                    _ = await stderrTask;
                     
                     for (int i = 0; i < 999; i++)
                     {
@@ -6720,107 +6904,20 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         public static async Task<(int Width, int Height)> GetVideoResolutionAsync(string filePath)
         {
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    var imageResolution = TryGetStillImageResolution(filePath);
-                    if (imageResolution.Width > 0 && imageResolution.Height > 0)
-                        return imageResolution;
+            var details = await AnalyzeMediaDetailsAsync(filePath);
+            if (details.Width > 0 && details.Height > 0)
+                return (details.Width, details.Height);
 
-                    if (string.IsNullOrEmpty(_ffprobePath) || !File.Exists(_ffprobePath))
-                        return (1920, 1080);
-
-                    if (!File.Exists(filePath))
-                        return (1920, 1080);
-
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = _ffprobePath,
-                        Arguments = $"-v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 \"{filePath}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-
-                    using (var process = Process.Start(psi))
-                    {
-                        if (process == null) return (1920, 1080);
-
-                        string output = process.StandardOutput.ReadToEnd();
-                        process.WaitForExit();
-
-                        if (process.ExitCode == 0)
-                        {
-                            var parts = output.Trim().Split(',');
-                            if (parts.Length == 2 &&
-                                int.TryParse(parts[0], out int width) &&
-                                int.TryParse(parts[1], out int height) &&
-                                width > 0 && height > 0)
-                            {
-                                return (width, height);
-                            }
-                        }
-                        return (1920, 1080);
-                    }
-                }
-                catch
-                {
-                    return (1920, 1080);
-                }
-            });
+            return (1920, 1080);
         }
 
         public static async Task<double> GetVideoFrameRateAsync(string filePath)
         {
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    if (string.IsNullOrEmpty(_ffprobePath) || !File.Exists(_ffprobePath))
-                        return 0.0;
+            if (string.IsNullOrWhiteSpace(filePath) || IsImageSourcePath(filePath))
+                return 0.0;
 
-                    if (!File.Exists(filePath))
-                        return 0.0;
-
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = _ffprobePath,
-                        Arguments = $"-v error -select_streams v:0 -show_entries stream=avg_frame_rate,r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-
-                    using (var process = Process.Start(psi))
-                    {
-                        if (process == null) return 0.0;
-
-                        string output = process.StandardOutput.ReadToEnd();
-                        process.WaitForExit();
-
-                        if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
-                            return 0.0;
-
-                        foreach (string rawLine in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            double parsedRate = ParseFrameRateValue(rawLine.Trim());
-                            if (parsedRate > 0.0)
-                            {
-                                return parsedRate;
-                            }
-                        }
-
-                        return 0.0;
-                    }
-                }
-                catch
-                {
-                    return 0.0;
-                }
-            });
+            var details = await AnalyzeMediaDetailsAsync(filePath);
+            return details.Fps > 0.0 ? details.Fps : 0.0;
         }
 
         public static async Task<bool> ExtractFrameToImageAsync(string videoPath, double timeSec, string outputImagePath, CancellationToken token)
@@ -6906,7 +7003,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!exists)
                 throw new InvalidOperationException("Light leak asset missing.");
 
-            VideoAssetProbeInfo probe = await ProbeVideoAssetAsync(assetPath, token);
+            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
+            VideoAssetProbeInfo probe = analysis?.ProbeInfo ?? await ProbeVideoAssetAsync(assetPath, token);
             onLog($"[LIGHT-LEAK-ASSET] File size: {probe.FileSize}");
             onLog($"[LIGHT-LEAK-ASSET] Modified UTC: {probe.LastModifiedTimeUtc:O}");
             onLog($"[LIGHT-LEAK-ASSET] ffprobe codec={probe.CodecName} duration={probe.Duration:F3}s fps={probe.Fps:F3} resolution={probe.Width}x{probe.Height} pix_fmt={probe.PixelFormat}");
@@ -6920,9 +7018,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 throw new InvalidOperationException("Light leak asset missing.");
             }
 
-            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
-            recipe.RuntimeAnalysis = analysis;
-            LogOverlayBackgroundAnalysis("[LIGHT-LEAK-ASSET]", analysis, recipe.Asset.BlendMode, loggedOpacity, onLog);
+            if (analysis != null)
+            {
+                recipe.RuntimeAnalysis = analysis;
+                LogOverlayBackgroundAnalysis("[LIGHT-LEAK-ASSET]", analysis, recipe.Asset.BlendMode, loggedOpacity, onLog);
+            }
 
             onLog($"[LIGHT-LEAK-ASSET] {effectName} asset verified with ffprobe.");
             return probe;
@@ -6953,7 +7053,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!exists)
                 throw new InvalidOperationException("Rain overlay asset missing.");
 
-            VideoAssetProbeInfo probe = await ProbeVideoAssetAsync(assetPath, token);
+            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
+            VideoAssetProbeInfo probe = analysis?.ProbeInfo ?? await ProbeVideoAssetAsync(assetPath, token);
             onLog($"[RAIN-ASSET] File size: {probe.FileSize}");
             onLog($"[RAIN-ASSET] Modified UTC: {probe.LastModifiedTimeUtc:O}");
             onLog($"[RAIN-ASSET] ffprobe codec={probe.CodecName} duration={probe.Duration:F3}s fps={probe.Fps:F3} resolution={probe.Width}x{probe.Height} pix_fmt={probe.PixelFormat}");
@@ -6967,9 +7068,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 throw new InvalidOperationException("Rain overlay asset missing.");
             }
 
-            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
-            recipe.RuntimeAnalysis = analysis;
-            LogOverlayBackgroundAnalysis("[RAIN-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            if (analysis != null)
+            {
+                recipe.RuntimeAnalysis = analysis;
+                LogOverlayBackgroundAnalysis("[RAIN-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            }
 
             onLog($"[RAIN-ASSET] {effectName} asset verified with ffprobe.");
             return probe;
@@ -7006,7 +7109,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!exists)
                 throw new InvalidOperationException("Dreamy Dot Overlay 2 asset missing.");
 
-            VideoAssetProbeInfo probe = await ProbeVideoAssetAsync(assetPath, token);
+            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
+            VideoAssetProbeInfo probe = analysis?.ProbeInfo ?? await ProbeVideoAssetAsync(assetPath, token);
             onLog($"[DREAMY-DOT-2-ASSET] File size: {probe.FileSize}");
             onLog($"[DREAMY-DOT-2-ASSET] Modified UTC: {probe.LastModifiedTimeUtc:O}");
             onLog($"[DREAMY-DOT-2-ASSET] ffprobe codec={probe.CodecName} duration={probe.Duration:F3}s fps={probe.Fps:F3} resolution={probe.Width}x{probe.Height} pix_fmt={probe.PixelFormat}");
@@ -7020,9 +7124,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 throw new InvalidOperationException("Dreamy Dot Overlay 2 asset missing.");
             }
 
-            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
-            recipe.RuntimeAnalysis = analysis;
-            LogOverlayBackgroundAnalysis("[DREAMY-DOT-2-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            if (analysis != null)
+            {
+                recipe.RuntimeAnalysis = analysis;
+                LogOverlayBackgroundAnalysis("[DREAMY-DOT-2-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            }
 
             onLog($"[DREAMY-DOT-2-ASSET] {effectName} asset verified with ffprobe.");
             return probe;
@@ -7046,7 +7152,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!exists)
                 throw new InvalidOperationException("Snowfall overlay asset missing.");
 
-            VideoAssetProbeInfo probe = await ProbeVideoAssetAsync(assetPath, token);
+            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
+            VideoAssetProbeInfo probe = analysis?.ProbeInfo ?? await ProbeVideoAssetAsync(assetPath, token);
             onLog($"[SNOWFALL-ASSET] File size: {probe.FileSize}");
             onLog($"[SNOWFALL-ASSET] Modified UTC: {probe.LastModifiedTimeUtc:O}");
             onLog($"[SNOWFALL-ASSET] ffprobe codec={probe.CodecName} duration={probe.Duration:F3}s fps={probe.Fps:F3} resolution={probe.Width}x{probe.Height} pix_fmt={probe.PixelFormat}");
@@ -7054,9 +7161,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (!probe.ProbeSucceeded || !probe.HasVideoStream)
                 throw new InvalidOperationException("Snowfall overlay asset missing.");
 
-            OverlayAssetBackgroundAnalysis analysis = await OverlayAssetBackgroundAnalyzer.AnalyzeAsync(assetPath, token);
-            recipe.RuntimeAnalysis = analysis;
-            LogOverlayBackgroundAnalysis("[SNOWFALL-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            if (analysis != null)
+            {
+                recipe.RuntimeAnalysis = analysis;
+                LogOverlayBackgroundAnalysis("[SNOWFALL-ASSET]", analysis, recipe.Asset.BlendMode, recipe.Opacity, onLog);
+            }
             onLog($"[SNOWFALL-ASSET] {effectName} asset verified with ffprobe.");
             return probe;
         }
@@ -7673,76 +7782,6 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         {
             int cap = FfmpegThreadCapCount();
             return $"-filter_threads {cap} -filter_complex_threads {cap} ";
-        }
-
-        /// <summary>
-        /// Decodes and scales a still image ONCE so a <c>-loop 1</c> input stops paying the full
-        /// source decode on every output frame: the image2 demuxer re-decodes the file per frame,
-        /// so a 12 MP phone photo looped into a 1080p canvas spent ~0.74 s of decode per output
-        /// second (measured: 12 s of 1080x1920 from a 4032x3024 PNG = 8.9 s raw vs 1.7 s with
-        /// this prescale plus a 0.3 s one-off).
-        /// <para>
-        /// <paramref name="scaleExpression"/> must MIRROR the scale the consuming graph itself
-        /// applies, so the graph's own scale becomes an identity over identical pixels - the
-        /// output is unchanged and only the decode work moves out of the loop. (JPEG sources
-        /// take one extra RGB roundtrip through the lossless PNG intermediate; PNG sources are
-        /// exactly the pixels the graph would have produced.)
-        /// </para>
-        /// <para>
-        /// Returns null - and the caller keeps looping the original - unless the source long
-        /// edge is at least 1.3x the target long edge, so an identity or near-identity prescale
-        /// never adds a resample of its own. Failures are logged and also return null: the
-        /// prescale is an optimisation, never a dependency.
-        /// </para>
-        /// </summary>
-        private static async Task<string?> TryPrescaleStillForLoopAsync(
-            string stillPath,
-            string scaleExpression,
-            int targetWidth,
-            int targetHeight,
-            string outDir,
-            Action<string> onLog,
-            CancellationToken token)
-        {
-            try
-            {
-                if (token.IsCancellationRequested || !File.Exists(stillPath))
-                    return null;
-
-                (int srcW, int srcH) = await GetVideoResolutionAsync(stillPath);
-                if (srcW <= 0 || srcH <= 0)
-                    return null;
-
-                // Compare long edges: aspect-preserving targets constrain one dimension, but
-                // the long edge always maps to the long edge.
-                double srcLong = Math.Max(srcW, srcH);
-                double dstLong = Math.Max(targetWidth, targetHeight);
-                if (dstLong <= 0.0 || srcLong < dstLong * 1.3)
-                    return null;
-
-                Directory.CreateDirectory(outDir);
-                string prescaled = Path.Combine(
-                    outDir,
-                    $"prescaled_{Path.GetFileNameWithoutExtension(stillPath)}_{srcW}x{srcH}.png");
-                if (!File.Exists(prescaled))
-                {
-                    string args = $"-y -i \"{stillPath}\" -frames:v 1 -vf \"{scaleExpression}\" \"{prescaled}\"";
-                    var (exit, _) = await RunFfmpegCaptureAsync(args, token);
-                    if (exit != 0 || !File.Exists(prescaled) || new FileInfo(prescaled).Length <= 0)
-                    {
-                        TryDeleteFileSafe(prescaled);
-                        return null;
-                    }
-                }
-
-                onLog($"[PRESCALE] Still {srcW}x{srcH} -> ~{targetWidth}x{targetHeight} once ({Path.GetFileName(prescaled)}); the loop now decodes the small copy");
-                return prescaled;
-            }
-            catch (Exception ex)
-            {
-                onLog($"[PRESCALE-WARN] {ex.Message}; looping the original still.");
-                return null;
-            }
         }
 
         private static (double FadeIn, double FadeOut, double FadeOutStart) NormalizeFadeSettings(RenderJob job, double estimatedOutputDuration, Action<string> onLog)
@@ -8427,7 +8466,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
 
             if (!string.IsNullOrWhiteSpace(postVideoFilters))
-                graph.Append($"[{currentLabel}]{postVideoFilters}[vout]");
+                graph.Append($"[{currentLabel}]format=yuv420p,{postVideoFilters}[vout]");
             else
                 graph.Append($"[{currentLabel}]null[vout]");
 
@@ -8436,36 +8475,11 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
         private static async Task<bool> HasAudioStreamAsync(string? filePath)
         {
-            if (string.IsNullOrWhiteSpace(_ffprobePath) || !File.Exists(_ffprobePath))
+            if (string.IsNullOrWhiteSpace(filePath) || IsImageSourcePath(filePath) || !File.Exists(filePath))
                 return false;
 
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-                return false;
-
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = _ffprobePath,
-                    Arguments = $"-v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 \"{filePath}\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                using var process = Process.Start(psi);
-                if (process == null)
-                    return false;
-
-                string output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                return process.ExitCode == 0 && output.Contains("audio", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
+            MediaProbeCacheEntry details = await AnalyzeMediaInternalAsync(filePath);
+            return details.HasAudio;
         }
 
         private static double GetEstimatedOutputDurationSeconds(RenderJob job, double playbackSpeed)
@@ -9251,6 +9265,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             string ext = Path.GetExtension(path).ToLowerInvariant();
             return ext is ".png" or ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".bmp" or ".webp" or ".tif" or ".tiff" or ".gif";
+        }
+
+        private static bool IsStaticSingleFrameImagePath(string path)
+        {
+            return IsImageSourcePath(path) &&
+                   !string.Equals(Path.GetExtension(path), ".gif", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ShouldUsePortraitHdDefaultForImages(IReadOnlyCollection<string>? inputPaths)
@@ -10953,7 +10973,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     "noise=alls=5:allf=t+u",
 
                 "Film Strip" =>
-                    $"scale=w='ceil(({tw})*1.06/2)*2':h='ceil(({th})*1.06/2)*2':eval=frame:flags=lanczos," +
+                    $"scale=w='ceil(({tw})*1.06/2)*2':h='ceil(({th})*1.06/2)*2':flags=lanczos," +
                     $"crop={targetWidth}:{targetHeight}:x='(in_w-out_w)/2+((in_w-out_w)*0.22*sin(2*PI*t/{d}))':y='(in_h-out_h)/2'," +
                     "eq=contrast=1.09:saturation=0.86:brightness=-0.012,noise=alls=2:allf=t+u," +
                     $"drawbox=x=0:y=0:w=iw:h={margin}:color=black@0.90:t=fill," +
@@ -11050,41 +11070,52 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 $"scale={targetWidth}:{targetHeight}:force_original_aspect_ratio=decrease:flags=lanczos," +
                 $"pad={targetWidth}:{targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1";
             string motionFilter = BuildTemplateMotionFilter(templateName, targetWidth, targetHeight, segmentDurationSec, isImageInput, musicSyncMode, fxIntensity, magazineCoverTitle, magazineCoverSubtitle);
-            string fullVideoFilter = string.IsNullOrWhiteSpace(motionFilter)
-                ? baseFilter
-                : $"{baseFilter},{motionFilter}";
 
             string dur = FfmpegDouble(Math.Max(0.10, segmentDurationSec), 3);
             string fps = FfmpegDouble(targetFps, 3);
             bool hasAudio = !isImageInput && await HasAudioStreamAsync(inputPath);
 
-            // Image inputs are looped, and the image2 demuxer re-decodes the still on every
-            // output frame. Pre-decode + pre-scale ONCE to the segment canvas (mirroring the
-            // baseFilter below so the graph's own scale runs as an identity) and loop the
-            // small copy instead. No-op for sources already near the target size.
-            string effectiveImageInput = inputPath;
-            if (isImageInput)
-            {
-                string prescaleExpression =
-                    $"scale={targetWidth}:{targetHeight}:force_original_aspect_ratio=decrease:flags=lanczos," +
-                    $"pad={targetWidth}:{targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black";
-                string? prescaled = await TryPrescaleStillForLoopAsync(
-                    inputPath, prescaleExpression, targetWidth, targetHeight, Path.GetDirectoryName(outputPath) ?? GetTitanTempDir(), onLog, token);
-                if (!string.IsNullOrWhiteSpace(prescaled))
-                    effectiveImageInput = prescaled;
-            }
+            bool isStaticSingleFrameImage = isImageInput && IsStaticSingleFrameImagePath(inputPath);
+            // Static image inputs decode ONCE via single-frame image2 input, scale/pad ONCE, then loop in-graph.
+            // Animated/GIF inputs keep legacy looping without -framerate (which gif demuxer rejects).
+            string stillLoopFilter = $"format=yuv420p,loop=loop=-1:size=1:start=0,setpts=N/{fps}/TB,trim=duration={dur}";
+            string baseStage = isStaticSingleFrameImage ? $"{baseFilter},{stillLoopFilter}" : baseFilter;
+            string fullVideoFilter = string.IsNullOrWhiteSpace(motionFilter)
+                ? baseStage
+                : $"{baseStage},{motionFilter}";
+
+            bool hasEvalFrameScale = fullVideoFilter.Contains("eval=frame", StringComparison.OrdinalIgnoreCase);
+            bool useNvenc = !hasEvalFrameScale && EngineCore.HasNvencSupport();
+            if (hasEvalFrameScale)
+                onLog("[TEMPLATE] Dynamic eval=frame filter detected; encoding segment directly on CPU (libx264).");
+
+            string segmentCodecArgs = useNvenc
+                ? "-c:v h264_nvenc -preset p2 -cq 18 -pix_fmt yuv420p "
+                : $"-c:v libx264 -preset superfast -crf 18 -threads {FfmpegThreadCapCount()} -pix_fmt yuv420p ";
 
             string args;
-            if (isImageInput)
+            if (isStaticSingleFrameImage)
             {
                 args =
-                    $"-y {FfmpegThreadCapArguments()}-loop 1 -t {dur} -i \"{effectiveImageInput}\" " +
+                    $"-y {FfmpegThreadCapArguments()}-framerate {fps} -i \"{inputPath}\" " +
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
+                    segmentCodecArgs +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
-                    "-shortest -movflags +faststart " +
+                    "-shortest " +
+                    $"\"{outputPath}\"";
+            }
+            else if (isImageInput)
+            {
+                args =
+                    $"-y {FfmpegThreadCapArguments()}-loop 1 -t {dur} -i \"{inputPath}\" " +
+                    $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
+                    "-map 0:v:0 -map 1:a:0 " +
+                    $"-vf \"{fullVideoFilter}\" -r {fps} " +
+                    segmentCodecArgs +
+                    "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
+                    "-shortest " +
                     $"\"{outputPath}\"";
             }
             else if (hasAudio)
@@ -11095,9 +11126,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     "-filter_complex \"[0:a]aresample=48000,asetpts=PTS-STARTPTS[a0];[1:a]asetpts=PTS-STARTPTS[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]\" " +
                     "-map 0:v:0 -map \"[aout]\" " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
+                    segmentCodecArgs +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
-                    "-shortest -movflags +faststart " +
+                    "-shortest " +
                     $"\"{outputPath}\"";
             }
             else
@@ -11107,61 +11138,44 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"-f lavfi -t {dur} -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{fullVideoFilter}\" -r {fps} " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
+                    segmentCodecArgs +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
-                    "-shortest -movflags +faststart " +
+                    "-shortest " +
                     $"\"{outputPath}\"";
             }
 
-            try
+            var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
+            if (exitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
             {
-                var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
-                if (exitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+                // ONE CPU retry before giving up. h264_nvenc segfaults on some machine/build
+                // combinations the moment the graph carries a dynamic-expression scale filter.
+                if (args.Contains("h264_nvenc", StringComparison.Ordinal))
                 {
-                    // ONE CPU retry before giving up. h264_nvenc segfaults on some machine/build
-                    // combinations the moment the graph carries a dynamic-expression scale filter
-                    // (the template zoom path: scale=...eval=frame). Measured on one box: NVENC +
-                    // the zoom graph crashed 8/8 while the IDENTICAL graph on libx264 succeeded
-                    // every time, and NVENC + a static scale also succeeded - an upstream
-                    // ffmpeg/NVENC defect, not a graph error. Retrying on CPU is the difference
-                    // between a slower successful render and a dead job. The stderr of a crash is
-                    // only the banner, so the log names the exit code instead.
-                    if (args.Contains("h264_nvenc", StringComparison.Ordinal))
+                    onLog($"[TEMPLATE] GPU encode failed (exit {exitCode}); retrying segment on CPU (libx264)...");
+                    TryDeleteFileSafe(outputPath);
+                    string cpuArgs = args.Replace(
+                        "h264_nvenc -preset p2 -cq 18",
+                        $"libx264 -preset superfast -crf 18 -threads {FfmpegThreadCapCount()}",
+                        StringComparison.Ordinal);
+                    var (cpuExit, cpuStderr) = await RunFfmpegCaptureAsync(cpuArgs, token);
+                    if (cpuExit == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
                     {
-                        onLog($"[TEMPLATE] GPU encode failed (exit {exitCode}); retrying segment on CPU (libx264)...");
-                        TryDeleteFileSafe(outputPath);
-                        string cpuArgs = args.Replace(
-                            "h264_nvenc -preset p5 -cq 18",
-                            "libx264 -preset veryfast -crf 18",
-                            StringComparison.Ordinal);
-                        var (cpuExit, cpuStderr) = await RunFfmpegCaptureAsync(cpuArgs, token);
-                        if (cpuExit == 0 && File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
-                        {
-                            onLog("[TEMPLATE] Segment ready on CPU fallback: " + Path.GetFileName(outputPath));
-                            return outputPath;
-                        }
-
-                        throw new Exception($"Template segment render failed (GPU exit {exitCode}, CPU retry exit {cpuExit}).");
+                        onLog("[TEMPLATE] Segment ready on CPU fallback: " + Path.GetFileName(outputPath));
+                        return outputPath;
                     }
 
-                    string summary = string.Join(" | ",
-                        (stderr ?? string.Empty)
-                            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                            .Take(8));
-                    throw new Exception($"Template segment render failed: {summary}");
+                    throw new Exception($"Template segment render failed (GPU exit {exitCode}, CPU retry exit {cpuExit}).");
                 }
 
-                onLog($"[TEMPLATE] Segment ready: {Path.GetFileName(outputPath)}");
-                return outputPath;
+                string summary = string.Join(" | ",
+                    (stderr ?? string.Empty)
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Take(8));
+                throw new Exception($"Template segment render failed: {summary}");
             }
-            finally
-            {
-                // The prescaled still is a per-segment scratch copy: it only exists to be looped
-                // by the args above, so it goes as soon as the encode is done - success, retry
-                // or failure alike.
-                if (!string.Equals(effectiveImageInput, inputPath, StringComparison.OrdinalIgnoreCase))
-                    TryDeleteFileSafe(effectiveImageInput);
-            }
+
+            onLog($"[TEMPLATE] Segment ready: {Path.GetFileName(outputPath)}");
+            return outputPath;
         }
 
         private static async Task<TemplateTimelineBuildResult> BuildTemplateTimelineSourceAsync(
@@ -11269,7 +11283,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string copyArgs =
                 $"-y -f concat -safe 0 -i \"{concatListPath}\" " +
                 "-fflags +genpts -avoid_negative_ts make_zero " +
-                "-c copy -movflags +faststart " +
+                "-c copy " +
                 $"\"{timelinePath}\"";
 
             var (copyExit, copyErr) = await RunFfmpegCaptureAsync(copyArgs, token);
@@ -11288,8 +11302,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string reencodeArgs =
                     $"-y -f concat -safe 0 -i \"{concatListPath}\" " +
                     "-fflags +genpts -avoid_negative_ts make_zero " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
-                    "-c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart " +
+                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p2 -cq 18 -pix_fmt yuv420p " : $"-c:v libx264 -preset superfast -crf 18 -threads {FfmpegThreadCapCount()} -pix_fmt yuv420p ") +
+                    "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
                     $"\"{timelinePath}\"";
 
                 var (reencodeExit, reencodeErr) = await RunFfmpegCaptureAsync(reencodeArgs, token);
@@ -11380,7 +11394,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
 
                     string audioMap = string.IsNullOrEmpty(aOutTag) ? "-an" : $"-map \"{aOutTag}\" -c:a aac -b:a 128k";
-                    string transArgs = $"-y {inputSb.ToString()}-filter_complex \"{graph}\" -map \"{vOutTag}\" " + (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 20 " : "-c:v libx264 -preset veryfast -crf 20 ") + $"{audioMap} -movflags +faststart \"{mergedSourcePath}\"";
+                    string transArgs = $"-y {inputSb.ToString()}-filter_complex \"{graph}\" -map \"{vOutTag}\" " + (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p2 -cq 20 " : $"-c:v libx264 -preset superfast -crf 20 -threads {FfmpegThreadCapCount()} ") + $"{audioMap} \"{mergedSourcePath}\"";
 
                     onLog($"[TRANSITION-ENGINE] Rendering graph...");
                     var (transExit, transErr) = await RunFfmpegCaptureAsync(transArgs, token);
@@ -11421,7 +11435,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (tryStreamCopy)
             {
                 onLog("[MERGE] Attempt 1/2: concat stream copy");
-                string copyArgs = $"-y -f concat -safe 0 -i \"{concatListPath}\" -fflags +genpts -avoid_negative_ts make_zero -c copy -movflags +faststart \"{mergedSourcePath}\"";
+                string copyArgs = $"-y -f concat -safe 0 -i \"{concatListPath}\" -fflags +genpts -avoid_negative_ts make_zero -c copy \"{mergedSourcePath}\"";
                 var (copyExit, copyErr) = await RunFfmpegCaptureAsync(copyArgs, token);
 
                 bool copyOk = copyExit == 0 && File.Exists(mergedSourcePath) && new FileInfo(mergedSourcePath).Length > 0;
@@ -11467,8 +11481,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 onLog("[MERGE] Attempt 2/2: safe normalize + concat");
                 var firstMeta = await AnalyzeMediaDetailsAsync(normalizedPaths[0]);
-                int targetW = firstMeta.Width > 0 ? firstMeta.Width : 1920;
-                int targetH = firstMeta.Height > 0 ? firstMeta.Height : 1080;
+                int targetW = targetWidthParam > 0 && targetHeightParam > 0
+                    ? targetWidthParam
+                    : (firstMeta.Width > 0 ? firstMeta.Width : 1920);
+                int targetH = targetWidthParam > 0 && targetHeightParam > 0
+                    ? targetHeightParam
+                    : (firstMeta.Height > 0 ? firstMeta.Height : 1080);
+                targetW = Math.Max(2, targetW);
+                targetH = Math.Max(2, targetH);
                 if ((targetW & 1) != 0) targetW += 1;
                 if ((targetH & 1) != 0) targetH += 1;
                 double targetFps = firstMeta.Fps > 0.1 ? firstMeta.Fps : 30.0;
@@ -11505,7 +11525,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     string safeConcatArgs =
                         $"-y -f concat -safe 0 -i \"{concatListPath}\" " +
                         "-fflags +genpts -avoid_negative_ts make_zero " +
-                        "-c copy -movflags +faststart " +
+                        "-c copy " +
                         $"\"{mergedSourcePath}\"";
                     var (safeConcatExit, safeConcatErr) = await RunFfmpegCaptureAsync(safeConcatArgs, token);
 
@@ -11881,6 +11901,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 $"pad={targetWidth}:{targetHeight}:(ow-iw)/2:(oh-ih)/2," +
                 $"setsar=1,fps={fpsExpr},format=yuv420p";
 
+            string tempCodecArgs = EngineCore.HasNvencSupport()
+                ? "-c:v h264_nvenc -preset p2 -cq 18 -pix_fmt yuv420p "
+                : $"-c:v libx264 -preset superfast -crf 18 -threads {FfmpegThreadCapCount()} -pix_fmt yuv420p ";
+
             string args;
             if (hasAudio)
             {
@@ -11888,9 +11912,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     $"-y {FfmpegThreadCapArguments()}-i \"{inputPath}\" " +
                     "-map 0:v:0 -map 0:a:0 " +
                     $"-vf \"{videoFilter}\" " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
+                    tempCodecArgs +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
-                    "-movflags +faststart " +
                     $"\"{normalizedPath}\"";
             }
             else
@@ -11900,9 +11923,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 " +
                     "-map 0:v:0 -map 1:a:0 " +
                     $"-vf \"{videoFilter}\" " +
-                    (EngineCore.HasNvencSupport() ? "-c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p " : "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ") +
+                    tempCodecArgs +
                     "-c:a aac -b:a 192k -ar 48000 -ac 2 " +
-                    "-shortest -movflags +faststart " +
+                    "-shortest " +
                     $"\"{normalizedPath}\"";
             }
 
@@ -12256,6 +12279,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (string.IsNullOrWhiteSpace(inputAudioPath) || !File.Exists(inputAudioPath))
                 return null;
 
+            bool noAudioSegments = job.AudioSegments == null || job.AudioSegments.Count == 0;
+            bool noAudioTrimStart = string.IsNullOrWhiteSpace(job.AudioTrimStart) || job.AudioTrimStart.Trim() == "00:00:00";
+            bool noAudioTrimEnd = string.IsNullOrWhiteSpace(job.AudioTrimEnd);
+            bool noAudioTrimDuration = string.IsNullOrWhiteSpace(job.AudioTrimDuration);
+            if (noAudioSegments && noAudioTrimStart && noAudioTrimEnd && noAudioTrimDuration)
+                return null;
+
             var audioMeta = await EngineCore.AnalyzeMediaAsync(inputAudioPath);
             double maxDuration = audioMeta.Duration > 0.0 ? audioMeta.Duration : 0.0;
             List<AudioEditSegment> segments = ResolveAudioEditSegments(job, maxDuration > 0.0 ? maxDuration : null);
@@ -12278,7 +12308,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string args =
                 $"-y -i \"{inputAudioPath}\" " +
                 $"-filter_complex \"{filterComplex}\" " +
-                "-map \"[aout]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
+                "-map \"[aout]\" -vn -c:a aac -b:a 192k " +
                 $"\"{editedAudioPath}\"";
 
             onLog($"[AUDIO-EDIT] Preprocessing audio cuts into temp track...");
@@ -12347,7 +12377,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string args =
                 $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
                 $"-filter_complex \"[0:a]asplit=2[ary][wy];[wy][1:a]afir=length=1:dry=0:wet={wetStr},alimiter=limit=0.95[wetout];[ary][wetout]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]\" " +
-                "-map \"[a]\" -vn -c:a aac -b:a 192k -movflags +faststart " +
+                "-map \"[a]\" -vn -c:a aac -b:a 192k " +
                 $"\"{fxAudioPath}\"";
 
             onLog($"[AUDIO1-FX] Preprocessing {effect} @ {intensity * 100:F0}% via IR convolution...");
@@ -12710,6 +12740,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             this.Title = $"Titan Engine {_appVersion}";
             this.TaskbarItemInfo = new System.Windows.Shell.TaskbarItemInfo();
             this.Loaded += OnSystemLoaded;
+            this.DragOver += OnWindowDragOver;
             this.Drop += OnWindowDrop;
             this.Closed += OnMainWindowClosed;
             this.AllowDrop = true;
@@ -12999,6 +13030,84 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             }
         }
 
+        private void ApplySelectedSourceMediaPaths(IReadOnlyList<string> paths)
+        {
+            if (paths == null || paths.Count == 0)
+                return;
+
+            _listVideoPaths = paths.ToList();
+            txtVideoPath.Text = _listVideoPaths.Count > 1
+                ? $"<{_listVideoPaths.Count} files>"
+                : System.IO.Path.GetFileName(_listVideoPaths[0]);
+            txtVideoPath.FontStyle = FontStyles.Normal;
+            txtVideoPath.Opacity = 1.0;
+
+            int imageCount = _listVideoPaths.Count(IsImageSourcePath);
+            int videoCount = _listVideoPaths.Count - imageCount;
+            LogSystem($"[INPUT] {_listVideoPaths.Count} source file(s) ({videoCount} video, {imageCount} image)");
+            UpdateRandomButtonVisibility();
+            ProbeSoundBarSourceResolutionAsync();
+        }
+
+        private void ApplySelectedAudio1Paths(IReadOnlyList<string> paths)
+        {
+            if (paths == null || paths.Count == 0)
+                return;
+
+            _listAudioPaths = paths.ToList();
+            _audioEditSegments.Clear();
+            txtAudioPath.Text = _listAudioPaths.Count > 1
+                ? $"<{_listAudioPaths.Count} files>"
+                : System.IO.Path.GetFileName(_listAudioPaths[0]);
+            txtAudioPath.FontStyle = FontStyles.Normal;
+            txtAudioPath.Opacity = 1.0;
+
+            LogSystem($"[INPUT] Audio 1: {_listAudioPaths.Count} audio(s)");
+            if (_listAudioPaths.Count > 1 && chkMergeAudios != null && chkMergeAudios.IsChecked != true)
+            {
+                chkMergeAudios.IsChecked = true;
+                LogSystem("[AUDIO-MERGE] Auto-selected (multiple audio files).");
+            }
+            UpdateAudioEditSummary();
+            UpdateRandomButtonVisibility();
+        }
+
+        private void ApplySelectedAudio2Path(string path, int ignoredExtraCount = 0)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            _secondaryAudioPath = path;
+            txtAudioPath2.Text = Path.GetFileName(_secondaryAudioPath);
+            txtAudioPath2.FontStyle = FontStyles.Normal;
+            txtAudioPath2.Opacity = 1.0;
+            LogSystem(ignoredExtraCount > 0
+                ? $"[INPUT] Audio 2 overlay: {Path.GetFileName(_secondaryAudioPath)} (ignored {ignoredExtraCount} extra file(s))"
+                : $"[INPUT] Audio 2 overlay: {Path.GetFileName(_secondaryAudioPath)}");
+        }
+
+        private void ResetSourceInputTextBoxes()
+        {
+            if (txtVideoPath != null)
+            {
+                txtVideoPath.Text = "Drop or Select Video/Image...";
+                txtVideoPath.FontStyle = FontStyles.Italic;
+                txtVideoPath.Opacity = 0.5;
+            }
+            if (txtAudioPath != null)
+            {
+                txtAudioPath.Text = "Drop or Select Audio 1...";
+                txtAudioPath.FontStyle = FontStyles.Italic;
+                txtAudioPath.Opacity = 0.5;
+            }
+            if (txtAudioPath2 != null)
+            {
+                txtAudioPath2.Text = "Drop or Select Audio 2...";
+                txtAudioPath2.FontStyle = FontStyles.Italic;
+                txtAudioPath2.Opacity = 0.5;
+            }
+        }
+
         private void BtnBrowseVideo_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog
@@ -13008,13 +13117,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             };
             if (dlg.ShowDialog() == true)
             {
-                _listVideoPaths = new List<string>(dlg.FileNames);
-                txtVideoPath.Text = _listVideoPaths.Count > 1 ? $"<{_listVideoPaths.Count} files>" : System.IO.Path.GetFileName(_listVideoPaths[0]);
-                int imageCount = _listVideoPaths.Count(IsImageSourcePath);
-                int videoCount = _listVideoPaths.Count - imageCount;
-                LogSystem($"[INPUT] {_listVideoPaths.Count} source file(s) ({videoCount} video, {imageCount} image)");
-                UpdateRandomButtonVisibility();
-                ProbeSoundBarSourceResolutionAsync();
+                ApplySelectedSourceMediaPaths(dlg.FileNames);
             }
         }
 
@@ -13023,17 +13126,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             var dlg = new OpenFileDialog { Filter = $"Audio|{AudioSourceFilterPattern}|All|*.*", Multiselect = true };
             if (dlg.ShowDialog() == true)
             {
-                _listAudioPaths = new List<string>(dlg.FileNames);
-                _audioEditSegments.Clear();
-                txtAudioPath.Text = _listAudioPaths.Count > 1 ? $"<{_listAudioPaths.Count} files>" : System.IO.Path.GetFileName(_listAudioPaths[0]);
-                LogSystem($"[INPUT] {_listAudioPaths.Count} audio(s)");
-                if (_listAudioPaths.Count > 1 && chkMergeAudios != null && chkMergeAudios.IsChecked != true)
-                {
-                    chkMergeAudios.IsChecked = true;
-                    LogSystem("[AUDIO-MERGE] Auto-selected (multiple audio files).");
-                }
-                UpdateAudioEditSummary();
-                UpdateRandomButtonVisibility();
+                ApplySelectedAudio1Paths(dlg.FileNames);
             }
         }
 
@@ -13047,9 +13140,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
             if (dlg.ShowDialog() == true)
             {
-                _secondaryAudioPath = dlg.FileName;
-                txtAudioPath2.Text = Path.GetFileName(_secondaryAudioPath);
-                LogSystem($"[INPUT] Audio 2 overlay: {Path.GetFileName(_secondaryAudioPath)}");
+                ApplySelectedAudio2Path(dlg.FileName);
             }
         }
 
@@ -13372,42 +13463,242 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             _watermarkPreviewFrameCts = null;
         }
 
+        private static readonly Brush DropHighlightBrush = CreateFrozenBrush(0x4C, 0xC3, 0xFF);
+
+        private static Brush CreateFrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
+
+        private static bool HasDroppedFile(IDataObject? data, Func<string, bool> predicate)
+        {
+            if (data == null || !data.GetDataPresent(DataFormats.FileDrop))
+                return false;
+
+            if (data.GetData(DataFormats.FileDrop) is not string[] rawItems || rawItems.Length == 0)
+                return false;
+
+            foreach (string raw in rawItems)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+
+                if (File.Exists(raw))
+                {
+                    if (predicate(raw))
+                        return true;
+                }
+                else if (Directory.Exists(raw))
+                {
+                    try
+                    {
+                        foreach (string child in Directory.EnumerateFiles(raw))
+                        {
+                            if (predicate(child))
+                                return true;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            return false;
+        }
+
+        private static List<string> ExtractDroppedFiles(IDataObject? data, Func<string, bool> predicate)
+        {
+            var matched = new List<string>();
+            if (data == null || !data.GetDataPresent(DataFormats.FileDrop))
+                return matched;
+
+            if (data.GetData(DataFormats.FileDrop) is not string[] rawItems || rawItems.Length == 0)
+                return matched;
+
+            foreach (string raw in rawItems)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+
+                if (File.Exists(raw))
+                {
+                    if (predicate(raw))
+                        matched.Add(raw);
+                }
+                else if (Directory.Exists(raw))
+                {
+                    try
+                    {
+                        foreach (string child in Directory.EnumerateFiles(raw).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+                        {
+                            if (predicate(child))
+                                matched.Add(child);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            return matched;
+        }
+
+        private static bool IsVisualMediaDropCandidate(string path)
+            => IsVideoSourcePath(path) || IsImageSourcePath(path);
+
+        private static bool IsAudioSlotDropCandidate(string path)
+            => IsAudioSourcePath(path) || IsVideoSourcePath(path);
+
+        private static void SetDropTargetHighlight(TextBox? targetBox, bool active)
+        {
+            if (targetBox == null)
+                return;
+
+            if (active)
+                targetBox.BorderBrush = DropHighlightBrush;
+            else
+                targetBox.ClearValue(Control.BorderBrushProperty);
+        }
+
+        private static bool IsDragStillInsideElement(object sender, DragEventArgs e)
+        {
+            if (sender is not FrameworkElement element || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+                return false;
+
+            Point pt = e.GetPosition(element);
+            return pt.X >= 0 && pt.Y >= 0 && pt.X <= element.ActualWidth && pt.Y <= element.ActualHeight;
+        }
+
+        private void SourceMedia_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            bool valid = HasDroppedFile(e.Data, IsVisualMediaDropCandidate);
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            SetDropTargetHighlight(txtVideoPath, valid);
+            e.Handled = true;
+        }
+
+        private void SourceMedia_PreviewDragLeave(object sender, DragEventArgs e)
+        {
+            if (!IsDragStillInsideElement(sender, e))
+                SetDropTargetHighlight(txtVideoPath, false);
+        }
+
+        private void SourceMedia_PreviewDrop(object sender, DragEventArgs e)
+        {
+            if (e.Handled)
+                return;
+
+            SetDropTargetHighlight(txtVideoPath, false);
+            var files = ExtractDroppedFiles(e.Data, IsVisualMediaDropCandidate);
+            if (files.Count > 0)
+            {
+                ApplySelectedSourceMediaPaths(files);
+            }
+            else
+            {
+                LogSystem("[DROP-WARN] Dropped item has no supported video/image file for Source Media.");
+            }
+            e.Handled = true;
+        }
+
+        private void Audio1_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            bool valid = HasDroppedFile(e.Data, IsAudioSlotDropCandidate);
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            SetDropTargetHighlight(txtAudioPath, valid);
+            e.Handled = true;
+        }
+
+        private void Audio1_PreviewDragLeave(object sender, DragEventArgs e)
+        {
+            if (!IsDragStillInsideElement(sender, e))
+                SetDropTargetHighlight(txtAudioPath, false);
+        }
+
+        private void Audio1_PreviewDrop(object sender, DragEventArgs e)
+        {
+            if (e.Handled)
+                return;
+
+            SetDropTargetHighlight(txtAudioPath, false);
+            var files = ExtractDroppedFiles(e.Data, IsAudioSlotDropCandidate);
+            if (files.Count > 0)
+            {
+                ApplySelectedAudio1Paths(files);
+            }
+            else
+            {
+                LogSystem("[DROP-WARN] Dropped item has no supported audio/video file for Audio 1.");
+            }
+            e.Handled = true;
+        }
+
+        private void Audio2_PreviewDragOver(object sender, DragEventArgs e)
+        {
+            bool valid = HasDroppedFile(e.Data, IsAudioSlotDropCandidate);
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            SetDropTargetHighlight(txtAudioPath2, valid);
+            e.Handled = true;
+        }
+
+        private void Audio2_PreviewDragLeave(object sender, DragEventArgs e)
+        {
+            if (!IsDragStillInsideElement(sender, e))
+                SetDropTargetHighlight(txtAudioPath2, false);
+        }
+
+        private void Audio2_PreviewDrop(object sender, DragEventArgs e)
+        {
+            if (e.Handled)
+                return;
+
+            SetDropTargetHighlight(txtAudioPath2, false);
+            var files = ExtractDroppedFiles(e.Data, IsAudioSlotDropCandidate);
+            if (files.Count > 0)
+            {
+                ApplySelectedAudio2Path(files[0], Math.Max(0, files.Count - 1));
+            }
+            else
+            {
+                LogSystem("[DROP-WARN] Dropped item has no supported audio/video file for Audio 2.");
+            }
+            e.Handled = true;
+        }
+
+        private void OnWindowDragOver(object sender, DragEventArgs e)
+        {
+            if (e.Handled)
+                return;
+
+            bool valid = HasDroppedFile(e.Data, f => IsVisualMediaDropCandidate(f) || IsAudioSourcePath(f));
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
         private void OnWindowDrop(object sender, DragEventArgs e)
         {
-            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+            if (e.Handled || !e.Data.GetDataPresent(DataFormats.FileDrop))
+                return;
 
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var allDropped = ExtractDroppedFiles(e.Data, f => IsVisualMediaDropCandidate(f) || IsAudioSourcePath(f));
             List<string> vids = new List<string>();
             List<string> auds = new List<string>();
 
-            foreach (string f in files)
+            foreach (string f in allDropped)
             {
-                if (IsVideoSourcePath(f) || IsImageSourcePath(f)) vids.Add(f);
+                if (IsVisualMediaDropCandidate(f)) vids.Add(f);
                 else if (IsAudioSourcePath(f)) auds.Add(f);
             }
 
             if (vids.Count > 0)
             {
-                _listVideoPaths = vids;
-                txtVideoPath.Text = vids.Count > 1 ? $"<{vids.Count} files>" : System.IO.Path.GetFileName(vids[0]);
-                int imageCount = vids.Count(IsImageSourcePath);
-                int videoCount = vids.Count - imageCount;
-                LogSystem($"[INPUT] {vids.Count} source file(s) ({videoCount} video, {imageCount} image)");
-                ProbeSoundBarSourceResolutionAsync();
+                ApplySelectedSourceMediaPaths(vids);
             }
             if (auds.Count > 0)
             {
-                _listAudioPaths = auds;
-                txtAudioPath.Text = auds.Count > 1 ? $"<{auds.Count} files>" : System.IO.Path.GetFileName(auds[0]);
-                _audioEditSegments.Clear();
-                if (auds.Count > 1 && chkMergeAudios != null && chkMergeAudios.IsChecked != true)
-                {
-                    chkMergeAudios.IsChecked = true;
-                    LogSystem("[AUDIO-MERGE] Auto-selected (multiple audio files).");
-                }
-                UpdateAudioEditSummary();
-                UpdateRandomButtonVisibility();
+                ApplySelectedAudio1Paths(auds);
             }
+            e.Handled = true;
         }
 
         private void ImgWatermark_MouseDown(object sender, MouseButtonEventArgs e)
@@ -16685,9 +16976,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             _listAudioPaths.Clear();
             _secondaryAudioPath = null;
             _audioEditSegments.Clear();
-            txtVideoPath.Text = "";
-            txtAudioPath.Text = "Select Audio 1...";
-            txtAudioPath2.Text = "Select Audio 2...";
+            ResetSourceInputTextBoxes();
             if (txtImageTimelineDuration != null)
                 txtImageTimelineDuration.Text = "";
             txtOutputName.Text = "";
@@ -17092,9 +17381,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             _listAudioPaths.Clear();
             _secondaryAudioPath = null;
             _audioEditSegments.Clear();
-            txtVideoPath.Text = "";
-            txtAudioPath.Text = "Select Audio 1...";
-            txtAudioPath2.Text = "Select Audio 2...";
+            ResetSourceInputTextBoxes();
             if (txtImageTimelineDuration != null)
                 txtImageTimelineDuration.Text = "";
             txtOutputName.Text = "";
@@ -17134,6 +17421,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             var pending = JobQueue.Where(j => j.StatusDisplay == "WAITING" || j.StatusDisplay == "FAILED").ToList();
             if (!pending.Any())
             {
+                _localApiRenderLock.Release();
                 MessageBox.Show("Queue empty!", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -17172,10 +17460,14 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                     LogSystem($"[START] Job #{job.Id}: {job.Name}");
 
+                    bool jobFinished = false;
                     Action<double> progHandler = (p) =>
                     {
                         Dispatcher.BeginInvoke(() =>
                         {
+                            if (jobFinished)
+                                return;
+
                             job.Progress = p;
                             job.StatusDisplay = $"{p:F1}%";
                             pbGlobalProgress.Value = p;
@@ -17186,39 +17478,21 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                     await EngineCore.ExecuteRenderAsync(job, _customOutputFolder, _cancellationTokenSource.Token, progHandler, logHandler);
 
+                    jobFinished = true;
                     job.StatusDisplay = "DONE";
                     job.StatusColor = Brushes.LimeGreen;
                     job.Progress = 100;
+                    lstQueue.Items.Refresh();
                     LogSystem($"[SUCCESS] Job #{job.Id} completed");
 
                     done++;
-                    await Task.Delay(500);
+                    await Task.Delay(50);
                 }
 
-                MessageBox.Show($"Completed {done}/{total} jobs!", "Done", MessageBoxButton.OK, MessageBoxImage.Information);
-                
-                // [NEW] OPEN OUTPUT FOLDER AUTOMATICALLY
-                if (done > 0 && pending.Count > 0 && pending[0].ResultPath != null)
-                {
-                    try
-                    {
-                        string? outPath = System.IO.Path.GetDirectoryName(pending[0].ResultPath);
-                        if (outPath != null && Directory.Exists(outPath))
-                        {
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = "explorer.exe",
-                                Arguments = outPath,
-                                UseShellExecute = true
-                            });
-                            LogSystem($"[OUTPUT-FOLDER] Opened: {outPath}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        LogSystem($"[OUTPUT-FOLDER] Could not open: {ex.Message}");
-                    }
-                }
+                if (done > 0 && pbGlobalProgress != null)
+                    pbGlobalProgress.Value = 100;
+
+                LogSystem($">>> BATCH DONE ({done}/{total} job(s) completed) <<<");
             }
             catch (OperationCanceledException)
             {
@@ -20619,9 +20893,16 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         private static string NormalizeHardwareProfileName(string input)
         {
             string v = (input ?? string.Empty).Trim().ToLowerInvariant();
-            if (v.Contains("nvidia")) return "NVIDIA NVENC";
-            if (v.Contains("amd")) return "AMD AMF";
-            if (v.Contains("cpu")) return "Cpu";
+            if (v.Contains("nvidia") || v.Contains("nvenc"))
+                return v.Contains("av1") ? "NVIDIA NVENC (AV1)" : "NVIDIA NVENC";
+            if (v.Contains("amd") || v.Contains("amf"))
+                return v.Contains("av1") ? "AMD AMF (AV1)" : "AMD AMF";
+            if (v.Contains("intel") || v.Contains("qsv"))
+                return "Intel QSV";
+            if (v.Contains("cpu") || v.Contains("x264"))
+                return "Cpu";
+            if (v.Contains("auto"))
+                return "Auto";
             return "NVIDIA NVENC";
         }
 

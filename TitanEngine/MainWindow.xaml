@@ -444,12 +444,17 @@
                         <GroupBox Header="SOURCE &amp; TRIM" Foreground="#4CC3FF" FontSize="13">
                             <StackPanel>
                                 <TextBlock Text="Source Media (Video/Image)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
-                                <Grid Margin="0,0,0,15">
+                                <Grid x:Name="gridDropMedia" Margin="0,0,0,15" Background="Transparent" AllowDrop="True"
+                                      PreviewDragEnter="SourceMedia_PreviewDragOver"
+                                      PreviewDragOver="SourceMedia_PreviewDragOver"
+                                      PreviewDragLeave="SourceMedia_PreviewDragLeave"
+                                      PreviewDrop="SourceMedia_PreviewDrop"
+                                      Drop="SourceMedia_PreviewDrop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="50"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="txtVideoPath" Grid.Column="0" IsReadOnly="True" Text="Drop Video/Image Here..." FontStyle="Italic" Opacity="0.5"/>
+                                    <TextBox x:Name="txtVideoPath" Grid.Column="0" IsReadOnly="True" AllowDrop="True" Text="Drop or Select Video/Image..." FontStyle="Italic" Opacity="0.5" ToolTip="Kéo thả file/thư mục Video hoặc Ảnh vào đây (hoặc nhấn '...' để chọn)"/>
                                     <Button x:Name="btnBrowseVideo" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseVideo_Click"/>
                                 </Grid>
 
@@ -511,21 +516,31 @@
                                 </StackPanel>
 
                                 <TextBlock Text="Audio 1 (Opt)" Foreground="#8B95A5" FontSize="11" Margin="0,0,0,5"/>
-                                <Grid>
+                                <Grid x:Name="gridDropAudio1" Background="Transparent" AllowDrop="True"
+                                      PreviewDragEnter="Audio1_PreviewDragOver"
+                                      PreviewDragOver="Audio1_PreviewDragOver"
+                                      PreviewDragLeave="Audio1_PreviewDragLeave"
+                                      PreviewDrop="Audio1_PreviewDrop"
+                                      Drop="Audio1_PreviewDrop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="50"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="txtAudioPath" Grid.Column="0" IsReadOnly="True" Text="Select Audio 1..." FontStyle="Italic" Opacity="0.5"/>
+                                    <TextBox x:Name="txtAudioPath" Grid.Column="0" IsReadOnly="True" AllowDrop="True" Text="Drop or Select Audio 1..." FontStyle="Italic" Opacity="0.5" ToolTip="Kéo thả file/thư mục Audio (hoặc Video có tiếng) vào Audio 1"/>
                                     <Button x:Name="btnBrowseAudio" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseAudio_Click"/>
                                 </Grid>
                                 <TextBlock Text="Audio 2 (Overlay)" Foreground="#8B95A5" FontSize="11" Margin="0,10,0,5"/>
-                                <Grid>
+                                <Grid x:Name="gridDropAudio2" Background="Transparent" AllowDrop="True"
+                                      PreviewDragEnter="Audio2_PreviewDragOver"
+                                      PreviewDragOver="Audio2_PreviewDragOver"
+                                      PreviewDragLeave="Audio2_PreviewDragLeave"
+                                      PreviewDrop="Audio2_PreviewDrop"
+                                      Drop="Audio2_PreviewDrop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="50"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="txtAudioPath2" Grid.Column="0" IsReadOnly="True" Text="Select Audio 2..." FontStyle="Italic" Opacity="0.5"/>
+                                    <TextBox x:Name="txtAudioPath2" Grid.Column="0" IsReadOnly="True" AllowDrop="True" Text="Drop or Select Audio 2..." FontStyle="Italic" Opacity="0.5" ToolTip="Kéo thả file Audio (hoặc Video có tiếng) vào Audio 2"/>
                                     <Button x:Name="btnBrowseAudio2" Content="..." Grid.Column="1" Margin="8,0,0,0" Click="BtnBrowseAudio2_Click"/>
                                 </Grid>
                                 <Border BorderBrush="#262D38" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="#12161D">

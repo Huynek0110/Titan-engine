@@ -103,7 +103,7 @@ namespace TitanEngine
 
                 string outputFile = FormatSequenceFilePath(overlayPattern, 1);
                 SaveBitmap(overlayBitmap, outputFile);
-                SaveBitmap(overlayBitmap, Path.Combine(previewDir, "preview_01.png"));
+                File.Copy(outputFile, Path.Combine(previewDir, "preview_01.png"), overwrite: true);
             }, token);
 
             onLog($"[POLAROID-2] Generated rounded scrapbook overlay @ {safeW}x{safeH}. Preview={previewDir}");
@@ -138,16 +138,16 @@ namespace TitanEngine
             int safeLoopFrameCount = Math.Max(1, loopFrameCount);
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format=rgba[polaroid2base]"
-                : $"{safeBaseInput}{baseVideoFilters},format=rgba[polaroid2base]";
+                ? $"{safeBaseInput}format=yuv420p[polaroid2base]"
+                : $"{safeBaseInput}{baseVideoFilters},format=yuv420p[polaroid2base]";
 
             string overlayChain =
-                $"{safeOverlayInput}format=rgba," +
+                $"{safeOverlayInput}format=yuva420p," +
                 $"loop=loop=-1:size={safeLoopFrameCount}:start=0," +
                 $"setpts=N/{fps}/TB," +
                 $"trim=duration={duration}[polaroid2frame]";
 
-            string mergeChain = $"[polaroid2base][polaroid2frame]overlay=shortest=0:eof_action=repeat:format=auto[{safeOutput}]";
+            string mergeChain = $"[polaroid2base][polaroid2frame]overlay=shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]";
 
             onLog($"[POLAROID-2] Overlay graph ready: frames={safeLoopFrameCount}, fps={fps}, duration={duration}");
             return $"{baseChain};{overlayChain};{mergeChain}";

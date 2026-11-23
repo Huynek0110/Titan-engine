@@ -136,14 +136,31 @@ namespace TitanEngine
             string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", "overlay_detect");
             Directory.CreateDirectory(tempRoot);
 
-            foreach (double time in BuildSampleTimes(durationSeconds))
+            token.ThrowIfCancellationRequested();
+
+            List<double> sampleTimes = BuildSampleTimes(durationSeconds).ToList();
+            if (sampleTimes.Count == 0)
+                return accumulator;
+
+            string?[] tempFrames = new string?[sampleTimes.Count];
+            var extractTasks = new Task<bool>[sampleTimes.Count];
+
+            try
             {
-                token.ThrowIfCancellationRequested();
-                string tempFrame = Path.Combine(tempRoot, $"frame_{Guid.NewGuid():N}.jpg");
-                try
+                for (int i = 0; i < sampleTimes.Count; i++)
                 {
-                    bool extracted = await EngineCore.ExtractFrameToImageAsync(assetPath, time, tempFrame, token);
-                    if (!extracted || !File.Exists(tempFrame))
+                    string tempFrame = Path.Combine(tempRoot, $"frame_{Guid.NewGuid():N}.jpg");
+                    tempFrames[i] = tempFrame;
+                    extractTasks[i] = EngineCore.ExtractFrameToImageAsync(assetPath, sampleTimes[i], tempFrame, token);
+                }
+
+                bool[] extractedFlags = await Task.WhenAll(extractTasks);
+
+                for (int i = 0; i < sampleTimes.Count; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    string? tempFrame = tempFrames[i];
+                    if (!extractedFlags[i] || string.IsNullOrEmpty(tempFrame) || !File.Exists(tempFrame))
                         continue;
 
                     // A single corrupt/undecodable frame must not kill the whole probe:
@@ -160,9 +177,16 @@ namespace TitanEngine
                         // Keep whatever partial samples already accumulated.
                     }
                 }
-                finally
+            }
+            finally
+            {
+                for (int i = 0; i < tempFrames.Length; i++)
                 {
-                    try { File.Delete(tempFrame); } catch { }
+                    string? tempFrame = tempFrames[i];
+                    if (!string.IsNullOrEmpty(tempFrame))
+                    {
+                        try { File.Delete(tempFrame); } catch { }
+                    }
                 }
             }
 

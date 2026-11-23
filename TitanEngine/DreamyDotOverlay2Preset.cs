@@ -100,21 +100,22 @@ namespace TitanEngine
                 : safeOpacity;
 
             string baseChain = string.IsNullOrWhiteSpace(baseVideoFilters)
-                ? $"{safeBaseInput}format={(useAlphaOverlay ? "rgba" : "gbrp")}[dreamydot2base]"
-                : $"{safeBaseInput}{baseVideoFilters},format={(useAlphaOverlay ? "rgba" : "gbrp")}[dreamydot2base]";
+                ? $"{safeBaseInput}format={(useAlphaOverlay ? "yuv420p" : "gbrp")}[dreamydot2base]"
+                : $"{safeBaseInput}{baseVideoFilters},format={(useAlphaOverlay ? "yuv420p" : "gbrp")}[dreamydot2base]";
 
             string sourceChain =
-                $"{safeOverlayInput}scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
-                $"crop={safeWidth}:{safeHeight},fps={safeFps.ToString("F3", inv)},setsar=1,format={(useAlphaOverlay ? "rgba" : "gbrp")}," +
+                $"{safeOverlayInput}fps={safeFps.ToString("F3", inv)}," +
+                $"scale={safeWidth}:{safeHeight}:force_original_aspect_ratio=increase," +
+                $"crop={safeWidth}:{safeHeight},setsar=1,format={(useAlphaOverlay ? "rgba" : "gbrp")}," +
                 $"trim=duration={safeDuration.ToString("F3", inv)},setpts=PTS-STARTPTS[dreamydot2src]";
 
             string mergeChain = backgroundType switch
             {
                 OverlayBackgroundType.Alpha =>
-                    $"[dreamydot2src]colorchannelmixer=aa={safeRuntimeOpacity.ToString("F3", inv)}[dreamydot2alpha];[dreamydot2base][dreamydot2alpha]overlay=0:0:shortest=0:eof_action=repeat:format=auto[{safeOutput}]",
+                    $"[dreamydot2src]colorchannelmixer=aa={safeRuntimeOpacity.ToString("F3", inv)},format=yuva420p[dreamydot2alpha];[dreamydot2base][dreamydot2alpha]overlay=0:0:shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]",
                 OverlayBackgroundType.GreenScreen =>
                     $"[dreamydot2src]chromakey=0x00FF00:{Math.Clamp(recipe.RuntimeAnalysis?.Similarity ?? 0.18, 0.08, 0.35).ToString("F3", inv)}:{Math.Clamp(recipe.RuntimeAnalysis?.Blend ?? 0.08, 0.00, 0.20).ToString("F3", inv)}," +
-                    $"format=rgba,colorchannelmixer=aa={safeRuntimeOpacity.ToString("F3", inv)}[dreamydot2key];[dreamydot2base][dreamydot2key]overlay=0:0:shortest=0:eof_action=repeat:format=auto[{safeOutput}]",
+                    $"format=rgba,colorchannelmixer=aa={safeRuntimeOpacity.ToString("F3", inv)},format=yuva420p[dreamydot2key];[dreamydot2base][dreamydot2key]overlay=0:0:shortest=0:eof_action=repeat:format=yuv420[{safeOutput}]",
                 _ =>
                     $"[dreamydot2base][dreamydot2src]blend=all_mode={ResolveBlendMode(recipe.Asset.BlendMode)}:all_opacity={safeRuntimeOpacity.ToString("F3", inv)}[{safeOutput}]"
             };
