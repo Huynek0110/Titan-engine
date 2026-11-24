@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -307,12 +308,6 @@ namespace TitanEngine
             CancellationToken token,
             Action<string> onLog)
         {
-            string safeTag = string.IsNullOrWhiteSpace(tag)
-                ? Guid.NewGuid().ToString("N").Substring(0, 8)
-                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"snowfall_{safeTag}");
-            string overlayPattern = Path.Combine(tempRoot, "snow_overlay_%04d.png");
-            string previewDir = Path.Combine(tempRoot, "preview");
             int safeW = Math.Max(2, width);
             int safeH = Math.Max(2, height);
             double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
@@ -331,41 +326,103 @@ namespace TitanEngine
                 ContentRect = new Rect(0, 0, renderW, renderH)
             };
 
-            await RunOnStaThreadAsync(() =>
+            var inv = CultureInfo.InvariantCulture;
+            var keyBuilder = new StringBuilder(256);
+            keyBuilder.Append("snowfall-v1|")
+                .Append(renderW).Append('x').Append(renderH).Append('|')
+                .Append(safeFps.ToString("F3", inv)).Append('|')
+                .Append(frameCount).Append('|')
+                .Append(recipe.PresetName).Append('|')
+                .Append(recipe.Opacity.ToString("F4", inv)).Append('|')
+                .Append(recipe.CycleSeconds.ToString("F4", inv)).Append('|');
+            foreach (SnowOverlayLayerRecipe layer in recipe.Layers)
             {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
+                keyBuilder.Append(layer.Name).Append(':')
+                    .Append(layer.Count).Append(':')
+                    .Append(layer.MinSize.ToString("F3", inv)).Append(':')
+                    .Append(layer.MaxSize.ToString("F3", inv)).Append(':')
+                    .Append(layer.MinOpacity.ToString("F4", inv)).Append(':')
+                    .Append(layer.MaxOpacity.ToString("F4", inv)).Append(':')
+                    .Append(layer.MinVerticalLoops.ToString("F3", inv)).Append(':')
+                    .Append(layer.MaxVerticalLoops.ToString("F3", inv)).Append(':')
+                    .Append(layer.MinSway.ToString("F4", inv)).Append(':')
+                    .Append(layer.MaxSway.ToString("F4", inv)).Append(':')
+                    .Append(layer.MinDrift.ToString("F4", inv)).Append(':')
+                    .Append(layer.MaxDrift.ToString("F4", inv)).Append(':')
+                    .Append(layer.UseGlow ? '1' : '0').Append(':')
+                    .Append(layer.UseStreaks ? '1' : '0').Append(':')
+                    .Append(layer.BlurMultiplier.ToString("F3", inv)).Append(':')
+                    .Append(layer.StreakLengthMultiplier.ToString("F3", inv)).Append('|');
+            }
 
-                var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+            string cacheKey = ProceduralOverlayDiskCache.BuildHashKey(keyBuilder.ToString());
+            string tempRoot = ProceduralOverlayDiskCache.ResolveCacheRoot("snowfall", cacheKey);
+            string overlayPattern = Path.Combine(tempRoot, "snow_overlay_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
 
-                for (int i = 0; i < frameCount; i++)
+            if (ProceduralOverlayDiskCache.TryLoad(tempRoot, overlayPattern, cacheKey, out int cachedFrames, out double cachedFps, out int cachedW, out int cachedH))
+            {
+                onLog($"[SNOWFALL-CACHE] Reusing cached snow overlay ({cacheKey}) @ {cachedW}x{cachedH}, frames={cachedFrames}");
+                return new SnowfallGeneratedOverlay
                 {
-                    token.ThrowIfCancellationRequested();
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = cachedFrames,
+                    FrameRate = cachedFps,
+                    Width = cachedW,
+                    Height = cachedH,
+                    PreviewDirectory = previewDir,
+                    TempArtifacts = new List<string>()
+                };
+            }
 
-                    double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
-                    DrawingVisual overlayVisual = new DrawingVisual();
+            string? pendingRoot = tempRoot;
+            try
+            {
+                await RunOnStaThreadAsync(() =>
+                {
+                    Directory.CreateDirectory(tempRoot);
+                    Directory.CreateDirectory(previewDir);
 
-                    using (DrawingContext dc = overlayVisual.RenderOpen())
+                    var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                    using var pngWriter = new ParallelPngSequenceWriter(renderW, renderH, token);
+
+                    for (int i = 0; i < frameCount; i++)
                     {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
-                        DrawSnowLayers(dc, renderLayout, recipe, progress);
+                        token.ThrowIfCancellationRequested();
+
+                        double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
+                        DrawingVisual overlayVisual = new DrawingVisual();
+
+                        using (DrawingContext dc = overlayVisual.RenderOpen())
+                        {
+                            dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
+                            DrawSnowLayers(dc, renderLayout, recipe, progress);
+                        }
+
+                        overlayBitmap.Clear();
+                        overlayBitmap.Render(overlayVisual);
+
+                        string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
+                        string? previewFile = i < 8
+                            ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                            : null;
+                        pngWriter.CaptureAndEnqueue(overlayBitmap, overlayFile, previewFile);
                     }
 
-                    overlayBitmap.Clear();
-                    overlayBitmap.Render(overlayVisual);
+                    pngWriter.Complete();
+                }, token);
 
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
+                ProceduralOverlayDiskCache.Commit(tempRoot, cacheKey, frameCount, safeFps, renderW, renderH);
+                pendingRoot = null;
+            }
+            catch
+            {
+                ProceduralOverlayDiskCache.DiscardPartial(pendingRoot);
+                throw;
+            }
 
-                    if (i < 8)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        File.Copy(overlayFile, previewFile, overwrite: true);
-                    }
-                }
-            }, token);
-
-            onLog($"[SNOWFALL] Generated particle overlay @ {renderW}x{renderH} (target {safeW}x{safeH}), fps={safeFps:0.00}, frames={frameCount}, preview={previewDir}");
+            onLog($"[SNOWFALL] Generated particle overlay @ {renderW}x{renderH} (target {safeW}x{safeH}), fps={safeFps:0.00}, frames={frameCount} (cache={cacheKey}), preview={previewDir}");
 
             return new SnowfallGeneratedOverlay
             {
@@ -376,7 +433,7 @@ namespace TitanEngine
                 Width = renderW,
                 Height = renderH,
                 PreviewDirectory = previewDir,
-                TempArtifacts = new List<string> { tempRoot }
+                TempArtifacts = new List<string>()
             };
         }
 

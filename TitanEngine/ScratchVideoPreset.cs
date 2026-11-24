@@ -72,12 +72,6 @@ namespace TitanEngine
             CancellationToken token,
             Action<string> onLog)
         {
-            string safeTag = string.IsNullOrWhiteSpace(tag)
-                ? Guid.NewGuid().ToString("N").Substring(0, 8)
-                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"scratchvideo_{safeTag}");
-            string overlayPattern = Path.Combine(tempRoot, "scratch_overlay_%04d.png");
-            string previewDir = Path.Combine(tempRoot, "preview");
             int safeW = Math.Max(2, width);
             int safeH = Math.Max(2, height);
             double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
@@ -86,42 +80,85 @@ namespace TitanEngine
             double cycleSeconds = Math.Max(2.0, Math.Min(6.0, Math.Max(settings.CycleSeconds, Math.Min(outputDurationSeconds, 6.0))));
             int frameCount = Math.Clamp((int)Math.Ceiling(cycleSeconds * safeFps), 36, 180);
 
-            await RunOnStaThreadAsync(() =>
+            var inv = CultureInfo.InvariantCulture;
+            string cacheKey = ProceduralOverlayDiskCache.BuildHashKey(string.Join("|",
+                "scratchvideo-v1",
+                safeW, safeH,
+                safeLayout.ContentX.ToString("F2", inv), safeLayout.ContentY.ToString("F2", inv),
+                safeLayout.ContentWidth.ToString("F2", inv), safeLayout.ContentHeight.ToString("F2", inv),
+                safeFps.ToString("F3", inv), frameCount,
+                settings.ScratchCount, settings.MicroScratchCount, settings.DustCount, settings.DustClusterCount,
+                settings.MinLength.ToString("F4", inv), settings.MaxLength.ToString("F4", inv),
+                settings.MinThickness.ToString("F4", inv), settings.MaxThickness.ToString("F4", inv),
+                settings.BaseOpacity.ToString("F4", inv), settings.GlowOpacity.ToString("F4", inv),
+                settings.ChangeIntervalSeconds.ToString("F4", inv), cycleSeconds.ToString("F4", inv)));
+
+            string tempRoot = ProceduralOverlayDiskCache.ResolveCacheRoot("scratch_video", cacheKey);
+            string overlayPattern = Path.Combine(tempRoot, "scratch_overlay_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+
+            if (ProceduralOverlayDiskCache.TryLoad(tempRoot, overlayPattern, cacheKey, out int cachedFrames, out double cachedFps, out _, out _))
             {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
-
-                var overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
-
-                for (int i = 0; i < frameCount; i++)
+                onLog($"[SCRATCH-VIDEO-CACHE] Reusing cached scratch overlay ({cacheKey}) @ {safeW}x{safeH}, frames={cachedFrames}");
+                return new ScratchVideoGeneratedOverlay
                 {
-                    token.ThrowIfCancellationRequested();
-                    double timeSeconds = i / safeFps;
-                    int patternIndex = Math.Max(0, (int)Math.Floor(timeSeconds / settings.ChangeIntervalSeconds));
-                    double localProgress = (timeSeconds % settings.ChangeIntervalSeconds) / settings.ChangeIntervalSeconds;
-                    DrawingVisual overlayVisual = new DrawingVisual();
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = cachedFrames,
+                    FrameRate = cachedFps,
+                    PreviewDirectory = previewDir,
+                    TempArtifacts = new List<string>()
+                };
+            }
 
-                    using (DrawingContext dc = overlayVisual.RenderOpen())
+            string? pendingRoot = tempRoot;
+            try
+            {
+                await RunOnStaThreadAsync(() =>
+                {
+                    Directory.CreateDirectory(tempRoot);
+                    Directory.CreateDirectory(previewDir);
+
+                    var overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
+                    using var pngWriter = new ParallelPngSequenceWriter(safeW, safeH, token);
+
+                    for (int i = 0; i < frameCount; i++)
                     {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
-                        DrawScratchPattern(dc, safeLayout, settings, patternIndex, localProgress);
+                        token.ThrowIfCancellationRequested();
+                        double timeSeconds = i / safeFps;
+                        int patternIndex = Math.Max(0, (int)Math.Floor(timeSeconds / settings.ChangeIntervalSeconds));
+                        double localProgress = (timeSeconds % settings.ChangeIntervalSeconds) / settings.ChangeIntervalSeconds;
+                        DrawingVisual overlayVisual = new DrawingVisual();
+
+                        using (DrawingContext dc = overlayVisual.RenderOpen())
+                        {
+                            dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
+                            DrawScratchPattern(dc, safeLayout, settings, patternIndex, localProgress);
+                        }
+
+                        overlayBitmap.Clear();
+                        overlayBitmap.Render(overlayVisual);
+
+                        string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
+                        string? previewFile = i < 8
+                            ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                            : null;
+                        pngWriter.CaptureAndEnqueue(overlayBitmap, overlayFile, previewFile);
                     }
 
-                    overlayBitmap.Clear();
-                    overlayBitmap.Render(overlayVisual);
+                    pngWriter.Complete();
+                }, token);
 
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
+                ProceduralOverlayDiskCache.Commit(tempRoot, cacheKey, frameCount, safeFps, safeW, safeH);
+                pendingRoot = null;
+            }
+            catch
+            {
+                ProceduralOverlayDiskCache.DiscardPartial(pendingRoot);
+                throw;
+            }
 
-                    if (i < 8)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        File.Copy(overlayFile, previewFile, overwrite: true);
-                    }
-                }
-            }, token);
-
-            onLog($"[SCRATCH-VIDEO] Generated random scratch overlay @ {safeW}x{safeH} with {frameCount} frames. Pattern change interval={settings.ChangeIntervalSeconds:0.0}s. Preview={previewDir}");
+            onLog($"[SCRATCH-VIDEO] Generated random scratch overlay @ {safeW}x{safeH} with {frameCount} frames (cache={cacheKey}). Pattern change interval={settings.ChangeIntervalSeconds:0.0}s. Preview={previewDir}");
 
             return new ScratchVideoGeneratedOverlay
             {
@@ -130,7 +167,7 @@ namespace TitanEngine
                 FrameCount = frameCount,
                 FrameRate = safeFps,
                 PreviewDirectory = previewDir,
-                TempArtifacts = new List<string> { tempRoot }
+                TempArtifacts = new List<string>()
             };
         }
 

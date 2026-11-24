@@ -596,6 +596,7 @@ namespace TitanEngine
 
                     // ONE target for the whole pass, cleared per frame. See RentFrameTarget.
                     RenderTargetBitmap overlayBitmap = RentFrameTarget(renderW, renderH);
+                    using var pngWriter = new ParallelPngSequenceWriter(renderW, renderH, token);
 
                     for (int i = 0; i < frameCount; i++)
                     {
@@ -615,14 +616,13 @@ namespace TitanEngine
                         overlayBitmap.Render(overlayVisual);
 
                         string framePath = FormatSequenceFilePath(overlayPattern, i + 1);
-                        SaveBitmap(overlayBitmap, framePath);
-
-                        if (i < MaxPreviewFrames)
-                        {
-                            string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                            File.Copy(framePath, previewFile, overwrite: true);
-                        }
+                        string? previewFile = i < MaxPreviewFrames
+                            ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                            : null;
+                        pngWriter.CaptureAndEnqueue(overlayBitmap, framePath, previewFile);
                     }
+
+                    pngWriter.Complete();
                 }, token);
 
                 var overlay = new SoundBarGeneratedOverlay

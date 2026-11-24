@@ -78,12 +78,6 @@ namespace TitanEngine
             CancellationToken token,
             Action<string> onLog)
         {
-            string safeTag = string.IsNullOrWhiteSpace(tag)
-                ? Guid.NewGuid().ToString("N").Substring(0, 8)
-                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"dashedpolaroid_{safeTag}");
-            string overlayPattern = Path.Combine(tempRoot, "dashed_frame_%04d.png");
-            string previewDir = Path.Combine(tempRoot, "preview");
             int safeW = Math.Max(2, width);
             int safeH = Math.Max(2, height);
             double safeFps = Math.Clamp(frameRate, 12.0, 60.0);
@@ -91,39 +85,83 @@ namespace TitanEngine
             DashedPolaroidFrameSettings settings = FromJob(job, safeLayout);
             int frameCount = Math.Clamp((int)Math.Ceiling(settings.CycleSeconds * safeFps), 20, 72);
 
-            await RunOnStaThreadAsync(() =>
+            var inv = CultureInfo.InvariantCulture;
+            string cacheKey = ProceduralOverlayDiskCache.BuildHashKey(string.Join("|",
+                "dashedpolaroid-v1",
+                safeW, safeH,
+                safeLayout.ContentX.ToString("F2", inv), safeLayout.ContentY.ToString("F2", inv),
+                safeLayout.ContentWidth.ToString("F2", inv), safeLayout.ContentHeight.ToString("F2", inv),
+                safeFps.ToString("F3", inv), frameCount,
+                settings.Inset.ToString("F4", inv), settings.CornerRadius.ToString("F4", inv),
+                settings.StrokeThickness.ToString("F4", inv), settings.ShadowThickness.ToString("F4", inv),
+                settings.DashLength.ToString("F4", inv), settings.DashGap.ToString("F4", inv),
+                settings.FrameOpacity.ToString("F4", inv), settings.ShadowOpacity.ToString("F4", inv),
+                settings.GlowOpacity.ToString("F4", inv), settings.GlowThickness.ToString("F4", inv),
+                settings.CycleSeconds.ToString("F4", inv), settings.SampleSpacing.ToString("F4", inv)));
+
+            string tempRoot = ProceduralOverlayDiskCache.ResolveCacheRoot("dashed_polaroid", cacheKey);
+            string overlayPattern = Path.Combine(tempRoot, "dashed_frame_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+
+            if (ProceduralOverlayDiskCache.TryLoad(tempRoot, overlayPattern, cacheKey, out int cachedFrames, out double cachedFps, out _, out _))
             {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
-
-                var overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
-
-                for (int i = 0; i < frameCount; i++)
+                onLog($"[DASHED-POLAROID-CACHE] Reusing cached dashed frame ({cacheKey}) @ {safeW}x{safeH}, frames={cachedFrames}");
+                return new DashedPolaroidGeneratedOverlay
                 {
-                    token.ThrowIfCancellationRequested();
-                    double progress = frameCount <= 1 ? 0.0 : (double)i / frameCount;
-                    DrawingVisual overlayVisual = new DrawingVisual();
-                    using (DrawingContext dc = overlayVisual.RenderOpen())
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = cachedFrames,
+                    FrameRate = cachedFps,
+                    PreviewDirectory = previewDir,
+                    TempArtifacts = new List<string>()
+                };
+            }
+
+            string? pendingRoot = tempRoot;
+            try
+            {
+                await RunOnStaThreadAsync(() =>
+                {
+                    Directory.CreateDirectory(tempRoot);
+                    Directory.CreateDirectory(previewDir);
+
+                    var overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
+                    using var pngWriter = new ParallelPngSequenceWriter(safeW, safeH, token);
+
+                    for (int i = 0; i < frameCount; i++)
                     {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
-                        DrawDashedFrame(dc, safeLayout, settings, progress);
+                        token.ThrowIfCancellationRequested();
+                        double progress = frameCount <= 1 ? 0.0 : (double)i / frameCount;
+                        DrawingVisual overlayVisual = new DrawingVisual();
+                        using (DrawingContext dc = overlayVisual.RenderOpen())
+                        {
+                            dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
+                            DrawDashedFrame(dc, safeLayout, settings, progress);
+                        }
+
+                        overlayBitmap.Clear();
+                        overlayBitmap.Render(overlayVisual);
+
+                        string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
+                        string? previewFile = i < 6
+                            ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                            : null;
+                        pngWriter.CaptureAndEnqueue(overlayBitmap, overlayFile, previewFile);
                     }
 
-                    overlayBitmap.Clear();
-                    overlayBitmap.Render(overlayVisual);
+                    pngWriter.Complete();
+                }, token);
 
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
+                ProceduralOverlayDiskCache.Commit(tempRoot, cacheKey, frameCount, safeFps, safeW, safeH);
+                pendingRoot = null;
+            }
+            catch
+            {
+                ProceduralOverlayDiskCache.DiscardPartial(pendingRoot);
+                throw;
+            }
 
-                    if (i < 6)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        File.Copy(overlayFile, previewFile, overwrite: true);
-                    }
-                }
-            }, token);
-
-            onLog($"[DASHED-POLAROID] Generated rounded dashed frame overlay @ {safeW}x{safeH} with {frameCount} pulse frames. Preview={previewDir}");
+            onLog($"[DASHED-POLAROID] Generated rounded dashed frame overlay @ {safeW}x{safeH} with {frameCount} pulse frames (cache={cacheKey}). Preview={previewDir}");
 
             return new DashedPolaroidGeneratedOverlay
             {
@@ -132,7 +170,7 @@ namespace TitanEngine
                 FrameCount = frameCount,
                 FrameRate = safeFps,
                 PreviewDirectory = previewDir,
-                TempArtifacts = new List<string> { tempRoot }
+                TempArtifacts = new List<string>()
             };
         }
 

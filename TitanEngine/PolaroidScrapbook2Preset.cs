@@ -74,39 +74,77 @@ namespace TitanEngine
             CancellationToken token,
             Action<string> onLog)
         {
-            string safeTag = string.IsNullOrWhiteSpace(tag)
-                ? Guid.NewGuid().ToString("N").Substring(0, 8)
-                : Regex.Replace(tag.Trim(), @"[^\w\-]+", "_");
-            string tempRoot = Path.Combine(Path.GetTempPath(), "TitanEngine", $"polaroid2_{safeTag}");
-            string overlayPattern = Path.Combine(tempRoot, "polaroid2_%04d.png");
-            string previewDir = Path.Combine(tempRoot, "preview");
             int safeW = Math.Max(2, width);
             int safeH = Math.Max(2, height);
             OverlayContentLayout safeLayout = layout ?? OverlayLayoutHelper.Create(safeW, safeH, safeW, safeH);
             var settings = FromJob(job, safeLayout);
 
-            await RunOnStaThreadAsync(() =>
+            var inv = CultureInfo.InvariantCulture;
+            string cacheKey = ProceduralOverlayDiskCache.BuildHashKey(string.Join("|",
+                "polaroid2-v1",
+                safeW, safeH,
+                safeLayout.ContentX.ToString("F2", inv), safeLayout.ContentY.ToString("F2", inv),
+                safeLayout.ContentWidth.ToString("F2", inv), safeLayout.ContentHeight.ToString("F2", inv),
+                settings.Inset.ToString("F4", inv), settings.CornerRadius.ToString("F4", inv),
+                settings.StrokeThickness.ToString("F4", inv), settings.ShadowThickness.ToString("F4", inv),
+                settings.ShadowOffset.ToString("F4", inv), settings.FrameOpacity.ToString("F4", inv),
+                settings.ShadowOpacity.ToString("F4", inv), settings.TapeOpacity.ToString("F4", inv),
+                settings.StickyOpacity.ToString("F4", inv), settings.TapeWidth.ToString("F4", inv),
+                settings.TapeHeight.ToString("F4", inv), settings.StickyWidth.ToString("F4", inv),
+                settings.StickyHeight.ToString("F4", inv)));
+
+            string tempRoot = ProceduralOverlayDiskCache.ResolveCacheRoot("polaroid_2", cacheKey);
+            string overlayPattern = Path.Combine(tempRoot, "polaroid2_%04d.png");
+            string previewDir = Path.Combine(tempRoot, "preview");
+
+            if (ProceduralOverlayDiskCache.TryLoad(tempRoot, overlayPattern, cacheKey, out int cachedFrames, out double cachedFps, out _, out _))
             {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
-
-                DrawingVisual overlayVisual = new DrawingVisual();
-                using (DrawingContext dc = overlayVisual.RenderOpen())
+                onLog($"[POLAROID-2-CACHE] Reusing cached scrapbook overlay ({cacheKey}) @ {safeW}x{safeH}");
+                return new PolaroidScrapbook2GeneratedOverlay
                 {
-                    dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
-                    DrawOverlay(dc, safeLayout, settings);
-                }
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = cachedFrames,
+                    FrameRate = cachedFps,
+                    PreviewDirectory = previewDir,
+                    TempArtifacts = new List<string>()
+                };
+            }
 
-                RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
-                overlayBitmap.Render(overlayVisual);
-                if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
+            string? pendingRoot = tempRoot;
+            try
+            {
+                await RunOnStaThreadAsync(() =>
+                {
+                    Directory.CreateDirectory(tempRoot);
+                    Directory.CreateDirectory(previewDir);
 
-                string outputFile = FormatSequenceFilePath(overlayPattern, 1);
-                SaveBitmap(overlayBitmap, outputFile);
-                File.Copy(outputFile, Path.Combine(previewDir, "preview_01.png"), overwrite: true);
-            }, token);
+                    DrawingVisual overlayVisual = new DrawingVisual();
+                    using (DrawingContext dc = overlayVisual.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, safeW, safeH));
+                        DrawOverlay(dc, safeLayout, settings);
+                    }
 
-            onLog($"[POLAROID-2] Generated rounded scrapbook overlay @ {safeW}x{safeH}. Preview={previewDir}");
+                    RenderTargetBitmap overlayBitmap = new RenderTargetBitmap(safeW, safeH, 96, 96, PixelFormats.Pbgra32);
+                    overlayBitmap.Render(overlayVisual);
+                    if (overlayBitmap.CanFreeze) overlayBitmap.Freeze();
+
+                    string outputFile = FormatSequenceFilePath(overlayPattern, 1);
+                    SaveBitmap(overlayBitmap, outputFile);
+                    File.Copy(outputFile, Path.Combine(previewDir, "preview_01.png"), overwrite: true);
+                }, token);
+
+                ProceduralOverlayDiskCache.Commit(tempRoot, cacheKey, 1, 1.0, safeW, safeH);
+                pendingRoot = null;
+            }
+            catch
+            {
+                ProceduralOverlayDiskCache.DiscardPartial(pendingRoot);
+                throw;
+            }
+
+            onLog($"[POLAROID-2] Generated rounded scrapbook overlay @ {safeW}x{safeH} (cache={cacheKey}). Preview={previewDir}");
 
             return new PolaroidScrapbook2GeneratedOverlay
             {
@@ -115,7 +153,7 @@ namespace TitanEngine
                 FrameCount = 1,
                 FrameRate = 1.0,
                 PreviewDirectory = previewDir,
-                TempArtifacts = new List<string> { tempRoot }
+                TempArtifacts = new List<string>()
             };
         }
 

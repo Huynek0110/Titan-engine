@@ -91,57 +91,67 @@ namespace TitanEngine
             int baseSeed = DeriveSeed(recipe.Id, cacheKey);
             List<ParticleInstance> particles = BuildParticles(recipe, renderW, renderH, baseSeed);
 
-            await RunOnStaThreadAsync(() =>
+            string? pendingRoot = tempRoot;
+            try
             {
-                Directory.CreateDirectory(tempRoot);
-                Directory.CreateDirectory(previewDir);
-
-                var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
-
-                for (int i = 0; i < frameCount; i++)
+                await RunOnStaThreadAsync(() =>
                 {
-                    token.ThrowIfCancellationRequested();
+                    Directory.CreateDirectory(tempRoot);
+                    Directory.CreateDirectory(previewDir);
 
-                    double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
-                    DrawingVisual overlayVisual = new DrawingVisual();
+                    var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                    using var pngWriter = new ParallelPngSequenceWriter(renderW, renderH, token);
 
-                    using (DrawingContext dc = overlayVisual.RenderOpen())
+                    for (int i = 0; i < frameCount; i++)
                     {
-                        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
-                        DrawParticles(dc, recipe, particles, renderW, renderH, cycleSeconds, progress);
+                        token.ThrowIfCancellationRequested();
+
+                        double progress = frameCount <= 1 ? 0.0 : i / (double)frameCount;
+                        DrawingVisual overlayVisual = new DrawingVisual();
+
+                        using (DrawingContext dc = overlayVisual.RenderOpen())
+                        {
+                            dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, renderW, renderH));
+                            DrawParticles(dc, recipe, particles, renderW, renderH, cycleSeconds, progress);
+                        }
+
+                        overlayBitmap.Clear();
+                        overlayBitmap.Render(overlayVisual);
+
+                        string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
+                        string? previewFile = i < 8
+                            ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                            : null;
+                        pngWriter.CaptureAndEnqueue(overlayBitmap, overlayFile, previewFile);
                     }
 
-                    overlayBitmap.Clear();
-                    overlayBitmap.Render(overlayVisual);
+                    pngWriter.Complete();
+                }, token);
 
-                    string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
+                var result = new ParticleOverlaySequence
+                {
+                    CacheKey = cacheKey,
+                    TempRoot = tempRoot,
+                    OverlayPattern = overlayPattern,
+                    FrameCount = frameCount,
+                    FrameRate = safeFps,
+                    Width = renderW,
+                    Height = renderH,
+                    PreviewDirectory = previewDir,
+                    FromCache = false,
+                    TempArtifacts = new List<string>()
+                };
 
-                    if (i < 8)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        File.Copy(overlayFile, previewFile, overwrite: true);
-                    }
-                }
-            }, token);
-
-            var result = new ParticleOverlaySequence
+                WriteManifest(manifestPath, result);
+                pendingRoot = null;
+                onLog($"[PARTICLE-CACHE] Generated {recipe.Name} overlay ({safeTag}) -> {cacheKey}, target={safeWidth}x{safeHeight}, render={renderW}x{renderH}, frames={frameCount}, preview={previewDir}");
+                return result;
+            }
+            catch
             {
-                CacheKey = cacheKey,
-                TempRoot = tempRoot,
-                OverlayPattern = overlayPattern,
-                FrameCount = frameCount,
-                FrameRate = safeFps,
-                Width = renderW,
-                Height = renderH,
-                PreviewDirectory = previewDir,
-                FromCache = false,
-                TempArtifacts = new List<string>()
-            };
-
-            WriteManifest(manifestPath, result);
-            onLog($"[PARTICLE-CACHE] Generated {recipe.Name} overlay ({safeTag}) -> {cacheKey}, target={safeWidth}x{safeHeight}, render={renderW}x{renderH}, frames={frameCount}, preview={previewDir}");
-            return result;
+                ProceduralOverlayDiskCache.DiscardPartial(pendingRoot);
+                throw;
+            }
         }
 
         private static List<ParticleInstance> BuildParticles(ParticleEffectRecipe recipe, int width, int height, int baseSeed)

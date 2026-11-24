@@ -168,6 +168,7 @@ namespace TitanEngine
                 Directory.CreateDirectory(previewDir);
 
                 var overlayBitmap = new RenderTargetBitmap(renderW, renderH, 96, 96, PixelFormats.Pbgra32);
+                using var pngWriter = new ParallelPngSequenceWriter(renderW, renderH, token);
 
                 for (int i = 0; i < frameCount; i++)
                 {
@@ -185,14 +186,13 @@ namespace TitanEngine
                     overlayBitmap.Render(overlayVisual);
 
                     string overlayFile = FormatSequenceFilePath(overlayPattern, i + 1);
-                    SaveBitmap(overlayBitmap, overlayFile);
-
-                    if (i < 8)
-                    {
-                        string previewFile = Path.Combine(previewDir, $"preview_{i + 1:D2}.png");
-                        File.Copy(overlayFile, previewFile, overwrite: true);
-                    }
+                    string? previewFile = i < 8
+                        ? Path.Combine(previewDir, $"preview_{i + 1:D2}.png")
+                        : null;
+                    pngWriter.CaptureAndEnqueue(overlayBitmap, overlayFile, previewFile);
                 }
+
+                pngWriter.Complete();
             }, token);
 
             onLog($"[DREAMY-DOT] Generated dreamy dot drift overlay @ {renderW}x{renderH}, fps={safeFps:0.00}, frames={frameCount}, preview={previewDir}");
