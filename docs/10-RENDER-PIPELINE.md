@@ -385,6 +385,10 @@ pre-render timeline (mất một generation nén), ảnh được scale trước
   - `BuildSingleClipGraph` đặt `scale,crop,setsar=1,format=yuva420p` **trước** `loop` (chỉ scale ~150 frame loop thay vì hàng nghìn frame lặp ở đầu ra 4K/scaled) và `GenerateOverlayAsync` dùng `File.Copy` cho preview frame thay vì nén PNG lần hai.
   - Song song hoá bước trích frame kiểm tra nền overlay (`OverlayAssetBackgroundAnalyzer.SampleCoverageAsync`, tối đa 5 frame qua `Task.WhenAll`) và chạy song song nhánh phân tích audible gate.
   - Cache có giới hạn (≤ 256 mục, keyed theo path + length + mtime + tham số): `AutoLoopStartCache` (bỏ qua scan 120s khi auto-scan lặp lại) và `AudibleIntervalsCache` (trả defensive copy, bỏ qua `silencedetect` lặp lại trên cùng audio/duration/scale).
+- **Audio pre-pass PCM WAV không nén (`pcm_f32le` / `pcm_s16le` + `-rf64 auto`):** toàn bộ file audio tạm của Trim/Edit, IR Reverb, Overlay Mix, Ducking và fallback Merge chuyển khỏi `.m4a` AAC lossy sang `.wav` lossless để vừa nhanh gấp nhiều lần vừa triệt tiêu suy hao nén lặp nhiều chặng.
+- **Single-write Cover Art + `-movflags +faststart` & Split `-c copy`:** render chính ghi ra temp rồi mux cover 50% + `+faststart` một lượt thẳng ra `outPath` (tránh ghi đúp/move chéo ổ đĩa); khi bật `SplitDurationSeconds`, ép IDR keyframe (`-force_key_frames` + `-forced-idr 1` trên NVENC) ngay lúc render và cắt đoạn bằng `-f segment -c copy` không nén lại.
+- **Parallel lossless PNG writer & SHA-256 Disk Cache cho 5 bộ Overlay:** tách nén PNG sang đa nhân qua `ParallelPngSequenceWriter` (`ArrayPool<byte>`, giữ nguyên 100% pixel `Pbgra32`) và cache SHA-256 trên đĩa cho `RGB Polaroid`, `Scratch Video`, `Dashed Polaroid`, `Polaroid 2`, `Snowfall`.
+- **Multi-image lossless BMP fast-path, Brand Logo RGBA pre-composite, Concat seam check & Whisper SRT cache:** ghép nhiều ảnh tĩnh không template qua khung `.bmp` Lanczos lossless + `ffconcat` 1 pass; trộn sẵn `brandglow + brandfit` trên 1 frame `rgba` tĩnh; kiểm tra nối concat ±3s quanh seam; và cache phụ đề `.srt` của Whisper AI theo hash audio/model/language.
 
 ## 13. Bẫy
 

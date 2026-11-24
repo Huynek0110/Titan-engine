@@ -82,6 +82,8 @@ namespace TitanEngine
             bool HasAudio);
         private static readonly ConcurrentDictionary<string, MediaProbeCacheEntry> _mediaProbeCache =
             new ConcurrentDictionary<string, MediaProbeCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> _concatSignatureCache =
+            new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // [NEW] Check if FFmpeg supports GPU encoders
         private static readonly object _nvencCheckLock = new object();
@@ -1581,6 +1583,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string? tempMergedAudioPath = null;
             string? tempAudioOverlayMixPath = null;
             string? tempEditedAudioPath = null;
+            string? tempRawRenderOutputPath = null;
             var tempTemplateArtifacts = new List<string>();
             try
             {
@@ -1791,6 +1794,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     {
                         onLog("[CAPTION-SYNC] 🎙️ Generating AI Captions from Audio 1 (Pre-pass)...");
                         captionAssPath = await GenerateCaptionSyncAssAsync(job, job.AudioPath, token, onProgress, onLog);
+                        if (!string.IsNullOrWhiteSpace(captionAssPath))
+                            tempTemplateArtifacts.Add(captionAssPath);
                     }
                     else
                     {
@@ -1844,8 +1849,19 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     imageFastPathVideoTrimInactive &&
                     imageFastPathUpscaleInactive &&
                     imageFastPathAudioReady;
+                bool multiImageFastPath =
+                    containsImageSource &&
+                    !templateEnabled &&
+                    !job.EnableCrossTransitions &&
+                    timelineInputs.Count > 1 &&
+                    timelineInputs.All(IsStaticSingleFrameImagePath) &&
+                    imageFastPathVideoTrimInactive &&
+                    imageFastPathUpscaleInactive &&
+                    imageFastPathAudioReady &&
+                    !HasCropEffect(job);
 
                 string videoToEncode = job.SourcePath;
+                string soundBarFallbackVideoPath = timelineInputs.FirstOrDefault() ?? job.SourcePath;
                 bool lightLeakBurnTransitionBaked = false;
                 double imageTimelineTotalDurationOverride = 0.0;
                 if (templateEnabled || containsImageSource)
@@ -1870,6 +1886,24 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         job.DurationSec = imageTimelineTotalDurationOverride;
                         onLog($"[IMAGE-FASTPATH] Single still + music: skipping the timeline pre-render ({imageTimelineTotalDurationOverride:F2}s, 1 encode pass instead of 2)");
                     }
+                    else if (multiImageFastPath)
+                    {
+                        string multiImgTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
+                        var preparedMulti = await BuildLosslessMultiImageConcatAsync(
+                            timelineInputs,
+                            multiImgTag,
+                            job,
+                            imageTimelineTotalDurationOverride,
+                            token,
+                            onLog);
+                        videoToEncode = preparedMulti.ConcatListPath;
+                        tempTemplateArtifacts.AddRange(preparedMulti.TempArtifacts);
+                        job.DurationSec = preparedMulti.DurationSec;
+                        job.SourceWidth = preparedMulti.Width;
+                        job.SourceHeight = preparedMulti.Height;
+                        job.SourceFps = preparedMulti.Fps;
+                        onLog($"[IMAGE-FASTPATH] Multi-still ({timelineInputs.Count} images, {preparedMulti.DurationSec:F2}s): lossless BMP concat ready (skipping N+1 H.264 intermediate encodes)");
+                    }
                     else
                     {
                         string templateTag = $"{Path.GetFileNameWithoutExtension(rawName)}_{job.Guid}";
@@ -1884,6 +1918,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             token,
                             onLog);
                         videoToEncode = prepared.OutputPath;
+                        soundBarFallbackVideoPath = videoToEncode;
                         tempTemplateArtifacts.AddRange(prepared.TempArtifacts);
                         if (prepared.DurationSec > 0.01)
                             job.DurationSec = prepared.DurationSec;
@@ -1987,12 +2022,23 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 if (singleImageFastPath)
                 {
-                    singleImageLoopFps = job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
-                        ? Math.Clamp(job.SourceFps, 10.0, 120.0)
-                        : 30.0;
+                    singleImageLoopFps = job.Enable60fps
+                        ? 60.0
+                        : (job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
+                            ? Math.Clamp(job.SourceFps, 10.0, 120.0)
+                            : 30.0);
                     singleImageLoopDuration = Math.Max(0.10, imageTimelineTotalDurationOverride);
                     cmd.Append($"-y {FfmpegThreadCapArguments()}-framerate {FfmpegDouble(singleImageLoopFps, 3)} -i \"{videoToEncode}\" ");
                     onLog($"[IMAGE-FASTPATH] Input: single-frame decode + in-graph loop @ {singleImageLoopFps:F3}fps for {singleImageLoopDuration:F3}s");
+                }
+                else if (multiImageFastPath)
+                {
+                    singleImageLoopFps = job.SourceFps > 0.1 && !double.IsNaN(job.SourceFps) && !double.IsInfinity(job.SourceFps)
+                        ? Math.Clamp(job.SourceFps, 10.0, 120.0)
+                        : 30.0;
+                    singleImageLoopDuration = Math.Max(0.10, job.DurationSec);
+                    cmd.Append($"-y {FfmpegThreadCapArguments()}-f concat -safe 0 -i \"{videoToEncode}\" ");
+                    onLog($"[IMAGE-FASTPATH] Input: lossless BMP concat + in-graph fps expansion @ {singleImageLoopFps:F3}fps for {singleImageLoopDuration:F3}s");
                 }
                 else
                 {
@@ -2060,7 +2106,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 SoundBarGeneratedOverlay? soundBarOverlay = null;
                 List<AudioInterval>? soundBarAudibleIntervals = null;
 
-                bool hasSourceAudio = await HasAudioStreamAsync(videoToEncode);
+                bool hasSourceAudio = !multiImageFastPath && await HasAudioStreamAsync(videoToEncode);
                 if (hasExternalAudio && hasSourceAudio)
                     onLog("[FFMPEG-MAP] Audio sources detected: source video + external audio");
                 else if (hasExternalAudio)
@@ -2743,7 +2789,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         string soundBarPcmDir = Path.Combine(GetTitanTempDir(), "soundbar_pcm");
 
                         soundBarAnalysis = await AudioSpectrumAnalyzer.AnalyzeAsync(
-                            videoToEncode,
+                            multiImageFastPath ? soundBarFallbackVideoPath : videoToEncode,
                             externalAudioPath,
                             soundBarSourceMode,
                             0.0,
@@ -2973,8 +3019,15 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             {
                                 if (int.TryParse(match.Groups[1].Value, out int w) && int.TryParse(match.Groups[2].Value, out int h))
                                 {
-                                    scaleFilter = $"scale={w}:{h}:flags=lanczos";
-                                    onLog($"[FILTER-RESOLUTION] Basic scaling to {w}x{h}");
+                                    if (multiImageFastPath && !hasCropFx && job.SourceWidth == w && job.SourceHeight == h)
+                                    {
+                                        onLog($"[FILTER-RESOLUTION] Skipping redundant scale ({w}x{h} already normalized in lossless BMP concat)");
+                                    }
+                                    else
+                                    {
+                                        scaleFilter = $"scale={w}:{h}:flags=lanczos";
+                                        onLog($"[FILTER-RESOLUTION] Basic scaling to {w}x{h}");
+                                    }
                                 }
                             }
                         }
@@ -2985,8 +3038,15 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             {
                                 if (int.TryParse(match.Groups[1].Value, out int height))
                                 {
-                                    scaleFilter = $"scale=-2:{height}:flags=lanczos";
-                                    onLog($"[FILTER-RESOLUTION] Basic scaling to -2:{height}");
+                                    if (multiImageFastPath && !hasCropFx && job.SourceHeight == height && (job.SourceWidth & 1) == 0)
+                                    {
+                                        onLog($"[FILTER-RESOLUTION] Skipping redundant scale (-2:{height} already normalized in lossless BMP concat)");
+                                    }
+                                    else
+                                    {
+                                        scaleFilter = $"scale=-2:{height}:flags=lanczos";
+                                        onLog($"[FILTER-RESOLUTION] Basic scaling to -2:{height}");
+                                    }
                                 }
                             }
                         }
@@ -3013,7 +3073,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     !hasLightLeakBurnFx &&
                     !hasScratchVideoFx;
                 bool hasTimeVaryingPreFadeFilter =
-                    job.Enable60fps ||
+                    (!singleImageFastPath && job.Enable60fps) ||
                     job.RsmbIntensity > 0.01 ||
                     hasTimeVaryingFx ||
                     useRgbPolaroidLedEffect ||
@@ -3028,19 +3088,28 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     : (estimatedOutputDuration > 0.01 ? estimatedOutputDuration : singleImageLoopDuration);
                 string singleImageLoopFilter =
                     $"format=yuv420p,loop=loop=-1:size=1:start=0,setpts=N/{FfmpegDouble(singleImageLoopFps, 3)}/TB,trim=duration={FfmpegDouble(Math.Max(0.10, effectiveStillLoopDuration), 3)}";
+                string multiImageLoopFilter =
+                    $"fps={FfmpegDouble(singleImageLoopFps, 3)},format=yuv420p,trim=duration={FfmpegDouble(Math.Max(0.10, effectiveStillLoopDuration), 3)}";
 
-                if (singleImageFastPath && hasTimeVaryingPreFadeFilter)
+                if ((singleImageFastPath || multiImageFastPath) && hasTimeVaryingPreFadeFilter)
                 {
                     if (filterChain.Length > 0) filterChain.Append(",");
-                    filterChain.Append(singleImageLoopFilter);
+                    filterChain.Append(singleImageFastPath ? singleImageLoopFilter : multiImageLoopFilter);
                 }
 
                 // Add Motion Editor (60fps & RSMB)
                 if (job.Enable60fps)
                 {
-                    if (filterChain.Length > 0) filterChain.Append(",");
-                    filterChain.Append("minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps=60'");
-                    onLog("[FILTER-MOTION] AI 60fps Interpolation (Optical Flow) applied");
+                    if (singleImageFastPath)
+                    {
+                        onLog("[FILTER-MOTION] 60fps applied directly via in-graph single-image loop @ 60fps (1-frame static pre-filter)");
+                    }
+                    else
+                    {
+                        if (filterChain.Length > 0) filterChain.Append(",");
+                        filterChain.Append("minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps=60'");
+                        onLog("[FILTER-MOTION] AI 60fps Interpolation (Optical Flow) applied");
+                    }
                 }
 
                 if (job.RsmbIntensity > 0.01)
@@ -3292,10 +3361,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     filterChain.Append(brightnessFilter);
                 }
 
-                if (singleImageFastPath && !hasTimeVaryingPreFadeFilter)
+                if ((singleImageFastPath || multiImageFastPath) && !hasTimeVaryingPreFadeFilter)
                 {
                     if (filterChain.Length > 0) filterChain.Append(",");
-                    filterChain.Append(singleImageLoopFilter);
+                    filterChain.Append(singleImageFastPath ? singleImageLoopFilter : multiImageLoopFilter);
                 }
 
                 string fadeVideoFilter = BuildFadeVideoFilter(fadeSettings, onLog);
@@ -6491,7 +6560,17 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     onLog($"[DURATION-SYNC] Output capped to estimated duration: {outputDurationStr}s");
                 }
 
-                cmd.Append($"\"{outPath}\"");
+                if (job.SplitDurationSeconds > 0.01)
+                {
+                    string splitKeyframeSec = FfmpegDouble(job.SplitDurationSeconds, 3);
+                    cmd.Append($"-force_key_frames \"expr:gte(t,n_forced*{splitKeyframeSec})\" ");
+                    if (encoder.EndsWith("_nvenc", StringComparison.OrdinalIgnoreCase))
+                        cmd.Append("-forced-idr 1 ");
+                    onLog($"[SPLIT-PREP] Forcing IDR keyframes every {splitKeyframeSec}s for lossless stream-copy split.");
+                }
+
+                tempRawRenderOutputPath = Path.Combine(GetTitanTempDir(), $"render_{job.Guid}_{System.Guid.NewGuid():N}.mp4");
+                cmd.Append($"\"{tempRawRenderOutputPath}\"");
 
                 var psi = new ProcessStartInfo
                 {
@@ -6615,7 +6694,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 {
                     string recoveryCodecArgs = $"{BuildVideoCodecArgs("libx264", "medium")}-threads {FfmpegThreadCapCount()} ";
                     string primaryArgs = cmd.ToString();
-                    string recoveryArgs = primaryArgs.Replace(videoCodecArgs, recoveryCodecArgs);
+                    string recoveryArgs = primaryArgs
+                        .Replace(videoCodecArgs, recoveryCodecArgs)
+                        .Replace("-forced-idr 1 ", string.Empty);
 
                     if (string.Equals(primaryArgs, recoveryArgs, StringComparison.Ordinal))
                         throw new Exception($"FFmpeg failed with exit code: {failedExitCode}");
@@ -6640,7 +6721,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 if (shouldValidateOutput)
                 {
                     onLog("[OUTPUT-VALIDATION] Checking decode integrity (hardware + slow motion)...");
-                    bool outputValid = await ValidateOutputBitstreamAsync(outPath, token, onLog);
+                    bool outputValid = await ValidateOutputBitstreamAsync(tempRawRenderOutputPath, token, onLog);
 
                     if (!outputValid)
                     {
@@ -6648,7 +6729,9 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                         string recoveryCodecArgs = $"{BuildVideoCodecArgs("libx264", "medium")}-threads {FfmpegThreadCapCount()} ";
                         string primaryArgs = cmd.ToString();
-                        string recoveryArgs = primaryArgs.Replace(videoCodecArgs, recoveryCodecArgs);
+                        string recoveryArgs = primaryArgs
+                            .Replace(videoCodecArgs, recoveryCodecArgs)
+                            .Replace("-forced-idr 1 ", string.Empty);
 
                         if (string.Equals(primaryArgs, recoveryArgs, StringComparison.Ordinal))
                             throw new Exception("Could not prepare recovery command for CPU re-encode.");
@@ -6662,7 +6745,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             throw new Exception($"Recovery re-encode failed with exit code: {recoveryExitCode}");
                         }
 
-                        bool recoveryValid = await ValidateOutputBitstreamAsync(outPath, token, onLog);
+                        bool recoveryValid = await ValidateOutputBitstreamAsync(tempRawRenderOutputPath, token, onLog);
                         if (!recoveryValid)
                             throw new Exception("Recovery encode completed but output still failed decode validation.");
 
@@ -6670,72 +6753,71 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     }
                 }
 
-                // [NEW] Set 50% thumbnail logic to avoid bright intro frames
+                // Finalize output in a SINGLE write to outPath (cover art + faststart in one lossless mux,
+                // avoiding writing outPath twice and avoiding cross-volume File.Move copies).
+                bool finalizedToOutPath = false;
                 try
                 {
-                    if (File.Exists(outPath))
+                    if (File.Exists(tempRawRenderOutputPath))
                     {
                         onLog("[THUMBNAIL] Extracting 50% frame for default cover art...");
-                        // BOTH scratch files live in the engine temp dir, NOT next to the output.
-                        // They used to be outPath + ".thumb.jpg" / ".mux.mp4": scratch names that
-                        // Explorer shows as a mysterious companion JPG beside the finished MP4
-                        // whenever the cleanup lost a race with the antivirus/ indexer locking the
-                        // just-written file - the delete threw, the catch swallowed it, and the
-                        // "thumbnail" stayed in the user's output folder for good.
                         string tempThumbPath = Path.Combine(GetTitanTempDir(), $"cover_{System.Guid.NewGuid():N}.jpg");
-                        string tempMuxPath = Path.Combine(GetTitanTempDir(), $"cover_{System.Guid.NewGuid():N}.mux.mp4");
-
-                        double actualDuration = estimatedOutputDuration;
-                        if (actualDuration <= 0) actualDuration = 10.0; // fallback if unknown
-                        double halfDuration = Math.Max(0.1, actualDuration / 2.0);
-
-                        var extractPsi = new ProcessStartInfo
+                        try
                         {
-                            FileName = _ffmpegPath,
-                            Arguments = $"-y -ss {FfmpegDouble(halfDuration, 3)} -i \"{outPath}\" -vframes 1 -q:v 2 \"{tempThumbPath}\"",
-                            UseShellExecute = false, CreateNoWindow = true
-                        };
-                        using (var p = Process.Start(extractPsi))
-                        {
-                            if (p != null)
-                            {
-                                try { await p.WaitForExitAsync(token); }
-                                catch (OperationCanceledException) { try { p.Kill(); } catch { } throw; }
-                            }
-                        }
+                            double actualDuration = estimatedOutputDuration;
+                            if (actualDuration <= 0) actualDuration = 10.0;
+                            double halfDuration = Math.Max(0.1, actualDuration / 2.0);
 
-                        if (File.Exists(tempThumbPath))
-                        {
-                            onLog("[THUMBNAIL] Embedding cover art...");
-                            var muxPsi = new ProcessStartInfo
+                            string extractThumbArgs =
+                                $"-nostdin -v error -y -hwaccel auto -ss {FfmpegDouble(halfDuration, 3)} -i \"{tempRawRenderOutputPath}\" -frames:v 1 -q:v 2 \"{tempThumbPath}\"";
+                            await RunFfmpegCaptureAsync(extractThumbArgs, token);
+
+                            if (File.Exists(tempThumbPath) && new FileInfo(tempThumbPath).Length > 0)
                             {
-                                FileName = _ffmpegPath,
-                                Arguments = $"-y -i \"{outPath}\" -i \"{tempThumbPath}\" -map 0:v:0 -map 0:a? -map 1 -c copy -c:v:1 mjpeg -disposition:v:1 attached_pic \"{tempMuxPath}\"",
-                                UseShellExecute = false, CreateNoWindow = true
-                            };
-                            using (var p = Process.Start(muxPsi))
-                            {
-                                if (p != null)
+                                onLog("[THUMBNAIL] Embedding cover art + faststart directly into final output...");
+                                string muxCoverArgs =
+                                    $"-nostdin -v error -y -i \"{tempRawRenderOutputPath}\" -i \"{tempThumbPath}\" " +
+                                    $"-map 0:v:0 -map 0:a? -map 1 -c copy -c:v:1 mjpeg -disposition:v:1 attached_pic -movflags +faststart \"{outPath}\"";
+                                var (muxExit, muxErr) = await RunFfmpegCaptureAsync(muxCoverArgs, token);
+                                if (muxExit == 0 && File.Exists(outPath) && new FileInfo(outPath).Length > 0)
                                 {
-                                    try { await p.WaitForExitAsync(token); }
-                                    catch (OperationCanceledException) { try { p.Kill(); } catch { } throw; }
+                                    finalizedToOutPath = true;
+                                    onLog("[THUMBNAIL] Cover art + faststart successfully applied.");
+                                }
+                                else if (!string.IsNullOrWhiteSpace(muxErr))
+                                {
+                                    onLog($"[THUMBNAIL-WARN] Cover mux exited with {muxExit}: {muxErr.Trim()}");
                                 }
                             }
-
-                            if (File.Exists(tempMuxPath))
-                            {
-                                File.Delete(outPath);
-                                File.Move(tempMuxPath, outPath);
-                            }
+                        }
+                        finally
+                        {
                             TryDeleteFileSafe(tempThumbPath);
-                            TryDeleteFileSafe(tempMuxPath);
-                            onLog("[THUMBNAIL] Cover art successfully applied.");
                         }
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     onLog($"[THUMBNAIL-WARN] Failed to set thumbnail: {ex.Message}");
+                }
+
+                if (!finalizedToOutPath && File.Exists(tempRawRenderOutputPath))
+                {
+                    string faststartArgs =
+                        $"-nostdin -v error -y -i \"{tempRawRenderOutputPath}\" -c copy -movflags +faststart \"{outPath}\"";
+                    var (fastExit, _) = await RunFfmpegCaptureAsync(faststartArgs, token);
+                    if (fastExit == 0 && File.Exists(outPath) && new FileInfo(outPath).Length > 0)
+                        finalizedToOutPath = true;
+
+                    if (!finalizedToOutPath)
+                    {
+                        File.Move(tempRawRenderOutputPath, outPath, overwrite: true);
+                        tempRawRenderOutputPath = null;
+                    }
                 }
 
                 onProgress(100.0);
@@ -6772,6 +6854,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 TryDeleteFileSafe(tempMergedAudioPath);
                 TryDeleteFileSafe(tempAudioOverlayMixPath);
                 TryDeleteFileSafe(tempEditedAudioPath);
+                TryDeleteFileSafe(tempRawRenderOutputPath);
                 foreach (string tempPath in tempTemplateArtifacts)
                     TryDeleteFileSafe(tempPath);
             }
@@ -6805,7 +6888,8 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
         }
 
         /// <summary>
-        /// Splits a rendered video into exact segments by querying duration and rendering each part individually.
+        /// Splits a rendered video into exact segments using lossless stream-copy on keyframe-aligned boundaries
+        /// (falling back to segment re-encode only if stream-copy segmentation fails).
         /// </summary>
         private static async Task<List<string>> SplitRenderedVideoAsync(string inputPath, double segmentDurationSec, string encoder, CancellationToken token, Action<string> onLog)
         {
@@ -6817,31 +6901,57 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string ext = Path.GetExtension(inputPath);
                 if (string.IsNullOrEmpty(dir)) dir = AppDomain.CurrentDomain.BaseDirectory;
 
+                for (int i = 0; i < 999; i++)
+                {
+                    string stalePart = Path.Combine(dir, $"{baseName}_part{i:D3}{ext}");
+                    if (File.Exists(stalePart)) TryDeleteFileSafe(stalePart);
+                    else break;
+                }
+
+                string segDurStr = FfmpegDouble(Math.Max(0.1, segmentDurationSec), 3);
+                string pattern = Path.Combine(dir, $"{baseName}_part%03d{ext}");
+                string fastCopyArgs =
+                    $"-y -i \"{inputPath}\" -map 0:v:0 -map 0:a? -c copy " +
+                    $"-f segment -segment_time {segDurStr} -reset_timestamps 1 " +
+                    $"-segment_format_options movflags=+faststart \"{pattern}\"";
+
+                onLog($"[SPLIT] Running lossless stream-copy split ({segDurStr}s segments)...");
+                var (copyExit, copyErr) = await RunFfmpegCaptureAsync(fastCopyArgs, token);
+                if (copyExit == 0)
+                {
+                    for (int i = 0; i < 999; i++)
+                    {
+                        string segPath = Path.Combine(dir, $"{baseName}_part{i:D3}{ext}");
+                        if (File.Exists(segPath) && new FileInfo(segPath).Length > 0)
+                        {
+                            result.Add(segPath);
+                            onLog($"[SPLIT] Created (lossless): {Path.GetFileName(segPath)}");
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+
+                    if (result.Count > 0)
+                        return result;
+                }
+
+                string copyErrSummary = string.Join(" | ",
+                    (copyErr ?? string.Empty).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).TakeLast(4));
+                onLog($"[SPLIT-WARN] Lossless split did not complete ({copyErrSummary}). Falling back to per-part encode...");
+
                 string encoderArgs = BuildVideoCodecArgs(encoder, "medium");
 
                 double totalDurationSec = await GetVideoDurationForSplitAsync(inputPath);
                 if (totalDurationSec <= 0.0)
                 {
                     onLog("[SPLIT-ERROR] Cannot get total duration of video. Falling back to segment muxer...");
-                    // Fallback to segment muxer
-                    string pattern = Path.Combine(dir, $"{baseName}_part%03d{ext}");
-                    string args = $"-y -i \"{inputPath}\" -force_key_frames \"expr:gte(t,n_forced*{segmentDurationSec:F2})\" {encoderArgs} -c:a aac -b:a 192k -f segment -segment_time {segmentDurationSec:F2} -reset_timestamps 1 \"{pattern}\"";
-                    
-                    var psi = new System.Diagnostics.ProcessStartInfo { FileName = _ffmpegPath ?? "ffmpeg.exe", Arguments = args, UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = false };
-                    using var process = new System.Diagnostics.Process { StartInfo = psi };
-                    process.Start();
-                    Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-                    try
-                    {
-                        await process.WaitForExitAsync(token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        try { process.Kill(); } catch { }
-                        throw;
-                    }
-                    _ = await stderrTask;
-                    
+                    string args = $"-y -i \"{inputPath}\" -map 0:v:0 -map 0:a? -force_key_frames \"expr:gte(t,n_forced*{segDurStr})\" {encoderArgs} -c:a aac -b:a 192k -f segment -segment_time {segDurStr} -reset_timestamps 1 \"{pattern}\"";
+
+                    var (fallbackExit, _) = await RunFfmpegCaptureAsync(args, token);
+                    _ = fallbackExit;
+
                     for (int i = 0; i < 999; i++)
                     {
                         string segPath = Path.Combine(dir, $"{baseName}_part{i:D3}{ext}");
@@ -6856,44 +6966,31 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 for (int i = 0; i < parts; i++)
                 {
                     token.ThrowIfCancellationRequested();
-                    
+
                     double start = i * segmentDurationSec;
                     double durationToEncode = Math.Min(segmentDurationSec, totalDurationSec - start);
                     if (durationToEncode < 0.1) break;
 
                     string partPath = Path.Combine(dir, $"{baseName}_part{i:D3}{ext}");
-                    string args = $"-y -ss {start:F3} -t {durationToEncode:F3} -i \"{inputPath}\" {encoderArgs} -c:a aac -b:a 192k \"{partPath}\"";
+                    string args = $"-y -ss {FfmpegDouble(start, 3)} -t {FfmpegDouble(durationToEncode, 3)} -i \"{inputPath}\" -map 0:v:0 -map 0:a? {encoderArgs} -c:a aac -b:a 192k -movflags +faststart \"{partPath}\"";
 
                     onLog($"[SPLIT] Processing part {i + 1}/{parts} ({durationToEncode:F2}s)...");
-
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = _ffmpegPath ?? "ffmpeg.exe",
-                        Arguments = args,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardError = true,
-                        RedirectStandardOutput = false
-                    };
-
-                    using var process = new System.Diagnostics.Process { StartInfo = psi };
-                    var errLines = new List<string>();
-                    process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) errLines.Add(e.Data); };
-                    process.Start();
-                    process.BeginErrorReadLine();
-                    await process.WaitForExitAsync(token);
-
-                    if (process.ExitCode == 0 && File.Exists(partPath))
+                    var (partExit, partErr) = await RunFfmpegCaptureAsync(args, token);
+                    if (partExit == 0 && File.Exists(partPath))
                     {
                         result.Add(partPath);
                         onLog($"[SPLIT] Created: {Path.GetFileName(partPath)}");
                     }
                     else
                     {
-                        string lastErr = errLines.Count > 0 ? errLines[^1] : "unknown error";
-                        onLog($"[SPLIT-ERROR] Failed on part {i + 1}. Exit code: {process.ExitCode}, Err: {lastErr}");
+                        string lastErr = string.Join(" | ", (partErr ?? string.Empty).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).TakeLast(2));
+                        onLog($"[SPLIT-ERROR] Failed on part {i + 1}. Exit code: {partExit}, Err: {lastErr}");
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -8416,24 +8513,35 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string brandOverlayYExpr =
                     $"min(max({brandOverlayYBaseExpr},{frameTopExpr}),max({frameTopExpr},{frameBottomExpr}-overlay_h))";
 
+                string innerFitXExpr = brandProfile.Position switch
+                {
+                    "Center Top" or "Center Bottom" => "(main_w-overlay_w)/2",
+                    "Top Left" or "Bottom Left" => "0",
+                    _ => "main_w-overlay_w"
+                };
+                string innerFitYExpr = brandProfile.Position switch
+                {
+                    "Center Bottom" or "Bottom Left" or "Bottom Right" => "main_h-overlay_h",
+                    _ => "0"
+                };
+
+                // Pre-composite static [brandfit] onto static [brandglow] ONCE at tiny logo resolution
+                // in full RGBA precision, cutting full-canvas per-frame RGBA overlay passes in half (2 -> 1).
                 graph.Append($"[{brandLogoInputIndex.Value}:v]format=rgba,setpts=PTS-STARTPTS[brandlogo];");
                 graph.Append($"[{currentLabel}]setpts=PTS-STARTPTS[brandbase];");
                 graph.Append($"[brandlogo]split=2[brandmainsrc][brandglowsrc];");
-                graph.Append($"[brandmainsrc][brandbase]scale2ref=w=main_w*{logoScaleExpr}:h=-1[brandfitpre][brandref];");
+                graph.Append($"[brandmainsrc][brandbase]scale2ref=w=main_w*{logoScaleExpr}:h=-1:flags=lanczos[brandfitpre][brandref];");
                 graph.Append($"[brandfitpre]format=rgba[brandfit];");
-                graph.Append($"[brandglowsrc][brandref]scale2ref=w=main_w*{glowScaleExpr}:h=-1[brandglowfitpre][brandref2];");
+                graph.Append($"[brandglowsrc][brandref]scale2ref=w=main_w*{glowScaleExpr}:h=-1:flags=lanczos[brandglowfitpre][brandref2];");
                 graph.Append($"[brandglowfitpre]format=rgba,colorchannelmixer=aa=0.68,gblur=sigma=9:steps=2[brandglow];");
-                graph.Append($"[brandref2][brandglow]overlay=" +
+                graph.Append($"[brandglow][brandfit]overlay=x='{innerFitXExpr}':y='{innerFitYExpr}':format=rgb[brandcombined];");
+                graph.Append($"[brandref2][brandcombined]overlay=" +
                     $"x='{brandOverlayXExpr}':" +
                     $"y='{brandOverlayYExpr}':" +
-                    $"eval=frame[brandglowout];");
-                graph.Append($"[brandglowout][brandfit]overlay=" +
-                    $"x='{brandOverlayXExpr}':" +
-                    $"y='{brandOverlayYExpr}':" +
-                    $"eval=frame[brandout];");
+                    $"eval=frame:format=rgb[brandout];");
 
                 currentLabel = "brandout";
-                onLog($"[FILTER-BRAND-LOGO] width~{brandProfile.RelativeWidth:P0} of canvas, pos={brandProfile.Position}, glow=on, bob={bounceAmplitude:F1}px");
+                onLog($"[FILTER-BRAND-LOGO] width~{brandProfile.RelativeWidth:P0} of canvas, pos={brandProfile.Position}, glow=precomposited-rgba, bob={bounceAmplitude:F1}px");
             }
 
             if (watermarkInputIndex.HasValue)
@@ -8451,24 +8559,37 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 string xExpr = FfmpegDouble(x, 6);
                 string yExpr = FfmpegDouble(y, 6);
 
-                graph.Append($"[{watermarkInputIndex.Value}:v]format=rgba,colorchannelmixer=aa={opacityExpr}[wmalpha];");
-                graph.Append($"[wmalpha][{currentLabel}]scale2ref=w=main_w*{scaleExpr}:h=-1[wmfit][vref];");
-                graph.Append($"[wmfit]rotate={rotationExpr}:c=none:ow=rotw(iw):oh=roth(ih)[wmrot];");
+                string wmAlphaStep = opacity >= 0.9995
+                    ? "format=rgba"
+                    : $"format=rgba,colorchannelmixer=aa={opacityExpr}";
+                graph.Append($"[{watermarkInputIndex.Value}:v]{wmAlphaStep}[wmalpha];");
+                graph.Append($"[wmalpha][{currentLabel}]scale2ref=w=main_w*{scaleExpr}:h=-1:flags=lanczos[wmfit][vref];");
+
+                string wmReadyLabel;
+                if (Math.Abs(job.WatermarkRotation) > 0.001)
+                {
+                    graph.Append($"[wmfit]rotate={rotationExpr}:c=none:ow=rotw(iw):oh=roth(ih)[wmrot];");
+                    wmReadyLabel = "wmrot";
+                }
+                else
+                {
+                    wmReadyLabel = "wmfit";
+                }
 
                 string overlay =
                     $"overlay=x='min(max(main_w*{xExpr}-overlay_w/2,0),max(0,main_w-overlay_w))':" +
-                    $"y='min(max(main_h*{yExpr}-overlay_h/2,0),max(0,main_h-overlay_h))'";
+                    $"y='min(max(main_h*{yExpr}-overlay_h/2,0),max(0,main_h-overlay_h))':format=rgb";
 
-                graph.Append($"[vref][wmrot]{overlay}[vwm];");
+                graph.Append($"[vref][{wmReadyLabel}]{overlay}[vwm];");
                 currentLabel = "vwm";
 
-                onLog($"[FILTER-WATERMARK] scale={scale:F2} (~{relativeWidth:P0} width), opacity={opacity:F2}, rotate={job.WatermarkRotation:F1}, x={x:P1}, y={y:P1}");
+                onLog($"[FILTER-WATERMARK] scale={scale:F2} (~{relativeWidth:P0} width), opacity={opacity:F2}, rotate={job.WatermarkRotation:F1}, x={x:P1}, y={y:P1} (RGBA crisp)");
             }
 
             if (!string.IsNullOrWhiteSpace(postVideoFilters))
                 graph.Append($"[{currentLabel}]format=yuv420p,{postVideoFilters}[vout]");
             else
-                graph.Append($"[{currentLabel}]null[vout]");
+                graph.Append($"[{currentLabel}]format=yuv420p[vout]");
 
             return graph.ToString();
         }
@@ -9109,6 +9230,20 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
                 return string.Empty;
 
+            string sigCacheKey;
+            try
+            {
+                string fullPath = Path.GetFullPath(filePath.Trim());
+                var fi = new FileInfo(fullPath);
+                sigCacheKey = $"{fullPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+                if (_concatSignatureCache.TryGetValue(sigCacheKey, out string? cachedSig) && !string.IsNullOrEmpty(cachedSig))
+                    return cachedSig;
+            }
+            catch
+            {
+                sigCacheKey = string.Empty;
+            }
+
             try
             {
                 var psi = new ProcessStartInfo
@@ -9211,7 +9346,21 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     });
                 }
 
-                return $"V:{videoSig}||A:{audioSig}";
+                string computedSignature = $"V:{videoSig}||A:{audioSig}";
+                if (!string.IsNullOrEmpty(sigCacheKey))
+                {
+                    if (_concatSignatureCache.Count >= MaxMediaProbeCacheEntries && !_concatSignatureCache.ContainsKey(sigCacheKey))
+                    {
+                        int toRemove = MaxMediaProbeCacheEntries / 4;
+                        foreach (string key in _concatSignatureCache.Keys)
+                        {
+                            if (toRemove-- <= 0) break;
+                            _concatSignatureCache.TryRemove(key, out _);
+                        }
+                    }
+                    _concatSignatureCache[sigCacheKey] = computedSignature;
+                }
+                return computedSignature;
             }
             catch
             {
@@ -9704,111 +9853,175 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 }
             }
 
-            string tempDir = Path.GetDirectoryName(audioPath) ?? Path.GetTempPath();
-            string baseName = Path.GetFileNameWithoutExtension(audioPath);
-            string tempWavPath = Path.Combine(tempDir, $"{baseName}_whisper_temp.wav");
-            string tempSrtBase = Path.Combine(tempDir, $"{baseName}_whisper_caption");
+            string tempDir = GetTitanTempDir();
+            string runId = $"{job.Guid}_{System.Guid.NewGuid():N}";
+            string tempWavPath = Path.Combine(tempDir, $"whisper_{runId}.wav");
+            string tempSrtBase = Path.Combine(tempDir, $"whisper_{runId}_caption");
             string tempSrtPath = tempSrtBase + ".srt";
+
+            // Determine language code upfront so cache key covers audio identity + model + language
+            string langCode = "auto";
+            string langSetting = job.CaptionSyncLanguage?.Trim() ?? "auto";
+            if (langSetting.Contains("Việt", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("vi", StringComparison.OrdinalIgnoreCase))
+                langCode = "vi";
+            else if (langSetting.Contains("English", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("en", StringComparison.OrdinalIgnoreCase))
+                langCode = "en";
+            else if (langSetting.Contains("Japanese", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("ja", StringComparison.OrdinalIgnoreCase))
+                langCode = "ja";
+            else if (langSetting.Contains("Korean", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("ko", StringComparison.OrdinalIgnoreCase))
+                langCode = "ko";
+            else if (langSetting.Contains("Chinese", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("zh", StringComparison.OrdinalIgnoreCase))
+                langCode = "zh";
+
+            string whisperCacheDir = Path.Combine(Path.GetTempPath(), "TitanEngine", "whisper_cache");
+            string cachedSrtPath = string.Empty;
+            try
+            {
+                string fullAudio = Path.GetFullPath(audioPath.Trim());
+                var audioInfo = new FileInfo(fullAudio);
+                string whisperKeyMaterial = $"whisper-v1|{fullAudio}|{audioInfo.Length}|{audioInfo.LastWriteTimeUtc.Ticks}|{modelFileName}|{langCode}";
+                string whisperHash = ProceduralOverlayDiskCache.BuildHashKey(whisperKeyMaterial, 24);
+                cachedSrtPath = Path.Combine(whisperCacheDir, $"{whisperHash}.srt");
+            }
+            catch
+            {
+                cachedSrtPath = string.Empty;
+            }
 
             try
             {
-                // ───────────────────────────────────────────────
-                // STEP 1: Extract audio from video → WAV 16kHz mono
-                // ───────────────────────────────────────────────
-                onLog("[CAPTION-SYNC] Step 1/3: Extracting audio from video...");
-                string ffmpegPath = Path.Combine(appDir, "ffmpeg.exe");
-                if (!File.Exists(ffmpegPath))
-                    ffmpegPath = "ffmpeg"; // fallback to PATH
-
-                // EQ filter isolates the vocal frequencies so Whisper can hear singing over loud music
-                var extractArgs = $"-i \"{audioPath}\" -af \"highpass=f=200, lowpass=f=3000, equalizer=f=1500:t=q:w=1:g=10\" -ar 16000 -ac 1 -c:a pcm_s16le -y \"{tempWavPath}\"";
-                onLog($"[CAPTION-SYNC] ffmpeg {extractArgs}");
-
-                var extractPsi = new ProcessStartInfo
+                string srtContent;
+                if (!string.IsNullOrEmpty(cachedSrtPath) && File.Exists(cachedSrtPath))
                 {
-                    FileName = ffmpegPath,
-                    Arguments = extractArgs,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-
-                using (var extractProcess = new Process { StartInfo = extractPsi })
+                    srtContent = await File.ReadAllTextAsync(cachedSrtPath, token);
+                    try { File.SetLastWriteTimeUtc(cachedSrtPath, DateTime.UtcNow); } catch { }
+                    int cachedCaptionCount = srtContent.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries).Length;
+                    onLog($"[CAPTION-SYNC-CACHE] Reusing cached Whisper SRT transcription ({cachedCaptionCount} segments).");
+                }
+                else
                 {
-                    extractProcess.Start();
-                    string extractStderr = await extractProcess.StandardError.ReadToEndAsync();
-                    await extractProcess.WaitForExitAsync(token);
+                    // ───────────────────────────────────────────────
+                    // STEP 1: Extract audio from video → WAV 16kHz mono
+                    // ───────────────────────────────────────────────
+                    onLog("[CAPTION-SYNC] Step 1/3: Extracting audio from video...");
+                    string ffmpegPath = Path.Combine(appDir, "ffmpeg.exe");
+                    if (!File.Exists(ffmpegPath))
+                        ffmpegPath = "ffmpeg"; // fallback to PATH
 
-                    if (extractProcess.ExitCode != 0 || !File.Exists(tempWavPath))
+                    // EQ filter isolates the vocal frequencies so Whisper can hear singing over loud music
+                    var extractArgs = $"-nostdin -i \"{audioPath}\" -af \"highpass=f=200, lowpass=f=3000, equalizer=f=1500:t=q:w=1:g=10\" -ar 16000 -ac 1 -c:a pcm_s16le -y \"{tempWavPath}\"";
+                    onLog($"[CAPTION-SYNC] ffmpeg {extractArgs}");
+
+                    var extractPsi = new ProcessStartInfo
                     {
-                        onLog($"[CAPTION-SYNC-ERROR] Failed to extract audio: {extractStderr}");
+                        FileName = ffmpegPath,
+                        Arguments = extractArgs,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardError = true
+                    };
+
+                    using (var extractProcess = new Process { StartInfo = extractPsi })
+                    {
+                        extractProcess.Start();
+                        Task<string> extractStderrTask = extractProcess.StandardError.ReadToEndAsync();
+                        try
+                        {
+                            await extractProcess.WaitForExitAsync(token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            try { extractProcess.Kill(true); } catch { }
+                            throw;
+                        }
+                        string extractStderr = await extractStderrTask;
+
+                        if (extractProcess.ExitCode != 0 || !File.Exists(tempWavPath))
+                        {
+                            onLog($"[CAPTION-SYNC-ERROR] Failed to extract audio: {extractStderr}");
+                            return "";
+                        }
+                    }
+
+                    var wavInfo = new FileInfo(tempWavPath);
+                    onLog($"[CAPTION-SYNC] Audio extracted: {wavInfo.Length / 1024} KB");
+
+                    // ───────────────────────────────────────────────
+                    // STEP 2: Run Whisper CLI → Generate SRT
+                    // ───────────────────────────────────────────────
+                    onLog("[CAPTION-SYNC] Step 2/3: Running Whisper AI transcription...");
+
+                    int threadCount = Math.Max(4, Environment.ProcessorCount - 2);
+                    string langArg = langCode == "auto" ? "-l auto" : $"-l {langCode}";
+                    var whisperArgs = $"-m \"{whisperModel}\" -f \"{tempWavPath}\" -osrt -of \"{tempSrtBase}\" {langArg} -bs 5 -mc 0 -ml 60 -sow -t {threadCount} -np";
+                    onLog($"[CAPTION-SYNC] whisper-cli {whisperArgs}");
+
+                    var whisperPsi = new ProcessStartInfo
+                    {
+                        FileName = whisperExe,
+                        Arguments = whisperArgs,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    using (var whisperProcess = new Process { StartInfo = whisperPsi })
+                    {
+                        whisperProcess.Start();
+                        Task<string> whisperStdoutTask = whisperProcess.StandardOutput.ReadToEndAsync();
+                        Task<string> whisperStderrTask = whisperProcess.StandardError.ReadToEndAsync();
+                        try
+                        {
+                            await whisperProcess.WaitForExitAsync(token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            try { whisperProcess.Kill(true); } catch { }
+                            throw;
+                        }
+                        _ = await whisperStdoutTask;
+                        string whisperStderr = await whisperStderrTask;
+
+                        if (!string.IsNullOrWhiteSpace(whisperStderr))
+                            onLog($"[CAPTION-SYNC] Whisper log: {whisperStderr.Trim()}");
+
+                        if (whisperProcess.ExitCode != 0)
+                        {
+                            onLog($"[CAPTION-SYNC-ERROR] Whisper failed (exit {whisperProcess.ExitCode}): {whisperStderr}");
+                            return "";
+                        }
+                    }
+
+                    if (!File.Exists(tempSrtPath))
+                    {
+                        onLog($"[CAPTION-SYNC-ERROR] SRT file not generated at: {tempSrtPath}");
                         return "";
                     }
-                }
 
-                var wavInfo = new FileInfo(tempWavPath);
-                onLog($"[CAPTION-SYNC] Audio extracted: {wavInfo.Length / 1024} KB");
+                    srtContent = await File.ReadAllTextAsync(tempSrtPath, token);
+                    int captionCount = srtContent.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries).Length;
+                    onLog($"[CAPTION-SYNC] Transcription complete: {captionCount} caption segments detected.");
 
-                // ───────────────────────────────────────────────
-                // STEP 2: Run Whisper CLI → Generate SRT
-                // ───────────────────────────────────────────────
-                onLog("[CAPTION-SYNC] Step 2/3: Running Whisper AI transcription...");
-                
-                // Determine language code
-                string langCode = "auto";
-                string langSetting = job.CaptionSyncLanguage?.Trim() ?? "auto";
-                if (langSetting.Contains("Việt", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("vi", StringComparison.OrdinalIgnoreCase))
-                    langCode = "vi";
-                else if (langSetting.Contains("English", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("en", StringComparison.OrdinalIgnoreCase))
-                    langCode = "en";
-                else if (langSetting.Contains("Japanese", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("ja", StringComparison.OrdinalIgnoreCase))
-                    langCode = "ja";
-                else if (langSetting.Contains("Korean", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("ko", StringComparison.OrdinalIgnoreCase))
-                    langCode = "ko";
-                else if (langSetting.Contains("Chinese", StringComparison.OrdinalIgnoreCase) || langSetting.Equals("zh", StringComparison.OrdinalIgnoreCase))
-                    langCode = "zh";
-
-                int threadCount = Math.Max(4, Environment.ProcessorCount - 2);
-                string langArg = langCode == "auto" ? "-l auto" : $"-l {langCode}";
-                var whisperArgs = $"-m \"{whisperModel}\" -f \"{tempWavPath}\" -osrt -of \"{tempSrtBase}\" {langArg} -bs 5 -mc 0 -ml 60 -sow -t {threadCount} -np";
-                onLog($"[CAPTION-SYNC] whisper-cli {whisperArgs}");
-
-                var whisperPsi = new ProcessStartInfo
-                {
-                    FileName = whisperExe,
-                    Arguments = whisperArgs,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                using (var whisperProcess = new Process { StartInfo = whisperPsi })
-                {
-                    whisperProcess.Start();
-                    string whisperStdout = await whisperProcess.StandardOutput.ReadToEndAsync();
-                    string whisperStderr = await whisperProcess.StandardError.ReadToEndAsync();
-                    await whisperProcess.WaitForExitAsync(token);
-
-                    if (!string.IsNullOrWhiteSpace(whisperStderr))
-                        onLog($"[CAPTION-SYNC] Whisper log: {whisperStderr.Trim()}");
-
-                    if (whisperProcess.ExitCode != 0)
+                    if (!string.IsNullOrEmpty(cachedSrtPath))
                     {
-                        onLog($"[CAPTION-SYNC-ERROR] Whisper failed (exit {whisperProcess.ExitCode}): {whisperStderr}");
-                        return "";
+                        try
+                        {
+                            Directory.CreateDirectory(whisperCacheDir);
+                            File.Copy(tempSrtPath, cachedSrtPath, overwrite: true);
+                            var cachedFiles = new DirectoryInfo(whisperCacheDir).GetFiles("*.srt");
+                            if (cachedFiles.Length > 32)
+                            {
+                                Array.Sort(cachedFiles, (a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
+                                for (int i = 32; i < cachedFiles.Length; i++)
+                                {
+                                    try { cachedFiles[i].Delete(); } catch { }
+                                }
+                            }
+                        }
+                        catch { }
                     }
                 }
-
-                if (!File.Exists(tempSrtPath))
-                {
-                    onLog($"[CAPTION-SYNC-ERROR] SRT file not generated at: {tempSrtPath}");
-                    return "";
-                }
-
-                string srtContent = await File.ReadAllTextAsync(tempSrtPath, token);
-                int captionCount = srtContent.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries).Length;
-                onLog($"[CAPTION-SYNC] Transcription complete: {captionCount} caption segments detected.");
 
                 // ───────────────────────────────────────────────
                 // STEP 3: Convert SRT to ASS & Burn into video via FFmpeg
@@ -9930,6 +10143,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                             }
                         }
                     }
+                }
+
+                if (parsedEvents.Count == 0)
+                {
+                    onLog("[CAPTION-SYNC] No speech segments detected; skipping empty ASS overlay.");
+                    return "";
                 }
 
                 string animStyle = job.CaptionSyncAnimation ?? "Mặc định (Hiện tĩnh)";
@@ -10096,6 +10315,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                 onLog("[CAPTION-SYNC] ✅ Pre-pass ASS file generated successfully.");
                 return tempAssPath;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -11178,6 +11401,145 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return outputPath;
         }
 
+        private sealed class MultiImageFastConcatResult
+        {
+            public string ConcatListPath { get; set; } = string.Empty;
+            public double DurationSec { get; set; }
+            public int Width { get; set; }
+            public int Height { get; set; }
+            public double Fps { get; set; }
+            public List<string> TempArtifacts { get; set; } = new List<string>();
+        }
+
+        private static async Task<MultiImageFastConcatResult> BuildLosslessMultiImageConcatAsync(
+            IReadOnlyList<string> inputPaths,
+            string tag,
+            RenderJob job,
+            double imageTimelineTotalDurationOverride,
+            CancellationToken token,
+            Action<string> onLog)
+        {
+            var normalizedInputs = inputPaths
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => Path.GetFullPath(p.Trim()))
+                .ToList();
+
+            if (normalizedInputs.Count == 0)
+                throw new InvalidOperationException("Multi-image fast-path requires at least one image.");
+
+            var profile = await ResolveTemplateOutputProfileAsync(normalizedInputs, job);
+            if ((job.TargetWidth <= 0 || job.TargetHeight <= 0) &&
+                !string.IsNullOrWhiteSpace(job.Resolution) &&
+                !job.Resolution.Contains("Original", StringComparison.OrdinalIgnoreCase))
+            {
+                if (job.Resolution.Contains('x'))
+                {
+                    Match m = Regex.Match(job.Resolution, @"(\d+)x(\d+)");
+                    if (m.Success &&
+                        int.TryParse(m.Groups[1].Value, out int rw) &&
+                        int.TryParse(m.Groups[2].Value, out int rh) &&
+                        rw > 0 && rh > 0)
+                    {
+                        profile = (EnsureEvenDimension(rw), EnsureEvenDimension(rh), profile.Fps);
+                    }
+                }
+                else if (job.Resolution.Contains('p'))
+                {
+                    Match m = Regex.Match(job.Resolution, @"(\d+)p");
+                    if (m.Success && int.TryParse(m.Groups[1].Value, out int rh) && rh > 0)
+                    {
+                        int safeH = EnsureEvenDimension(rh);
+                        int safeW = EnsureEvenDimension((int)Math.Round(profile.Width * (safeH / (double)Math.Max(2, profile.Height))));
+                        profile = (safeW, safeH, profile.Fps);
+                    }
+                }
+            }
+            double effectiveTotal = imageTimelineTotalDurationOverride > 0.001
+                ? imageTimelineTotalDurationOverride
+                : job.ImageTimelineDurationSeconds;
+            double segDuration = Math.Max(0.10, ResolveImageTimelineSegmentDuration(effectiveTotal, normalizedInputs.Count));
+            double totalDuration = segDuration * normalizedInputs.Count;
+
+            string safeTag = string.IsNullOrWhiteSpace(tag)
+                ? System.Guid.NewGuid().ToString("N")[..8]
+                : Regex.Replace(tag, @"[^\w\-]+", "_");
+            string tempDir = GetTitanTempDir();
+
+            var artifacts = new List<string>();
+            string[] bmpPaths = new string[normalizedInputs.Count];
+            for (int i = 0; i < normalizedInputs.Count; i++)
+            {
+                bmpPaths[i] = Path.Combine(tempDir, $"multiimg_{safeTag}_{i:D3}.bmp");
+                artifacts.Add(bmpPaths[i]);
+            }
+
+            string concatListPath = Path.Combine(tempDir, $"multiimg_{safeTag}_list.txt");
+            artifacts.Add(concatListPath);
+
+            try
+            {
+                string scalePadFilter =
+                    $"scale={profile.Width}:{profile.Height}:force_original_aspect_ratio=decrease:flags=lanczos," +
+                    $"pad={profile.Width}:{profile.Height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=bgr24";
+
+                int maxParallel = Math.Clamp(Environment.ProcessorCount / 2, 2, 4);
+                using var sem = new SemaphoreSlim(maxParallel, maxParallel);
+                var prepTasks = new Task[normalizedInputs.Count];
+                for (int idx = 0; idx < normalizedInputs.Count; idx++)
+                {
+                    int captureIdx = idx;
+                    prepTasks[idx] = Task.Run(async () =>
+                    {
+                        await sem.WaitAsync(token);
+                        try
+                        {
+                            string src = normalizedInputs[captureIdx];
+                            string dst = bmpPaths[captureIdx];
+                            string args = $"-y -i \"{src}\" -vf \"{scalePadFilter}\" -frames:v 1 \"{dst}\"";
+                            var (exitCode, stderr) = await RunFfmpegCaptureAsync(args, token);
+                            if (exitCode != 0 || !File.Exists(dst) || new FileInfo(dst).Length <= 0)
+                            {
+                                string err = string.Join(" | ", (stderr ?? string.Empty).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).TakeLast(4));
+                                throw new Exception($"Multi-image lossless frame normalize failed for '{Path.GetFileName(src)}': {err}");
+                            }
+                        }
+                        finally
+                        {
+                            sem.Release();
+                        }
+                    }, token);
+                }
+
+                await Task.WhenAll(prepTasks);
+
+                string segDurStr = FfmpegDouble(segDuration, 4);
+                var lines = new List<string>((normalizedInputs.Count * 2) + 2) { "ffconcat version 1.0" };
+                for (int i = 0; i < bmpPaths.Length; i++)
+                {
+                    lines.Add($"file '{BuildConcatListPathToken(bmpPaths[i])}'");
+                    lines.Add($"duration {segDurStr}");
+                }
+                lines.Add($"file '{BuildConcatListPathToken(bmpPaths[^1])}'");
+
+                File.WriteAllLines(concatListPath, lines, new UTF8Encoding(false));
+                return new MultiImageFastConcatResult
+                {
+                    ConcatListPath = concatListPath,
+                    DurationSec = totalDuration,
+                    Width = profile.Width,
+                    Height = profile.Height,
+                    Fps = profile.Fps,
+                    TempArtifacts = artifacts
+                };
+            }
+            catch
+            {
+                foreach (string artifact in artifacts)
+                    TryDeleteFileSafe(artifact);
+                throw;
+            }
+        }
+
         private static async Task<TemplateTimelineBuildResult> BuildTemplateTimelineSourceAsync(
             IReadOnlyList<string> inputPaths,
             string outDir,
@@ -11426,10 +11788,13 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             bool mergeCompleted = false;
             bool tryStreamCopy = await CanUseConcatStreamCopyAsync(normalizedPaths, token, onLog);
             double expectedDuration = 0.0;
+            var clipDurations = new List<double>(normalizedPaths.Count);
             foreach (string path in normalizedPaths)
             {
                 var meta = await AnalyzeMediaDetailsAsync(path);
-                expectedDuration += Math.Max(0.0, meta.Duration);
+                double clipDur = Math.Max(0.0, meta.Duration);
+                clipDurations.Add(clipDur);
+                expectedDuration += clipDur;
             }
 
             if (tryStreamCopy)
@@ -11453,7 +11818,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         }
                     }
 
-                    bool bitstreamOk = await ValidateOutputBitstreamAsync(mergedSourcePath, token, onLog);
+                    bool bitstreamOk = await ValidateConcatSeamsAsync(mergedSourcePath, clipDurations, expectedDuration, token, onLog);
                     if (durationLooksValid && bitstreamOk)
                     {
                         mergeCompleted = true;
@@ -11544,7 +11909,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                         TryDeleteFileSafe(normalizedSegment);
                 }
 
-                bool validated = await ValidateOutputBitstreamAsync(mergedSourcePath, token, onLog);
+                bool validated = await ValidateConcatSeamsAsync(mergedSourcePath, clipDurations, expectedDuration, token, onLog);
                 if (!validated)
                     throw new Exception("Merge failed validation after safe normalize concat.");
 
@@ -11591,7 +11956,12 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string safeTag = string.IsNullOrWhiteSpace(mergeTag) ? Guid.NewGuid().ToString("N").Substring(0, 8) : mergeTag;
             string tempWorkDir = GetTitanTempDir();
             string concatListPath = Path.Combine(tempWorkDir, $"merge_{safeTag}_audio_list.txt");
-            string mergedAudioPath = Path.Combine(tempWorkDir, $"merge_{safeTag}_audio.m4a");
+            string firstExt = Path.GetExtension(normalizedPaths[0]).ToLowerInvariant();
+            bool allSameExt = normalizedPaths.All(p => string.Equals(Path.GetExtension(p), firstExt, StringComparison.OrdinalIgnoreCase));
+            string copyExt = allSameExt && (firstExt == ".mp3" || firstExt == ".wav" || firstExt == ".flac" || firstExt == ".m4a" || firstExt == ".aac")
+                ? firstExt
+                : ".m4a";
+            string mergedAudioPath = Path.Combine(tempWorkDir, $"merge_{safeTag}_audio{copyExt}");
 
             string[] concatLines = normalizedPaths
                 .Select(p => $"file '{BuildConcatListPathToken(p)}'")
@@ -11612,9 +11982,10 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                     onLog($"[AUDIO-MERGE-WARN] Copy concat failed: {copySummary}");
 
                 TryDeleteFileSafe(mergedAudioPath);
+                mergedAudioPath = Path.Combine(tempWorkDir, $"merge_{safeTag}_audio.wav");
 
-                onLog("[AUDIO-MERGE] Attempt 2/2: concat with AAC re-encode");
-                string reencodeArgs = $"-y -f concat -safe 0 -i \"{concatListPath}\" -vn -c:a aac -b:a 192k \"{mergedAudioPath}\"";
+                onLog("[AUDIO-MERGE] Attempt 2/2: concat with lossless PCM WAV");
+                string reencodeArgs = $"-y -f concat -safe 0 -i \"{concatListPath}\" -vn -rf64 auto -c:a pcm_s16le \"{mergedAudioPath}\"";
                 var (reencodeExit, reencodeErr) = await RunFfmpegCaptureAsync(reencodeArgs, token);
 
                 if (reencodeExit != 0 || !File.Exists(mergedAudioPath) || new FileInfo(mergedAudioPath).Length <= 0)
@@ -11704,7 +12075,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string safeTag = string.IsNullOrWhiteSpace(mixTag)
                 ? Guid.NewGuid().ToString("N").Substring(0, 8)
                 : Regex.Replace(mixTag.Trim(), @"[^\w\-]+", "_");
-            string mixedAudioPath = Path.Combine(tempWorkDir, $"mix_{safeTag}_audio.m4a");
+            string mixedAudioPath = Path.Combine(tempWorkDir, $"mix_{safeTag}_audio.wav");
 
             var args = new StringBuilder("-y ");
             foreach (string path in normalizedPaths)
@@ -11722,7 +12093,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             filterParts.Add($"{inputLabels}amix=inputs={normalizedPaths.Count}:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95[aout]");
 
             args.Append($"-filter_complex \"{string.Join(";", filterParts)}\" ");
-            args.Append("-map \"[aout]\" -vn -c:a aac -b:a 192k -ar 48000 -ac 2 ");
+            args.Append("-map \"[aout]\" -vn -rf64 auto -c:a pcm_f32le -ar 48000 -ac 2 ");
             args.Append($"\"{mixedAudioPath}\"");
 
             onLog($"[AUDIO-OVERLAY] Mixing {normalizedPaths.Count} audio track(s) with independent volume.");
@@ -11769,7 +12140,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string safeTag = string.IsNullOrWhiteSpace(mixTag)
                 ? Guid.NewGuid().ToString("N").Substring(0, 8)
                 : Regex.Replace(mixTag.Trim(), @"[^\w\-]+", "_");
-            string mixedAudioPath = Path.Combine(tempWorkDir, $"mix_{safeTag}_audio.m4a");
+            string mixedAudioPath = Path.Combine(tempWorkDir, $"mix_{safeTag}_audio.wav");
 
             string trimStart = (job.AudioTrimStart ?? string.Empty).Trim();
             string trimDuration = (job.AudioTrimDuration ?? string.Empty).Trim();
@@ -11862,7 +12233,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 : $"[0:a]{string.Join(",", a1Filters)}[a1_ready];[1:a]{string.Join(",", a2Filters)}[a2_ready];[a1_ready]asplit=2[a1_sc_raw][a1_mix];[a1_sc_raw]apad[a1_sc];[a2_ready][a1_sc]{scFilter}[a2_ducked];[a1_mix][a2_ducked]amix=inputs=2:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95[aout]";
 
             args.Append($"-filter_complex \"{filterComplex}\" ");
-            args.Append("-map \"[aout]\" -vn -c:a aac -b:a 192k -ar 48000 -ac 2 ");
+            args.Append("-map \"[aout]\" -vn -rf64 auto -c:a pcm_f32le -ar 48000 -ac 2 ");
             args.Append($"\"{mixedAudioPath}\"");
 
             onLog($"[AUDIO-DUCK] Mixing Audio 1 + Audio 2 with sidechain ducking (preset={ducking.Preset}, direction={ducking.Direction}, threshold={FfmpegDouble(ducking.Threshold, 4)}, ratio={FfmpegDouble(ducking.Ratio, 1)}, attack={FfmpegDouble(ducking.AttackMs, 0)}ms, release={FfmpegDouble(ducking.ReleaseMs, 0)}ms).");
@@ -11943,6 +12314,46 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             return normalizedPath;
         }
 
+        private static async Task<bool> ValidateConcatSeamsAsync(
+            string filePath,
+            IReadOnlyList<double> clipDurations,
+            double totalDurationSeconds,
+            CancellationToken token,
+            Action<string> onLog)
+        {
+            // Short merges validate the full file in milliseconds; longer merges validate ±3s windows around every clip seam
+            // so we catch SPS/PPS/timestamp boundary glitches without decoding the entire movie twice.
+            if (totalDurationSeconds <= 20.0 || clipDurations == null || clipDurations.Count < 2)
+                return await ValidateOutputBitstreamAsync(filePath, token, onLog);
+
+            if (!File.Exists(filePath))
+            {
+                onLog($"[OUTPUT-VALIDATION-FAIL] File not found: {filePath}");
+                return false;
+            }
+
+            double cumulative = 0.0;
+            for (int i = 0; i < clipDurations.Count - 1; i++)
+            {
+                cumulative += Math.Max(0.0, clipDurations[i]);
+                double windowStart = Math.Max(0.0, cumulative - 3.0);
+                string seamArgs =
+                    $"-v error -xerror -err_detect explode -threads {FfmpegThreadCapCount()} " +
+                    $"-ss {FfmpegDouble(windowStart, 3)} -t 6.000 -i \"{filePath}\" -map 0:v:0 -f null NUL";
+                var (exitCode, stderr) = await RunFfmpegCaptureAsync(seamArgs, token);
+                if (exitCode != 0)
+                {
+                    string summary = string.Join(" | ",
+                        stderr.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Take(8));
+                    onLog($"[OUTPUT-VALIDATION-FAIL] Seam #{i + 1} @ {cumulative:F2}s: {summary}");
+                    return false;
+                }
+            }
+
+            onLog($"[OUTPUT-VALIDATION] OK ({clipDurations.Count - 1} concat seam(s) verified)");
+            return true;
+        }
+
         private static async Task<bool> ValidateOutputBitstreamAsync(string filePath, CancellationToken token, Action<string> onLog)
         {
             if (!File.Exists(filePath))
@@ -11951,7 +12362,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 return false;
             }
 
-            string validationArgs = $"-v error -xerror -err_detect explode -i \"{filePath}\" -map 0:v:0 -f null NUL";
+            string validationArgs = $"-v error -xerror -err_detect explode -threads {FfmpegThreadCapCount()} -i \"{filePath}\" -map 0:v:0 -f null NUL";
             var (exitCode, stderr) = await RunFfmpegCaptureAsync(validationArgs, token);
 
             if (exitCode == 0)
@@ -12300,7 +12711,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 ? Guid.NewGuid().ToString("N").Substring(0, 8)
                 : renderTag;
 
-            string editedAudioPath = Path.Combine(GetTitanTempDir(), $"audioedit_{safeTag}.m4a");
+            string editedAudioPath = Path.Combine(GetTitanTempDir(), $"audioedit_{safeTag}.wav");
             string filterComplex = BuildAudioSegmentFilterComplex(segments, onLog);
             if (string.IsNullOrWhiteSpace(filterComplex))
                 return null;
@@ -12308,7 +12719,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string args =
                 $"-y -i \"{inputAudioPath}\" " +
                 $"-filter_complex \"{filterComplex}\" " +
-                "-map \"[aout]\" -vn -c:a aac -b:a 192k " +
+                "-map \"[aout]\" -vn -rf64 auto -c:a pcm_f32le " +
                 $"\"{editedAudioPath}\"";
 
             onLog($"[AUDIO-EDIT] Preprocessing audio cuts into temp track...");
@@ -12364,7 +12775,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 return null;
             }
 
-            string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.m4a");
+            string fxAudioPath = Path.Combine(GetTitanTempDir(), $"fx_{safeTag}.wav");
             int maxWet = isChurch ? 6 : 3;
             double k = intensity;
             double wet = Math.Clamp(maxWet * k, 0, 10);
@@ -12377,7 +12788,7 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             string args =
                 $"-y -i \"{inputAudioPath}\" -i \"{irPath}\" " +
                 $"-filter_complex \"[0:a]asplit=2[ary][wy];[wy][1:a]afir=length=1:dry=0:wet={wetStr},alimiter=limit=0.95[wetout];[ary][wetout]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]\" " +
-                "-map \"[a]\" -vn -c:a aac -b:a 192k " +
+                "-map \"[a]\" -vn -rf64 auto -c:a pcm_f32le " +
                 $"\"{fxAudioPath}\"";
 
             onLog($"[AUDIO1-FX] Preprocessing {effect} @ {intensity * 100:F0}% via IR convolution...");
@@ -17082,6 +17493,18 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                 pairs[j] = tmp;
             }
 
+            // Pre-warm media probe cache concurrently across unique video/image inputs so N*M combos enqueue instantly.
+            var uniqueVideos = videos.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            using (var probeSem = new SemaphoreSlim(Math.Clamp(Environment.ProcessorCount, 2, 6)))
+            {
+                await Task.WhenAll(uniqueVideos.Select(async vPath =>
+                {
+                    await probeSem.WaitAsync();
+                    try { await EngineCore.AnalyzeMediaDetailsAsync(vPath); }
+                    finally { probeSem.Release(); }
+                }));
+            }
+
             string outputBase = txtOutputName.Text?.Trim() ?? string.Empty;
             bool allImageSources = ShouldUsePortraitHdDefaultForImages(videos);
             int created = 0;
@@ -17447,18 +17870,28 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
             {
                 int total = pending.Count;
                 int done = 0;
+                bool gpuEncodeActive = EngineCore.HasNvencSupport();
 
-                foreach (var job in pending)
+                for (int jobIndex = 0; jobIndex < pending.Count; jobIndex++)
                 {
+                    var job = pending[jobIndex];
                     if (_cancellationTokenSource.Token.IsCancellationRequested) break;
 
                     job.Progress = 0;
                     job.StatusDisplay = "PROCESSING...";
                     job.StatusColor = Brushes.Yellow;
-                    lstQueue.Items.Refresh();
                     lstQueue.ScrollIntoView(job);
 
                     LogSystem($"[START] Job #{job.Id}: {job.Name}");
+
+                    // When GPU NVENC handles the main encode, warm next job's SoundBar audio analysis in the background
+                    // so back-to-back batch jobs eliminate inter-job audio analysis wait time.
+                    Task? nextPrefetchTask = null;
+                    if (gpuEncodeActive && jobIndex + 1 < pending.Count)
+                    {
+                        RenderJob nextJob = pending[jobIndex + 1];
+                        nextPrefetchTask = PrefetchSoundBarAnalysisForBatchAsync(nextJob, _cancellationTokenSource.Token);
+                    }
 
                     bool jobFinished = false;
                     Action<double> progHandler = (p) =>
@@ -17478,15 +17911,19 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
 
                     await EngineCore.ExecuteRenderAsync(job, _customOutputFolder, _cancellationTokenSource.Token, progHandler, logHandler);
 
+                    if (nextPrefetchTask != null)
+                    {
+                        try { await nextPrefetchTask; } catch { }
+                    }
+
                     jobFinished = true;
                     job.StatusDisplay = "DONE";
                     job.StatusColor = Brushes.LimeGreen;
                     job.Progress = 100;
-                    lstQueue.Items.Refresh();
                     LogSystem($"[SUCCESS] Job #{job.Id} completed");
 
                     done++;
-                    await Task.Delay(50);
+                    await Task.Delay(20);
                 }
 
                 if (done > 0 && pbGlobalProgress != null)
@@ -21386,17 +21823,139 @@ Write-Host "  $(Join-Path $stagedDir 'UpscalePipelineApp.exe')"
                    ex is IOException;
         }
 
+        private static Task PrefetchSoundBarAnalysisForBatchAsync(RenderJob nextJob, CancellationToken token)
+        {
+            if (nextJob == null || !nextJob.EnableSoundBar || token.IsCancellationRequested)
+                return Task.CompletedTask;
+
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    string srcMode = (nextJob.SoundBarAudioSource ?? "auto").Trim().ToLowerInvariant();
+                    bool hasSecondary = !string.IsNullOrWhiteSpace(nextJob.SecondaryAudioPath) && File.Exists(nextJob.SecondaryAudioPath);
+                    bool isMixedExternal = (srcMode == "auto" || srcMode == "external") && hasSecondary;
+                    if (isMixedExternal || nextJob.MergeAudio)
+                        return;
+
+                    bool hasAudioEdits =
+                        (nextJob.AudioSegments != null && nextJob.AudioSegments.Count > 0) ||
+                        (!string.IsNullOrWhiteSpace(nextJob.AudioTrimStart) && nextJob.AudioTrimStart.Trim() != "00:00:00") ||
+                        !string.IsNullOrWhiteSpace(nextJob.AudioTrimEnd) ||
+                        !string.IsNullOrWhiteSpace(nextJob.AudioTrimDuration);
+                    string fxEffect = (nextJob.Audio1Effect ?? string.Empty).Trim();
+                    bool hasExternalIrFx =
+                        nextJob.Audio1EffectIntensity > 0.001 &&
+                        (fxEffect.Contains("Echo", StringComparison.OrdinalIgnoreCase) ||
+                         fxEffect.Contains("Church", StringComparison.OrdinalIgnoreCase) ||
+                         fxEffect.Contains("Nhà thờ", StringComparison.OrdinalIgnoreCase));
+                    if ((srcMode == "auto" || srcMode == "external") && (hasAudioEdits || hasExternalIrFx))
+                        return;
+
+                    SoundBarAudioSource parsedSource = srcMode switch
+                    {
+                        "external" => SoundBarAudioSource.External,
+                        "video" => SoundBarAudioSource.Video,
+                        "audio1" => SoundBarAudioSource.Audio1,
+                        "audio2" => SoundBarAudioSource.Audio2,
+                        _ => SoundBarAudioSource.Auto
+                    };
+
+                    if (parsedSource == SoundBarAudioSource.Video &&
+                        (nextJob.MergeVideos || IsImageSourcePath(nextJob.SourcePath)))
+                    {
+                        return;
+                    }
+
+                    double loopSeconds = Math.Clamp(nextJob.SoundBarLoopSeconds, EngineCore.SoundBarMinLoopSeconds, EngineCore.SoundBarMaxLoopSeconds);
+                    string pcmDir = Path.Combine(EngineCore.GetTitanTempDir(), "soundbar_pcm");
+                    AudioAnalysisResult? result = await AudioSpectrumAnalyzer.AnalyzeAsync(
+                        nextJob.SourcePath,
+                        nextJob.AudioPath,
+                        parsedSource,
+                        0.0,
+                        loopSeconds,
+                        30,
+                        pcmDir,
+                        _ => { },
+                        token,
+                        nextJob.AudioPath,
+                        nextJob.SecondaryAudioPath);
+
+                    if (result != null && !string.IsNullOrWhiteSpace(result.AudioFilePath))
+                        EngineCore.TryDeleteFileSafe(result.AudioFilePath);
+                }
+                catch
+                {
+                }
+            }, token);
+        }
+
+        private readonly ConcurrentQueue<string> _pendingLogLines = new ConcurrentQueue<string>();
+        private int _logFlushScheduled = 0;
+        private const int MaxUiLogCharLength = 120_000;
+        private const int TrimmedUiLogCharLength = 90_000;
+
         private void LogSystem(string message)
         {
-            Dispatcher.BeginInvoke(() =>
+            string ts = DateTime.Now.ToString("HH:mm:ss");
+            _pendingLogLines.Enqueue($"[{ts}] {message}");
+
+            if (Interlocked.CompareExchange(ref _logFlushScheduled, 1, 0) == 0)
             {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(FlushPendingLogsOnUiThread));
+            }
+        }
+
+        private void FlushPendingLogsOnUiThread()
+        {
+            try
+            {
+                var batch = new StringBuilder(512);
+                while (_pendingLogLines.TryDequeue(out string? line))
+                {
+                    batch.Append(line).Append('\n');
+                }
+
+                if (batch.Length == 0)
+                    return;
+
                 lock (_logLock)
                 {
-                    string ts = DateTime.Now.ToString("HH:mm:ss");
-                    txtLogs.AppendText($"[{ts}] {message}\n");
+                    if (txtLogs.Text.Length + batch.Length > MaxUiLogCharLength)
+                    {
+                        string current = txtLogs.Text;
+                        int cutOffset = Math.Max(0, current.Length + batch.Length - TrimmedUiLogCharLength);
+                        if (cutOffset > 0 && cutOffset < current.Length)
+                        {
+                            int nextNewline = current.IndexOf('\n', cutOffset);
+                            string retained = nextNewline >= 0 && nextNewline + 1 < current.Length
+                                ? current[(nextNewline + 1)..]
+                                : string.Empty;
+                            txtLogs.Text = retained + batch.ToString();
+                        }
+                        else
+                        {
+                            txtLogs.Text = batch.Length > TrimmedUiLogCharLength
+                                ? batch.ToString(batch.Length - TrimmedUiLogCharLength, TrimmedUiLogCharLength)
+                                : batch.ToString();
+                        }
+                    }
+                    else
+                    {
+                        txtLogs.AppendText(batch.ToString());
+                    }
                     txtLogs.ScrollToEnd();
                 }
-            });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _logFlushScheduled, 0);
+                if (!_pendingLogLines.IsEmpty && Interlocked.CompareExchange(ref _logFlushScheduled, 1, 0) == 0)
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(FlushPendingLogsOnUiThread));
+                }
+            }
         }
     }
 
